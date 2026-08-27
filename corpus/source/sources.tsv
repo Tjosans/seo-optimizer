@@ -1,0 +1,35 @@
+Topic	Primary source URL	Used for	Verified
+Google AI features	https://developers.google.com/search/docs/appearance/ai-features	Googlebot, preview controls, noindex and Google-Extended distinction	2026-08-26
+OpenAI crawlers	https://developers.openai.com/api/docs/bots	Crawler names, purposes and robots.txt controls	2026-08-26
+OpenAI publisher guidance	https://help.openai.com/en/articles/12627856-publishers-and-developers-faq	OAI-SearchBot versus GPTBot and referral behavior	2026-08-26
+Google Consent Mode	https://developers.google.com/tag-platform/security/concepts/consent-mode	Consent states, basic/advanced modes and supported Google tags	2026-08-26
+Core Web Vitals tools	https://web.dev/articles/vitals-tools	Rolling field data, 75th percentile and diagnostic workflow	2026-08-26
+Lab versus field data	https://web.dev/articles/lab-and-field-data-differences	Why CI/lab results cannot prove field CWV	2026-08-26
+Google Search documentation updates	https://developers.google.com/search/updates	Current structured-data, AI-control, migration and review-policy changes; recheck before relying on platform-specific wording	2026-08-26
+Structured-data guidelines	https://developers.google.com/search/docs/appearance/structured-data/sd-policies	Visible-content parity and eligibility	2026-08-26
+Robots meta and X-Robots-Tag	https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag	Indexing controls for HTML and non-HTML resources	2026-08-26
+Canonicalization	https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls	Canonical signals, non-HTML headers and robots limitations	2026-08-26
+Site moves	https://developers.google.com/search/docs/crawling-indexing/site-move-with-url-changes	Redirect mapping, monitoring, retention and Change of Address planning across applicable domain or subdomain variants	2026-08-26
+International sites	https://developers.google.com/search/docs/advanced/crawling/managing-multi-regional-sites	Locale URLs and automatic redirect cautions	2026-08-26
+Localized versions / hreflang	https://developers.google.com/search/docs/specialty/international/localized-versions	Reciprocity, self references, codes and x-default	2026-08-26
+WCAG 2.2	https://www.w3.org/TR/WCAG22/	Accessibility conformance target and requirements	2026-08-26
+Accessibility evaluation	https://www.w3.org/WAI/test-evaluate/	Automated and human evaluation workflow	2026-08-26
+European Accessibility Act	https://eur-lex.europa.eu/eli/dir/2019/882/oj	EU scope and microenterprise service exemption context	2026-08-26
+IndexNow	https://www.indexnow.org/documentation	Optional URL-change submission protocol	2026-08-26
+Search Console generative AI control	https://blog.google/products-and-platforms/products/search/new-controls-website-owners/	Existence, scope and limits of the AI Overviews / AI Mode / Discover opt-out toggle	2026-08-26
+Favicon in Search	https://developers.google.com/search/docs/appearance/favicon-in-search	Favicon eligibility, crawlability, size/aspect ratio and hostname scope	2026-08-26
+Site names	https://developers.google.com/search/docs/appearance/site-names	Preferred site-name signals and WebSite structured data	2026-08-26
+URL structure	https://developers.google.com/search/docs/crawling-indexing/url-structure	Descriptive URL paths, characters and parameter best practices	2026-08-26
+Google Discover	https://developers.google.com/search/docs/appearance/google-discover	Discover eligibility, image presentation and large-image guidance	2026-08-26
+Video SEO	https://developers.google.com/search/docs/appearance/video	Watch-page discoverability, thumbnails, VideoObject and video sitemap guidance	2026-08-26
+Website testing	https://developers.google.com/search/docs/crawling-indexing/website-testing	A/B testing, alternate URLs, canonicals, temporary redirects and cloaking cautions	2026-08-26
+Paywalled content	https://developers.google.com/search/docs/appearance/structured-data/paywalled-content	Subscription/paywall sampling and structured-data guidance	2026-08-26
+Google spam policies	https://developers.google.com/search/docs/essentials/spam-policies	Scaled content abuse, site reputation abuse and other spam controls	2026-08-26
+Outbound link qualification	https://developers.google.com/search/docs/crawling-indexing/qualify-outbound-links	rel=sponsored, rel=ugc and link qualification	2026-08-26
+Search Console associations	https://support.google.com/webmasters/answer/9419894	Google Analytics and Merchant Center associations with Search Console	2026-08-26
+Preferred Sources	https://developers.google.com/search/docs/appearance/preferred-sources	Publisher eligibility and supported Preferred Sources implementation	2026-08-26
+Helpful, people-first content	https://developers.google.com/search/docs/fundamentals/creating-helpful-content	Authorship/byline expectations, evidence and people-first content guidance	2026-08-26
+Generative AI performance reports	https://developers.google.com/search/blog/2026/06/gen-ai-performance-reports	Search Console generative-AI reporting scope and subset rollout	2026-08-26
+Search Console Search Analytics API	https://developers.google.com/webmaster-tools/v1/searchanalytics/query	FAQ search-appearance API deprecation in August 2026	2026-08-26
+Breadcrumb navigation	https://developers.google.com/search/docs/appearance/structured-data/breadcrumb	Visible hierarchy, typical user-path guidance and BreadcrumbList eligibility	2026-08-27
+Google generative-AI optimization	https://developers.google.com/search/docs/fundamentals/ai-optimization-guide	Google Search ignores llms.txt; using it neither helps nor harms Search visibility or rankings	2026-08-27

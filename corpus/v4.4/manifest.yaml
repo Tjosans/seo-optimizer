@@ -1,0 +1,14 @@
+version: "4.4"
+reviewed: "2026-08-27"
+checkCount: 97
+sourceCount: 34
+files:
+  - phase-0.yaml
+  - phase-1.yaml
+  - phase-2.yaml
+  - phase-3.yaml
+  - phase-4.yaml
+  - phase-5.yaml
+  - phase-6.yaml
+  - phase-7.yaml
+  - sources.yaml

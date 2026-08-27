@@ -1,0 +1,172 @@
+# Corpus v4.4 citations, from the workbook Sources sheet.
+
+- topic: "Google AI features"
+  url: "https://developers.google.com/search/docs/appearance/ai-features"
+  usedFor: >-
+    Googlebot, preview controls, noindex and Google-Extended distinction
+  verified: "2026-08-26"
+- topic: "OpenAI crawlers"
+  url: "https://developers.openai.com/api/docs/bots"
+  usedFor: >-
+    Crawler names, purposes and robots.txt controls
+  verified: "2026-08-26"
+- topic: "OpenAI publisher guidance"
+  url: "https://help.openai.com/en/articles/12627856-publishers-and-developers-faq"
+  usedFor: >-
+    OAI-SearchBot versus GPTBot and referral behavior
+  verified: "2026-08-26"
+- topic: "Google Consent Mode"
+  url: "https://developers.google.com/tag-platform/security/concepts/consent-mode"
+  usedFor: >-
+    Consent states, basic/advanced modes and supported Google tags
+  verified: "2026-08-26"
+- topic: "Core Web Vitals tools"
+  url: "https://web.dev/articles/vitals-tools"
+  usedFor: >-
+    Rolling field data, 75th percentile and diagnostic workflow
+  verified: "2026-08-26"
+- topic: "Lab versus field data"
+  url: "https://web.dev/articles/lab-and-field-data-differences"
+  usedFor: >-
+    Why CI/lab results cannot prove field CWV
+  verified: "2026-08-26"
+- topic: "Google Search documentation updates"
+  url: "https://developers.google.com/search/updates"
+  usedFor: >-
+    Current structured-data, AI-control, migration and review-policy changes; recheck before relying on platform-specific wording
+  verified: "2026-08-26"
+- topic: "Structured-data guidelines"
+  url: "https://developers.google.com/search/docs/appearance/structured-data/sd-policies"
+  usedFor: >-
+    Visible-content parity and eligibility
+  verified: "2026-08-26"
+- topic: "Robots meta and X-Robots-Tag"
+  url: "https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag"
+  usedFor: >-
+    Indexing controls for HTML and non-HTML resources
+  verified: "2026-08-26"
+- topic: "Canonicalization"
+  url: "https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls"
+  usedFor: >-
+    Canonical signals, non-HTML headers and robots limitations
+  verified: "2026-08-26"
+- topic: "Site moves"
+  url: "https://developers.google.com/search/docs/crawling-indexing/site-move-with-url-changes"
+  usedFor: >-
+    Redirect mapping, monitoring, retention and Change of Address planning across applicable domain or subdomain variants
+  verified: "2026-08-26"
+- topic: "International sites"
+  url: "https://developers.google.com/search/docs/advanced/crawling/managing-multi-regional-sites"
+  usedFor: >-
+    Locale URLs and automatic redirect cautions
+  verified: "2026-08-26"
+- topic: "Localized versions / hreflang"
+  url: "https://developers.google.com/search/docs/specialty/international/localized-versions"
+  usedFor: >-
+    Reciprocity, self references, codes and x-default
+  verified: "2026-08-26"
+- topic: "WCAG 2.2"
+  url: "https://www.w3.org/TR/WCAG22/"
+  usedFor: >-
+    Accessibility conformance target and requirements
+  verified: "2026-08-26"
+- topic: "Accessibility evaluation"
+  url: "https://www.w3.org/WAI/test-evaluate/"
+  usedFor: >-
+    Automated and human evaluation workflow
+  verified: "2026-08-26"
+- topic: "European Accessibility Act"
+  url: "https://eur-lex.europa.eu/eli/dir/2019/882/oj"
+  usedFor: >-
+    EU scope and microenterprise service exemption context
+  verified: "2026-08-26"
+- topic: "IndexNow"
+  url: "https://www.indexnow.org/documentation"
+  usedFor: >-
+    Optional URL-change submission protocol
+  verified: "2026-08-26"
+- topic: "Search Console generative AI control"
+  url: "https://blog.google/products-and-platforms/products/search/new-controls-website-owners/"
+  usedFor: >-
+    Existence, scope and limits of the AI Overviews / AI Mode / Discover opt-out toggle
+  verified: "2026-08-26"
+- topic: "Favicon in Search"
+  url: "https://developers.google.com/search/docs/appearance/favicon-in-search"
+  usedFor: >-
+    Favicon eligibility, crawlability, size/aspect ratio and hostname scope
+  verified: "2026-08-26"
+- topic: "Site names"
+  url: "https://developers.google.com/search/docs/appearance/site-names"
+  usedFor: >-
+    Preferred site-name signals and WebSite structured data
+  verified: "2026-08-26"
+- topic: "URL structure"
+  url: "https://developers.google.com/search/docs/crawling-indexing/url-structure"
+  usedFor: >-
+    Descriptive URL paths, characters and parameter best practices
+  verified: "2026-08-26"
+- topic: "Google Discover"
+  url: "https://developers.google.com/search/docs/appearance/google-discover"
+  usedFor: >-
+    Discover eligibility, image presentation and large-image guidance
+  verified: "2026-08-26"
+- topic: "Video SEO"
+  url: "https://developers.google.com/search/docs/appearance/video"
+  usedFor: >-
+    Watch-page discoverability, thumbnails, VideoObject and video sitemap guidance
+  verified: "2026-08-26"
+- topic: "Website testing"
+  url: "https://developers.google.com/search/docs/crawling-indexing/website-testing"
+  usedFor: >-
+    A/B testing, alternate URLs, canonicals, temporary redirects and cloaking cautions
+  verified: "2026-08-26"
+- topic: "Paywalled content"
+  url: "https://developers.google.com/search/docs/appearance/structured-data/paywalled-content"
+  usedFor: >-
+    Subscription/paywall sampling and structured-data guidance
+  verified: "2026-08-26"
+- topic: "Google spam policies"
+  url: "https://developers.google.com/search/docs/essentials/spam-policies"
+  usedFor: >-
+    Scaled content abuse, site reputation abuse and other spam controls
+  verified: "2026-08-26"
+- topic: "Outbound link qualification"
+  url: "https://developers.google.com/search/docs/crawling-indexing/qualify-outbound-links"
+  usedFor: >-
+    rel=sponsored, rel=ugc and link qualification
+  verified: "2026-08-26"
+- topic: "Search Console associations"
+  url: "https://support.google.com/webmasters/answer/9419894"
+  usedFor: >-
+    Google Analytics and Merchant Center associations with Search Console
+  verified: "2026-08-26"
+- topic: "Preferred Sources"
+  url: "https://developers.google.com/search/docs/appearance/preferred-sources"
+  usedFor: >-
+    Publisher eligibility and supported Preferred Sources implementation
+  verified: "2026-08-26"
+- topic: "Helpful, people-first content"
+  url: "https://developers.google.com/search/docs/fundamentals/creating-helpful-content"
+  usedFor: >-
+    Authorship/byline expectations, evidence and people-first content guidance
+  verified: "2026-08-26"
+- topic: "Generative AI performance reports"
+  url: "https://developers.google.com/search/blog/2026/06/gen-ai-performance-reports"
+  usedFor: >-
+    Search Console generative-AI reporting scope and subset rollout
+  verified: "2026-08-26"
+- topic: "Search Console Search Analytics API"
+  url: "https://developers.google.com/webmaster-tools/v1/searchanalytics/query"
+  usedFor: >-
+    FAQ search-appearance API deprecation in August 2026
+  verified: "2026-08-26"
+- topic: "Breadcrumb navigation"
+  url: "https://developers.google.com/search/docs/appearance/structured-data/breadcrumb"
+  usedFor: >-
+    Visible hierarchy, typical user-path guidance and BreadcrumbList eligibility
+  verified: "2026-08-27"
+- topic: "Google generative-AI optimization"
+  url: "https://developers.google.com/search/docs/fundamentals/ai-optimization-guide"
+  usedFor: >-
+    Google Search ignores llms.txt; using it neither helps nor harms Search visibility or rankings
+  verified: "2026-08-27"

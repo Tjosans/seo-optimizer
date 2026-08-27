@@ -1,0 +1,19 @@
+Phase	Active tasks	Not started	In progress	Passed	Failed	Skipped	% complete	Scope review
+0 — Discovery & strategy	6	6	0	0	0	0	0	3
+1 — Day 1 architecture	12	12	0	0	0	0	0	7
+2 — Pre-launch config	5	5	0	0	0	0	0	12
+3 — Content & trust	10	10	0	0	0	0	0	3
+4 — Pre-launch QA	7	7	0	0	0	0	0	5
+5 — Launch day	5	5	0	0	0	0	0	3
+6 — First 30 days	5	5	0	0	0	0	0	4
+7 — Ongoing	8	8	0	0	0	0	0	2
+TOTAL	58	58	0	0	0	0	0	39
+Launch readiness								
+Applicable launch gates outstanding	34							
+Applicable launch gates failed	0							
+Launch-gate applicability decisions outstanding	21							
+Launch decision	HOLD							
+								
+Advisory Core-profile tasks active	45							
+Profile is advisory and never changes the GO/HOLD decision; use the complete applicable-gate counts above for launch.								
+GO requires every applicable launch gate to be Passed and every conditional launch gate to have an explicit Applies? decision. Profile is advisory: Core marks work a one-person or small-business launch still runs; it never overrides a launch gate.

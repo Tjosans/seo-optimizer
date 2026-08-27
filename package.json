@@ -1,0 +1,33 @@
+{
+  "name": "seo-optimizer",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "typecheck": "tsc --build --force && tsc -p scripts/tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "corpus:compile": "node scripts/compile-corpus.ts",
+    "corpus:validate": "vitest run packages/corpus",
+    "probes:matrix": "npm run build && node scripts/probe-matrix.ts",
+    "db:generate": "npm run db:generate -w @seo/db",
+    "db:migrate": "npm run db:migrate -w @seo/db",
+    "db:studio": "npm run db:studio -w @seo/db",
+    "stack:up": "docker compose up -d --wait",
+    "stack:down": "docker compose down"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.5",
+    "yaml": "^2.7.0"
+  }
+}

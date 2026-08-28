@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    # The db and persistence suites are integration tests against a live
+    # Postgres and skip themselves when DATABASE_URL is unset (see
+    # vitest.config.ts) — running a real one here is what makes those
+    # suites part of CI rather than silently never executed.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: seo
+          POSTGRES_PASSWORD: seo
+          POSTGRES_DB: seo_optimizer
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U seo -d seo_optimizer"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://seo:seo@localhost:5432/seo_optimizer
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run db:migrate
+
+      - run: npm run build
+
+      - run: npm run typecheck
+
+      - run: npm test

@@ -1,0 +1,43 @@
+#!/bin/sh
+#
+# Runs the same checks CI runs, before a push to master is allowed.
+#
+# This is a stand-in for branch protection, not a replacement for it: GitHub
+# Free does not offer protected branches or rulesets on private repositories,
+# so the merge gate cannot live on the server. Being client-side, this hook is
+# bypassable with `git push --no-verify` and applies only to clones that have
+# opted in (see "Enabling the pre-push hook" in the README).
+#
+# Only pushes to master are gated, so feature-branch pushes stay fast — the
+# PR's own CI run covers those.
+
+protected='refs/heads/master'
+zero='0000000000000000000000000000000000000000'
+gate=0
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+	[ "$remote_ref" = "$protected" ] || continue
+	# A branch deletion pushes the zero sha; there is nothing to test.
+	[ "$local_sha" = "$zero" ] && continue
+	gate=1
+done
+
+[ "$gate" -eq 1 ] || exit 0
+
+echo "pre-push: gating push to master, running CI checks..."
+
+# typecheck builds every project with --force, so it covers `npm run build`.
+if ! npm run typecheck; then
+	echo "pre-push: typecheck failed; push aborted." >&2
+	exit 1
+fi
+
+if ! npm test; then
+	echo "pre-push: tests failed; push aborted." >&2
+	echo "pre-push: if the failures are database connection errors, the local" >&2
+	echo "          stack is down — run 'npm run stack:up' and retry." >&2
+	exit 1
+fi
+
+echo "pre-push: checks passed."
+exit 0

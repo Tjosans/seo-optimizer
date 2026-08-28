@@ -52,6 +52,25 @@ npm run typecheck   # tsc --build --force, project-referenced
 npm run test:watch  # vitest in watch mode
 ```
 
+## Enabling the pre-push hook
+
+`.githooks/pre-push` runs `typecheck` and `test` before any push to `master`,
+refusing the push if either fails. It is opt-in per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+This is a stand-in for server-side branch protection, not an equivalent: GitHub
+Free offers neither protected branches nor rulesets on private repositories, so
+the merge gate cannot live on the server. Being client-side, the hook is
+bypassable with `git push --no-verify` and only applies to clones that ran the
+command above. CI remains the real signal — it runs on every push and PR
+regardless.
+
+Only pushes to `master` are gated, so feature-branch pushes stay fast; the
+PR's own CI run covers those.
+
 ## Working with the database
 
 ```bash

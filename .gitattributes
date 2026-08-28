@@ -1,0 +1,5 @@
+# Shell scripts must keep LF endings: a CRLF shebang breaks the interpreter,
+# and this repo is developed on Windows where autocrlf would otherwise convert
+# them on checkout.
+.githooks/** text eol=lf
+*.sh text eol=lf

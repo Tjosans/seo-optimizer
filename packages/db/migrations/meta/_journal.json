@@ -8,6 +8,27 @@
       "when": 1787820181535,
       "tag": "0000_awesome_hellcat",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1787850097189,
+      "tag": "0001_watery_reavers",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787850108822,
+      "tag": "0002_nappy_skrulls",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1787867743077,
+      "tag": "0003_flawless_invaders",
+      "breakpoints": true
     }
   ]
 }

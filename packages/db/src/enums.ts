@@ -110,14 +110,19 @@ export const crawlStatusEnum = pgEnum('crawl_status', [
  */
 export const renderModeEnum = pgEnum('render_mode', ['raw', 'rendered']);
 
-/** Where a link was found, since not every edge is an `<a href>`. */
+/**
+ * Where a link was found, since not every edge is an `<a href>`.
+ *
+ * Every member names something one page declares about another. A sitemap
+ * entry does not: it is the site speaking, not a page, and `pageLinks` has no
+ * from-page to hang it on. Those URLs live on `crawls.sitemapUrls` instead.
+ */
 export const linkKindEnum = pgEnum('link_kind', [
   'anchor',
   'canonical',
   'hreflang',
   'pagination',
   'redirect',
-  'sitemap',
 ]);
 
 /** What a probe observes about. Determines which id column is populated. */

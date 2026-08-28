@@ -12,6 +12,7 @@ export default defineConfig(({ mode }) => ({
       '@seo/corpus': r('./packages/corpus/src/index.ts'),
       '@seo/crawler': r('./packages/crawler/src/index.ts'),
       '@seo/db': r('./packages/db/src/index.ts'),
+      '@seo/persistence': r('./packages/persistence/src/index.ts'),
       '@seo/probes': r('./packages/probes/src/index.ts'),
       '@seo/testkit': r('./packages/testkit/src/index.ts'),
     },

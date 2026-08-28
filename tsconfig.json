@@ -5,6 +5,7 @@
     { "path": "./packages/corpus" },
     { "path": "./packages/crawler" },
     { "path": "./packages/db" },
+    { "path": "./packages/persistence" },
     { "path": "./packages/probes" },
     { "path": "./packages/testkit" }
   ]

@@ -130,7 +130,7 @@ describe.skipIf(!url)('schema constraints', () => {
       .insert(crawls)
       .values({
         auditId: audit.id,
-        seedUrl: 'https://example.test/',
+        seedUrls: ['https://example.test/'],
         userAgent: 'seo-optimizer/0.1',
         maxPages: 10,
         maxDepth: 2,
@@ -199,7 +199,7 @@ describe.skipIf(!url)('schema constraints', () => {
       .insert(crawls)
       .values({
         auditId: audit.id,
-        seedUrl: 'https://example.test/',
+        seedUrls: ['https://example.test/'],
         userAgent: 'seo-optimizer/0.1',
         maxPages: 10,
         maxDepth: 2,

@@ -154,7 +154,12 @@ export const crawls = pgTable(
   {
     id: id(),
     auditId: uuid('audit_id').notNull().references(() => audits.id, { onDelete: 'cascade' }),
-    seedUrl: text('seed_url').notNull(),
+    /**
+     * Where the crawl started, in order. The first entry is load-bearing: it
+     * is the origin every other URL is scoped against, so a URL on a different
+     * host than seeds[0] is off-site even when a later seed names that host.
+     */
+    seedUrls: text('seed_urls').array().notNull(),
     status: crawlStatusEnum('status').notNull().default('queued'),
     /** Sent on every request; recorded because robots rules key off it. */
     userAgent: text('user_agent').notNull(),
@@ -165,6 +170,21 @@ export const crawls = pgTable(
     requestDelayMs: integer('request_delay_ms').notNull().default(0),
     /** robots.txt as fetched, so a later dispute can be settled. */
     robotsTxt: text('robots_txt'),
+    /**
+     * Every URL the site's own sitemaps declared, normalized.
+     *
+     * Stored rather than re-derived because four site-scoped probes compare it
+     * against what was actually crawled — sitemap validity, sitemap/canonical
+     * agreement, index bloat and orphan detection all read it — and a sitemap
+     * is a file the site can change between the crawl and the report. Keeping
+     * it here is what lets those probes be re-run against a stored crawl and
+     * reach the same answer.
+     *
+     * With this and `robotsTxt` recorded, the two other lists a crawl produces
+     * are recoverable: a discovered URL with no page row was either disallowed
+     * or out of budget, and robots.txt says which.
+     */
+    sitemapUrls: text('sitemap_urls').array().notNull().default(sql`'{}'::text[]`),
     startedAt: timestamp('started_at', { withTimezone: true }),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
     error: text('error'),

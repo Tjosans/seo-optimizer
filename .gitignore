@@ -6,3 +6,6 @@ dist/
 !.env.example
 coverage/
 .playwright/
+
+# Source spreadsheet for the corpus; kept local, not published.
+*.xlsx

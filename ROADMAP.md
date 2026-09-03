@@ -2,7 +2,7 @@
 
 ## Status
 Current phase: Phase 3 — Pre-Release Validation
-Last updated: 2026-09-03
+Last updated: 2026-09-04
 
 ## Phase 0 — Foundation
 - [x] Create monorepo structure with TypeScript workspace packages
@@ -29,6 +29,7 @@ Last updated: 2026-09-03
 - [x] Create docker-compose.yml with Postgres and Redis for local development
 - [x] Configure .env.example with DATABASE_URL and REDIS_URL defaults
 - [x] Enable corpus compilation and matrix tools as npm run scripts
+- [x] Harden the master ruleset: require pull requests and both the test and roadmap status checks
 
 ## Phase 3 — Pre-Release Validation
 - [ ] Audit triage sign-off: confirm automation tier and remediation class for all 97 checks (scripts/triage.ts requires sign-off before release)
@@ -74,3 +75,5 @@ Last updated: 2026-09-03
 - 2026-08-28: chose a client-side pre-push hook over server-side branch protection because GitHub Free does not offer protected branches on private repos
 - 2026-08-28: chose Drizzle ORM with drizzle-kit generated migrations over hand-written SQL for code-first type safety against the schema
 - 2026-08-28: made the triage table in scripts/triage.ts a sign-off gate because misclassifying automation tier or remediation class breaks every downstream decision
+- 2026-09-04: moved master to a server-side ruleset requiring a pull request plus the test and roadmap checks, superseding the 2026-08-28 pre-push choice because rulesets are now available on this repo and --no-verify made the client-side hook unenforceable
+- 2026-09-04: set required_approving_review_count to 0 on that ruleset because GitHub forbids approving your own pull request, so any higher count would deadlock a single-maintainer repo

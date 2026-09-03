@@ -1,0 +1,21 @@
+name: Roadmap check
+on: [push, pull_request]
+
+jobs:
+  roadmap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: ROADMAP.md must exist
+        run: test -f ROADMAP.md || (echo "::error::ROADMAP.md is missing" && exit 1)
+      - name: ROADMAP.md must contain checkbox items
+        run: grep -qE '^\s*- \[[ xX]\]' ROADMAP.md || (echo "::error::No checkbox items found" && exit 1)
+      - name: Warn if roadmap is going stale
+        run: |
+          LAST=$(git log -1 --format=%ct -- ROADMAP.md)
+          NOW=$(date +%s)
+          DAYS=$(( (NOW - LAST) / 86400 ))
+          if [ "$DAYS" -gt 30 ]; then
+            echo "::warning::ROADMAP.md has not changed in $DAYS days"
+          fi

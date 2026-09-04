@@ -13,6 +13,7 @@ seo-optimizer is an SEO launch-readiness auditor. It crawls a site, runs it agai
 - **@seo/crawler** — site crawler respecting robots.txt, redirect chains, sitemaps
 - **@seo/probes** — 6 detector categories (delivery, indexability, markup, media, metadata, site)
 - **@seo/persistence** — sink that streams crawls and probe runs into Postgres
+- **@seo/queue** — in-process job queue: bounded concurrency, one crawl at a time per origin
 - **@seo/db** — Drizzle schema, migrations, client factory
 - **@seo/testkit** — in-memory fixture website for tests
 
@@ -75,7 +76,7 @@ Together these let the sink resolve `discoveredFromId` from an in-memory map. Br
 
 ## Testing
 
-Unit tests (no database needed): `packages/corpus/test/corpus.test.ts`, `packages/crawler/test/{crawl,robots,url}.test.ts`, `packages/probes/test/{probes,matrix}.test.ts`.
+Unit tests (no database needed): `packages/corpus/test/corpus.test.ts`, `packages/crawler/test/{crawl,robots,url}.test.ts`, `packages/probes/test/{probes,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue}.test.ts`.
 
 Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`.
 
@@ -105,6 +106,7 @@ packages/
   db/src/{schema,enums,client}.ts  +  migrations/0000-0003
   persistence/src/{crawl-sink,map,probe-results}.ts
   probes/src/{registry,types,matrix}.ts  +  src/probes/*.ts
+  queue/src/{queue,types}.ts
   testkit/src/fixture-site.ts
 corpus/
   source/v4.4.tsv                  # immutable workbook export
@@ -123,4 +125,4 @@ scripts/{compile-corpus,probe-matrix,triage}.ts
 
 ## What to pick up next
 
-`ROADMAP.md` Phase 3 is the current phase: the triage sign-off in `scripts/triage.ts` gates release. After that, Phases 4-8 cover orchestration, rendered crawl, external body storage, the audit API, and the dashboard.
+`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`) is in; next is the audit scheduler that puts crawl jobs on it, then retry policy. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.

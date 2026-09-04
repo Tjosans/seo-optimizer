@@ -35,10 +35,12 @@ Last updated: 2026-09-04
 - [x] Audit triage sign-off: confirm automation tier and remediation class for all 97 checks (scripts/triage.ts requires sign-off before release)
 
 ## Phase 4 — Orchestration & Scaling
-- [ ] Implement job queue for managing concurrent crawls
+- [x] Implement job queue for managing concurrent crawls (@seo/queue: bounded concurrency, lane exclusion per origin, cancellation)
 - [ ] Add audit scheduler to trigger crawls on demand or via API
 - [ ] Build retry logic and error recovery for failed audits
 - [ ] Handle multiple concurrent site audits without resource contention
+- [ ] Back the job queue with durable storage so a restart does not lose queued audits
+- [ ] Give crawl() cooperative cancellation so a cancelled job stops mid-crawl rather than at the end
 
 ## Phase 5 — Rendered Crawl
 - [ ] Implement JavaScript rendering in @seo/crawler (renderMode column exists in schema but not used)
@@ -79,3 +81,7 @@ Last updated: 2026-09-04
 - 2026-09-04: set required_approving_review_count to 0 on that ruleset because GitHub forbids approving your own pull request, so any higher count would deadlock a single-maintainer repo
 - 2026-09-04: signed off the v4.4 triage table on the rule that a check is only `automated` when its "Done when" closes on observation alone, which moved 2.11, 3.10, 4.2, 4.5, 4.6, 5.5, 6.3, 6.8 and 7.10 to `assisted` because each needs a person to record a decision, an owner or an exception
 - 2026-09-04: read "agreed budget" and "approved baseline" wording as naming an input to a check rather than an artifact a human must produce, so those rows stayed `automated` — the tier claims what can be automated, not what the probe registry has built
+- 2026-09-04: chose an in-process job queue in @seo/queue over Redis or BullMQ because the queue has no consumer outside this process yet; Redis buys durability, which is only worth its operational weight once the API-triggered scheduler can promise a queued audit will run, so it is listed as its own Phase 4 item behind the same interface
+- 2026-09-04: put lane exclusion in the queue rather than in the scheduler because the crawl loop's politeness delay is measured between its own requests, so two workers on one origin would each honour it and together still double the agreed load — the guarantee only holds if something upstream refuses to run them at the same time
+- 2026-09-04: left retries out of the queue and kept them as their own Phase 4 item, because which failures deserve a repeat is a policy question (a transport timeout, yes; a 403 on the first request, no) and a queue that guessed would hide it
+- 2026-09-04: made job cancellation cooperative — the signal is offered, the handler decides — because nothing in Node can interrupt a running handler, and a queue that reported a job as stopped while its crawler was still fetching would be lying about the load on someone's site

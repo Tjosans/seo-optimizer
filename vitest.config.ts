@@ -15,6 +15,7 @@ export default defineConfig(({ mode }) => ({
       '@seo/persistence': r('./packages/persistence/src/index.ts'),
       '@seo/probes': r('./packages/probes/src/index.ts'),
       '@seo/queue': r('./packages/queue/src/index.ts'),
+      '@seo/scheduler': r('./packages/scheduler/src/index.ts'),
       '@seo/testkit': r('./packages/testkit/src/index.ts'),
     },
   },

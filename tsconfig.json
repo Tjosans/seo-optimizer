@@ -8,6 +8,7 @@
     { "path": "./packages/persistence" },
     { "path": "./packages/probes" },
     { "path": "./packages/queue" },
+    { "path": "./packages/scheduler" },
     { "path": "./packages/testkit" }
   ]
 }

@@ -36,11 +36,12 @@ Last updated: 2026-09-04
 
 ## Phase 4 — Orchestration & Scaling
 - [x] Implement job queue for managing concurrent crawls (@seo/queue: bounded concurrency, lane exclusion per origin, cancellation)
-- [ ] Add audit scheduler to trigger crawls on demand or via API
+- [x] Add audit scheduler to trigger crawls on demand or via API (@seo/scheduler: submit returns an audit id before the crawl runs; one audit at a time per origin)
 - [ ] Build retry logic and error recovery for failed audits
 - [ ] Handle multiple concurrent site audits without resource contention
 - [ ] Back the job queue with durable storage so a restart does not lose queued audits
 - [ ] Give crawl() cooperative cancellation so a cancelled job stops mid-crawl rather than at the end
+- [ ] Grade probe evidence into checkStates and freeze readiness on the audit (audits.readiness is left null today)
 
 ## Phase 5 — Rendered Crawl
 - [ ] Implement JavaScript rendering in @seo/crawler (renderMode column exists in schema but not used)
@@ -85,3 +86,7 @@ Last updated: 2026-09-04
 - 2026-09-04: put lane exclusion in the queue rather than in the scheduler because the crawl loop's politeness delay is measured between its own requests, so two workers on one origin would each honour it and together still double the agreed load — the guarantee only holds if something upstream refuses to run them at the same time
 - 2026-09-04: left retries out of the queue and kept them as their own Phase 4 item, because which failures deserve a repeat is a policy question (a transport timeout, yes; a 403 on the first request, no) and a queue that guessed would hide it
 - 2026-09-04: made job cancellation cooperative — the signal is offered, the handler decides — because nothing in Node can interrupt a running handler, and a queue that reported a job as stopped while its crawler was still fetching would be lying about the load on someone's site
+- 2026-09-04: had the scheduler write the audits row in submit() and return its id before the crawl starts, because the HTTP layer this is built for has to answer in milliseconds while the audit it triggered runs for minutes — the row is the handle, and polling it is what a status endpoint will do
+- 2026-09-04: used the audit id as the queue's job id so cancel() and status() take the one identifier a caller was already given, rather than making callers hold an audit id and a job id and keep them paired
+- 2026-09-04: stopped the scheduler short of grading: it gathers and files evidence, leaves audits.readiness null, and an audit reading `complete` means the evidence is in, not that the launch decision is made — turning probe observations into checkStates is a distinct judgement with its own package to come
+- 2026-09-04: laned audits on the site origin rather than on the site id, because politeness is owed to a host and two site records could name one origin; the lane has to key on the thing the requests actually reach

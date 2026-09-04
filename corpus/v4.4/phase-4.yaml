@@ -61,7 +61,7 @@
     source: >-
       Immediately before launch
   notes: ""
-  automation: automated
+  automation: assisted
   remediationClass: config
   detectors: ["indexability-matrix-reconciliation"]
   sources: []
@@ -166,7 +166,7 @@
     source: >-
       Before launch and major releases
   notes: ""
-  automation: automated
+  automation: assisted
   remediationClass: code
   detectors: ["template-lab-perf"]
   sources: []
@@ -198,7 +198,7 @@
       Each new schema type
   notes: >-
     v4: conditional launch gate when schema is actually shipped.
-  automation: automated
+  automation: assisted
   remediationClass: code
   detectors: ["schema-validation-parity"]
   sources: []

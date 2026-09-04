@@ -1,7 +1,7 @@
 # Roadmap — seo-optimizer
 
 ## Status
-Current phase: Phase 3 — Pre-Release Validation
+Current phase: Phase 4 — Orchestration & Scaling
 Last updated: 2026-09-04
 
 ## Phase 0 — Foundation
@@ -32,7 +32,7 @@ Last updated: 2026-09-04
 - [x] Harden the master ruleset: require pull requests and both the test and roadmap status checks
 
 ## Phase 3 — Pre-Release Validation
-- [ ] Audit triage sign-off: confirm automation tier and remediation class for all 97 checks (scripts/triage.ts requires sign-off before release)
+- [x] Audit triage sign-off: confirm automation tier and remediation class for all 97 checks (scripts/triage.ts requires sign-off before release)
 
 ## Phase 4 — Orchestration & Scaling
 - [ ] Implement job queue for managing concurrent crawls
@@ -77,3 +77,5 @@ Last updated: 2026-09-04
 - 2026-08-28: made the triage table in scripts/triage.ts a sign-off gate because misclassifying automation tier or remediation class breaks every downstream decision
 - 2026-09-04: moved master to a server-side ruleset requiring a pull request plus the test and roadmap checks, superseding the 2026-08-28 pre-push choice because rulesets are now available on this repo and --no-verify made the client-side hook unenforceable
 - 2026-09-04: set required_approving_review_count to 0 on that ruleset because GitHub forbids approving your own pull request, so any higher count would deadlock a single-maintainer repo
+- 2026-09-04: signed off the v4.4 triage table on the rule that a check is only `automated` when its "Done when" closes on observation alone, which moved 2.11, 3.10, 4.2, 4.5, 4.6, 5.5, 6.3, 6.8 and 7.10 to `assisted` because each needs a person to record a decision, an owner or an exception
+- 2026-09-04: read "agreed budget" and "approved baseline" wording as naming an input to a check rather than an artifact a human must produce, so those rows stayed `automated` — the tier claims what can be automated, not what the probe registry has built

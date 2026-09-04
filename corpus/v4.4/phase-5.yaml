@@ -158,7 +158,7 @@
       Launch day; verify monthly
   notes: >-
     v4: adds DNS/SSL and sitemap monitoring and removes destructive production testing.
-  automation: automated
+  automation: assisted
   remediationClass: config
   detectors: ["availability-canary", "indexability-canary"]
   sources: []

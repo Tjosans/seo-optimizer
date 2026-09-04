@@ -318,7 +318,7 @@
     source: >-
       Monthly and on security advisories
   notes: ""
-  automation: automated
+  automation: assisted
   remediationClass: config
   detectors: ["security-dependency-maintenance"]
   sources: []

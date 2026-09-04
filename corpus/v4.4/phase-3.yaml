@@ -320,7 +320,7 @@
       Every publish
   notes: >-
     New. Cheaper to prevent than to untangle in the 7.2 decay audit.
-  automation: automated
+  automation: assisted
   remediationClass: content
   detectors: ["cannibalization"]
   sources: []

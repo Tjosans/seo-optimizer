@@ -366,7 +366,7 @@
       Before launch; every catalogue/template change
   notes: >-
     v4.3: adds Search Console ↔ Merchant Center association. See Sources: Search Console associations.
-  automation: automated
+  automation: assisted
   remediationClass: code
   detectors: ["product-schema", "merchant-feed-parity", "review-integrity"]
   sources:

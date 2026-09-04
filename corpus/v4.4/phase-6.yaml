@@ -98,7 +98,7 @@
     source: >-
       Weekly 30 days; then monthly
   notes: ""
-  automation: automated
+  automation: assisted
   remediationClass: config
   detectors: ["reporting-anomaly-thresholds"]
   sources: []
@@ -266,7 +266,7 @@
       Day 30; then quarterly
   notes: >-
     v3: demoted from P1 and reworded. Google ignores most spam links automatically.
-  automation: automated
+  automation: assisted
   remediationClass: config
   detectors: ["backlink-monitor"]
   sources: []

@@ -14,6 +14,7 @@ seo-optimizer is an SEO launch-readiness auditor. It crawls a site, runs it agai
 - **@seo/probes** — 6 detector categories (delivery, indexability, markup, media, metadata, site)
 - **@seo/persistence** — sink that streams crawls and probe runs into Postgres
 - **@seo/queue** — in-process job queue: bounded concurrency, one crawl at a time per origin
+- **@seo/scheduler** — the front door: submit an audit, get an id back, crawl and probes run on the queue
 - **@seo/db** — Drizzle schema, migrations, client factory
 - **@seo/testkit** — in-memory fixture website for tests
 
@@ -60,6 +61,8 @@ Key scripts:
 4. **Persist** (`@seo/persistence`) — stream pages and probes into Postgres.
 5. **Score** (`@seo/core`) — compute launch readiness from check states.
 
+`@seo/scheduler` drives steps 1-4 for one audit and owns its row's lifecycle; `@seo/queue` decides how many audits run at once and refuses to run two against one origin. Nothing yet writes `checkStates`, so step 5 has no input and `audits.readiness` stays null.
+
 ### Guarantees the sink relies on
 
 - Pages are processed breadth-first from seeds.
@@ -78,7 +81,7 @@ Together these let the sink resolve `discoveredFromId` from an in-memory map. Br
 
 Unit tests (no database needed): `packages/corpus/test/corpus.test.ts`, `packages/crawler/test/{crawl,robots,url}.test.ts`, `packages/probes/test/{probes,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue}.test.ts`.
 
-Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`.
+Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/scheduler.test.ts`.
 
 All tests skip gracefully if `DATABASE_URL` is unset — which means a green local run does not prove the database layer works. `vitest.config.ts` aliases packages to source, so no build step is needed during test.
 
@@ -107,6 +110,7 @@ packages/
   persistence/src/{crawl-sink,map,probe-results}.ts
   probes/src/{registry,types,matrix}.ts  +  src/probes/*.ts
   queue/src/{queue,types}.ts
+  scheduler/src/{scheduler,run-audit,types}.ts
   testkit/src/fixture-site.ts
 corpus/
   source/v4.4.tsv                  # immutable workbook export
@@ -125,4 +129,4 @@ scripts/{compile-corpus,probe-matrix,triage}.ts
 
 ## What to pick up next
 
-`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`) is in; next is the audit scheduler that puts crawl jobs on it, then retry policy. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.
+`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`) and the audit scheduler (`@seo/scheduler`) are in; what remains is retry policy, durable queue storage, and the grading step that turns probe evidence into `checkStates`. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.

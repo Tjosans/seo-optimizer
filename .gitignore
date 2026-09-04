@@ -9,3 +9,6 @@ coverage/
 
 # Source spreadsheet for the corpus; kept local, not published.
 *.xlsx
+
+# Personal Claude Code settings; not part of the repo.
+.claude/settings.local.json

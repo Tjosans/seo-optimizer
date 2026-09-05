@@ -19,7 +19,12 @@ import {
   probeResults,
   sites,
 } from '@seo/db';
-import { AuditScheduler, UnknownSiteError } from '@seo/scheduler';
+import {
+  auditRetryPolicy,
+  AuditScheduler,
+  PermanentAuditError,
+  UnknownSiteError,
+} from '@seo/scheduler';
 import type { CrawlBudget } from '@seo/scheduler';
 import { startFixtureSite } from '@seo/testkit';
 import type { FixtureSite } from '@seo/testkit';
@@ -32,9 +37,15 @@ const BUDGET: CrawlBudget = {
 
 const CORPUS = loadCorpus(fileURLToPath(new URL('../../../corpus/v4.4', import.meta.url)));
 
-/** The real corpus, resolved the way an API process would resolve it. */
+/**
+ * The real corpus, resolved the way an API process would resolve it.
+ *
+ * A version that is not on disk is `PermanentAuditError`, not a plain one: no
+ * amount of waiting puts a corpus on a disk, and the scheduler retries
+ * anything it is not told is permanent.
+ */
 const corpus = (version: string) => {
-  if (version !== CORPUS.version) throw new Error(`no corpus ${version} on disk`);
+  if (version !== CORPUS.version) throw new PermanentAuditError(`no corpus ${version} on disk`);
   return CORPUS;
 };
 
@@ -186,9 +197,59 @@ describe.skipIf(!url)('the audit scheduler', () => {
     expect(audit?.status).toBe('failed');
     expect(audit?.error).toBeTruthy();
     expect(audit?.finishedAt).toBeInstanceOf(Date);
+    // An unusable seed is a bug in the request, not a blip: one attempt.
+    expect(scheduler.status(submitted.auditId)?.attempt).toBe(1);
 
     await scheduler.close();
   });
+
+  it('retries a transient failure, and stays pending while it waits', async () => {
+    let resolutions = 0;
+    const flaky = (version: string) => {
+      resolutions += 1;
+      // Stands in for the class of failure a retry exists for: infrastructure
+      // that was briefly not there, rather than anything about this audit.
+      if (resolutions === 1) throw new Error('connection terminated unexpectedly');
+      return corpus(version);
+    };
+
+    let sawRetry!: () => void;
+    const retrying = new Promise<void>((resolve) => {
+      sawRetry = resolve;
+    });
+
+    const scheduler = new AuditScheduler({
+      db,
+      corpus: flaky,
+      crawl: BUDGET,
+      retry: auditRetryPolicy({ maxAttempts: 2, baseMs: 400, jitter: 0 }),
+      onEvent: (event) => {
+        if (event.type === 'retrying') sawRetry();
+      },
+    });
+    const submitted = await scheduler.submit({ siteId, corpusVersion: '4.4' });
+
+    await retrying;
+    const waiting = await auditRow(submitted.auditId);
+    // The failed attempt closed the row out; the scheduler reopened it before
+    // starting the wait, so nothing polling this row ever sees an audit
+    // reported as failed while another attempt is already scheduled.
+    expect(waiting?.status).toBe('pending');
+    expect(waiting?.error).toBe('connection terminated unexpectedly');
+    expect(waiting?.finishedAt).toBeNull();
+
+    const outcome = await submitted.done;
+    expect(outcome.pagesCrawled).toBeGreaterThan(0);
+
+    const audit = await auditRow(submitted.auditId);
+    expect(audit?.status).toBe('complete');
+    // The audit is the same audit: one id, one row, two attempts.
+    expect(audit?.error).toBeNull();
+    expect(scheduler.status(submitted.auditId)?.attempt).toBe(2);
+    expect(resolutions).toBe(2);
+
+    await scheduler.close();
+  }, 60_000);
 
   it('fails an audit pinned to a corpus this process cannot produce, before crawling', async () => {
     const scheduler = new AuditScheduler({ db, corpus, crawl: BUDGET });
@@ -198,6 +259,9 @@ describe.skipIf(!url)('the audit scheduler', () => {
 
     const audit = await auditRow(submitted.auditId);
     expect(audit?.status).toBe('failed');
+    // Permanent, so it stood on its first attempt rather than being repeated
+    // twice more at four minutes apart to reach the same answer.
+    expect(scheduler.status(submitted.auditId)?.attempt).toBe(1);
     // Nothing was fetched: an unreportable audit must not spend someone
     // else's bandwidth finding that out.
     expect(await db.select().from(crawls).where(eq(crawls.auditId, submitted.auditId)))

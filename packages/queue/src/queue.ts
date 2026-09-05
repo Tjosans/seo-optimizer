@@ -25,19 +25,30 @@
  * behind this before it can promise an audit will actually run (ROADMAP Phase
  * 4). The public surface here is the seam that change goes through.
  *
- * Not here, on purpose: retries. A failed job settles as `failed` and stays
- * that way. Retry policy is its own roadmap item, and guessing at one now would
- * mean guessing which failures are worth repeating — a transport timeout, yes;
- * a site that answered 403 to the first request, almost never.
+ * Retries are mechanism here and policy elsewhere. This file knows how to hold
+ * a failed job back, wake it and run it again; it holds no opinion on which
+ * failures deserve that, because the answer is about the work rather than about
+ * scheduling it — a transport timeout, yes; a site that answered 403 to the
+ * first request, almost never. Pass a `retry` policy and it is consulted; pass
+ * none and a failed job settles as `failed` and stays that way.
  */
 
 import { JobCancelledError } from './types.js';
+import type { RetryPolicy } from './retry.js';
 import type { Job, JobEvent, JobHandler, JobState } from './types.js';
 
 export interface JobQueueOptions<TPayload, TResult> {
   /** Maximum handlers running at once. Must be at least 1. */
   readonly concurrency: number;
   readonly handler: JobHandler<TPayload, TResult>;
+  /**
+   * Consulted after every failed attempt. Without one, nothing is retried.
+   *
+   * See `exponentialBackoff` for the usual shape. The policy may be async,
+   * which is where a caller records the decision durably before the wait
+   * starts — the job stays this queue's responsibility throughout.
+   */
+  readonly retry?: RetryPolicy<TPayload>;
   /** Called on every state transition. Throwing from it never fails a job. */
   readonly onEvent?: (event: JobEvent<TPayload>) => void;
   /** Start paused, so a caller can enqueue a batch before anything runs. */
@@ -82,8 +93,18 @@ interface Entry<TPayload, TResult> {
   readonly resolve: (result: TResult) => void;
   readonly reject: (cause: unknown) => void;
   state: JobState;
+  attempt: number;
   startedAt: Date | null;
   finishedAt: Date | null;
+  /** Shown to callers as `nextAttemptAt`; stamped from the injected clock. */
+  notBefore: Date | null;
+  /**
+   * The same instant on the real clock, which is what `setTimeout` and the
+   * eligibility test in `#take` go by. The injected clock exists for the
+   * timestamps a caller reads, and a test that freezes it must not thereby
+   * freeze the queue.
+   */
+  dueAt: number | null;
   error: string | null;
   /** Set by `cancel` on a running job; read once the handler returns. */
   cancelRequested: boolean;
@@ -98,6 +119,7 @@ export class JobQueue<TPayload, TResult = void> {
   readonly concurrency: number;
 
   readonly #handler: JobHandler<TPayload, TResult>;
+  readonly #retry: RetryPolicy<TPayload> | undefined;
   readonly #onEvent: ((event: JobEvent<TPayload>) => void) | undefined;
   readonly #now: () => Date;
   readonly #historyLimit: number;
@@ -112,6 +134,9 @@ export class JobQueue<TPayload, TResult = void> {
 
   #paused: boolean;
   #closed = false;
+  /** Failed jobs whose retry policy has not answered yet. Not idle. */
+  #deciding = 0;
+  #retryTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(options: JobQueueOptions<TPayload, TResult>) {
     if (!Number.isInteger(options.concurrency) || options.concurrency < 1) {
@@ -119,13 +144,14 @@ export class JobQueue<TPayload, TResult = void> {
     }
     this.concurrency = options.concurrency;
     this.#handler = options.handler;
+    this.#retry = options.retry;
     this.#onEvent = options.onEvent;
     this.#now = options.now ?? (() => new Date());
     this.#historyLimit = options.historyLimit ?? 500;
     this.#paused = options.paused ?? false;
   }
 
-  /** Jobs waiting for a slot. */
+  /** Jobs waiting for a slot, including those waiting out a retry delay. */
   get queued(): number {
     return this.#queued.length;
   }
@@ -143,9 +169,9 @@ export class JobQueue<TPayload, TResult = void> {
     return this.#closed;
   }
 
-  /** True when nothing is waiting and nothing is running. */
+  /** True when nothing is waiting, running, or awaiting a retry decision. */
   get idle(): boolean {
-    return this.#queued.length === 0 && this.#active.size === 0;
+    return this.#queued.length === 0 && this.#active.size === 0 && this.#deciding === 0;
   }
 
   enqueue(payload: TPayload, options: EnqueueOptions = {}): JobHandle<TPayload, TResult> {
@@ -175,8 +201,11 @@ export class JobQueue<TPayload, TResult = void> {
       resolve,
       reject,
       state: 'queued',
+      attempt: 0,
       startedAt: null,
       finishedAt: null,
+      notBefore: null,
+      dueAt: null,
       error: null,
       cancelRequested: false,
     };
@@ -261,11 +290,15 @@ export class JobQueue<TPayload, TResult = void> {
   async close(): Promise<void> {
     this.#closed = true;
     this.#paused = true;
+    this.#scheduleWake();
 
     for (const entry of [...this.#queued]) this.cancel(entry.id);
     for (const entry of [...this.#active]) this.cancel(entry.id);
 
-    if (this.#active.size > 0) await this.drain();
+    // Not `#active.size`: a job whose handler has returned and whose retry
+    // policy is still deciding belongs to nobody yet, and closing out from
+    // under it would report the queue as done while a job was still settling.
+    if (!this.idle) await this.drain();
   }
 
   #pump(): void {
@@ -274,7 +307,35 @@ export class JobQueue<TPayload, TResult = void> {
       if (entry === undefined) break;
       void this.#run(entry);
     }
+    this.#scheduleWake();
     this.#checkIdle();
+  }
+
+  /**
+   * Wake the queue when the earliest pending retry comes due.
+   *
+   * One timer for the whole queue rather than one per job: the set changes on
+   * every pump, and a single timer is the version that cannot leak.
+   */
+  #scheduleWake(): void {
+    if (this.#retryTimer !== undefined) {
+      clearTimeout(this.#retryTimer);
+      this.#retryTimer = undefined;
+    }
+    if (this.#paused || this.#closed) return;
+
+    const now = Date.now();
+    let earliest: number | undefined;
+    for (const entry of this.#queued) {
+      if (entry.dueAt === null || entry.dueAt <= now) continue;
+      if (earliest === undefined || entry.dueAt < earliest) earliest = entry.dueAt;
+    }
+    if (earliest === undefined) return;
+
+    this.#retryTimer = setTimeout(() => {
+      this.#retryTimer = undefined;
+      this.#pump();
+    }, earliest - now);
   }
 
   /**
@@ -288,6 +349,7 @@ export class JobQueue<TPayload, TResult = void> {
       const candidate = this.#queued[i];
       if (candidate === undefined) continue;
       if (candidate.lane !== null && this.#busyLanes.has(candidate.lane)) continue;
+      if (candidate.dueAt !== null && candidate.dueAt > Date.now()) continue;
       const incumbent = best === -1 ? undefined : this.#queued[best];
       if (incumbent === undefined || candidate.priority > incumbent.priority) best = i;
     }
@@ -297,29 +359,99 @@ export class JobQueue<TPayload, TResult = void> {
 
   async #run(entry: Entry<TPayload, TResult>): Promise<void> {
     entry.state = 'running';
+    entry.attempt += 1;
     entry.startedAt = this.#now();
+    entry.notBefore = null;
+    entry.dueAt = null;
     this.#active.add(entry);
     if (entry.lane !== null) this.#busyLanes.add(entry.lane);
     this.#emit({ type: 'started', job: snapshot(entry) });
 
+    let result: TResult | undefined;
+    let cause: unknown;
+    let threw = false;
     try {
-      const result = await this.#handler(entry.payload, {
+      result = await this.#handler(entry.payload, {
         job: snapshot(entry),
         signal: entry.controller.signal,
       });
-      if (entry.cancelRequested) this.#settle(entry, 'cancelled', new JobCancelledError(entry.id));
-      else this.#settle(entry, 'complete', undefined, result);
-    } catch (cause) {
-      // A handler that threw because it was cancelled reports as cancelled, not
-      // as a site or engine failure. The distinction matters: a failed audit is
-      // something to investigate, a cancelled one is something someone did.
-      if (entry.cancelRequested) this.#settle(entry, 'cancelled', new JobCancelledError(entry.id));
-      else this.#settle(entry, 'failed', cause);
-    } finally {
-      this.#active.delete(entry);
-      if (entry.lane !== null) this.#busyLanes.delete(entry.lane);
-      this.#pump();
+    } catch (error) {
+      threw = true;
+      cause = error;
     }
+
+    // The slot and the lane are given back before the retry policy is asked. A
+    // policy that goes to the database to record its decision must not hold a
+    // worker open, and must not keep another audit of the same origin waiting
+    // behind a job that is no longer doing anything.
+    this.#active.delete(entry);
+    if (entry.lane !== null) this.#busyLanes.delete(entry.lane);
+
+    // A handler that threw because it was cancelled reports as cancelled, not
+    // as a site or engine failure. The distinction matters: a failed audit is
+    // something to investigate, a cancelled one is something someone did.
+    if (entry.cancelRequested) {
+      this.#settle(entry, 'cancelled', new JobCancelledError(entry.id));
+    } else if (!threw) {
+      this.#settle(entry, 'complete', undefined, result as TResult);
+    } else {
+      // Counted as deciding from here until the job is settled or requeued.
+      // In between it is in no collection at all, and a queue that called
+      // itself idle in that window would let `drain` resolve on a job that is
+      // about to run again.
+      this.#deciding += 1;
+      try {
+        const delayMs = await this.#retryDelay(entry, cause);
+        // Cancellation can land while the policy is deciding, and it wins: a
+        // job someone stopped does not come back because a policy asked for it.
+        if (entry.cancelRequested) {
+          this.#settle(entry, 'cancelled', new JobCancelledError(entry.id));
+        } else if (delayMs === null) {
+          this.#settle(entry, 'failed', cause);
+        } else {
+          this.#requeue(entry, cause, delayMs);
+        }
+      } finally {
+        this.#deciding -= 1;
+      }
+    }
+
+    this.#pump();
+  }
+
+  /**
+   * Ask the policy how long to wait, or `null` for "let it fail".
+   *
+   * A policy that throws, or answers with something that is not a usable
+   * delay, fails the job. Holding work open on a broken policy would turn a
+   * reporting bug into a job that never settles.
+   */
+  async #retryDelay(entry: Entry<TPayload, TResult>, cause: unknown): Promise<number | null> {
+    if (this.#retry === undefined || this.#closed) return null;
+
+    try {
+      const delayMs = await this.#retry({
+        job: snapshot(entry),
+        cause,
+        attempt: entry.attempt,
+      });
+      if (delayMs === null || !Number.isFinite(delayMs) || delayMs < 0) return null;
+      return delayMs;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Put a failed job back in line, eligible once its delay has elapsed. */
+  #requeue(entry: Entry<TPayload, TResult>, cause: unknown, delayMs: number): void {
+    entry.state = 'queued';
+    entry.startedAt = null;
+    entry.finishedAt = null;
+    entry.error = messageOf(cause);
+    entry.notBefore = new Date(this.#now().getTime() + delayMs);
+    entry.dueAt = Date.now() + delayMs;
+    this.#queued.push(entry);
+    this.#emit({ type: 'retrying', job: snapshot(entry), cause, delayMs });
   }
 
   #settle(
@@ -378,9 +510,11 @@ function snapshot<TPayload, TResult>(entry: Entry<TPayload, TResult>): Job<TPayl
     lane: entry.lane,
     priority: entry.priority,
     state: entry.state,
+    attempt: entry.attempt,
     enqueuedAt: entry.enqueuedAt,
     startedAt: entry.startedAt,
     finishedAt: entry.finishedAt,
+    nextAttemptAt: entry.notBefore,
     error: entry.error,
   });
 }

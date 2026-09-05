@@ -27,10 +27,23 @@ export interface Job<TPayload> {
   /** Higher runs first. Jobs of equal priority run in enqueue order. */
   readonly priority: number;
   readonly state: JobState;
+  /**
+   * Attempts started so far. Zero until the job first runs, then one per run.
+   *
+   * A job that is `queued` with an attempt above zero is waiting out a retry
+   * delay rather than waiting for its first slot.
+   */
+  readonly attempt: number;
   readonly enqueuedAt: Date;
+  /** When the current attempt started; null while queued. */
   readonly startedAt: Date | null;
   readonly finishedAt: Date | null;
-  /** Message of the failure, when the state is `failed`. */
+  /** When the next attempt becomes eligible to run, while a retry is pending. */
+  readonly nextAttemptAt: Date | null;
+  /**
+   * Message of the last failure. Set when the state is `failed`, and also
+   * while a retry is pending, where it says what is being retried.
+   */
   readonly error: string | null;
 }
 
@@ -57,6 +70,12 @@ export type JobEvent<TPayload> =
   | { readonly type: 'started'; readonly job: Job<TPayload> }
   | { readonly type: 'completed'; readonly job: Job<TPayload> }
   | { readonly type: 'failed'; readonly job: Job<TPayload>; readonly cause: unknown }
+  | {
+      readonly type: 'retrying';
+      readonly job: Job<TPayload>;
+      readonly cause: unknown;
+      readonly delayMs: number;
+    }
   | { readonly type: 'cancelled'; readonly job: Job<TPayload> };
 
 /** Rejection reason for a job cancelled before or during its run. */

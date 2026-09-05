@@ -21,6 +21,14 @@
  * so `complete` means the launch decision is made rather than merely that the
  * crawl stopped.
  *
+ * An audit that fails is retried, if the failure is one a repeat could fix —
+ * see `./retry.ts` for where that line is drawn. The audit id does not change
+ * across attempts: a retry is the same audit running again, writing a second
+ * crawl under the same row, not a new audit that a caller would have to be
+ * told about. What the row says while it waits is part of the contract, so the
+ * status a failed attempt wrote is reopened to `pending` before the wait
+ * starts, and only the last attempt's failure is left standing as `failed`.
+ *
  * State lives in memory, so a restart loses what was queued and leaves those
  * audits `pending` forever. That is the durable-store item in ROADMAP Phase 4,
  * and it is the reason this is not yet safe to put behind a public API.
@@ -31,7 +39,8 @@ import type { CrawlOptions } from '@seo/crawler';
 import { audits, sites } from '@seo/db';
 import type { Database } from '@seo/db';
 import { JobQueue } from '@seo/queue';
-import type { Job, JobEvent } from '@seo/queue';
+import type { Job, JobEvent, RetryAttempt, RetryPolicy } from '@seo/queue';
+import { auditRetryPolicy } from './retry.js';
 import { runAudit } from './run-audit.js';
 import { UnknownSiteError } from './types.js';
 import type {
@@ -61,6 +70,12 @@ export interface AuditSchedulerOptions {
    * transaction per page.
    */
   readonly concurrency?: number;
+  /**
+   * What to do with a failed audit. Defaults to `auditRetryPolicy()`: three
+   * attempts, backing off from 30 seconds, and only for failures a repeat
+   * could fix. Pass `false` to let every failure stand on its first attempt.
+   */
+  readonly retry?: RetryPolicy<AuditJob> | false;
   readonly onEvent?: (event: JobEvent<AuditJob>) => void;
   /** Start paused, so a batch can be submitted before anything runs. */
   readonly paused?: boolean;
@@ -76,9 +91,14 @@ export class AuditScheduler {
     this.#db = options.db;
     this.#crawl = options.crawl;
     this.#corpus = options.corpus;
+
+    const policy = options.retry === false ? undefined : (options.retry ?? auditRetryPolicy());
     this.#queue = new JobQueue<AuditJob, AuditOutcome>({
       concurrency: options.concurrency ?? 2,
       handler: (job, context) => runAudit(this.#db, job, this.#corpus, context.signal),
+      ...(policy === undefined
+        ? {}
+        : { retry: (attempt: RetryAttempt<AuditJob>) => this.#decideRetry(policy, attempt) }),
       ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
       ...(options.paused === undefined ? {} : { paused: options.paused }),
     });
@@ -155,7 +175,10 @@ export class AuditScheduler {
     return true;
   }
 
-  /** In-process view of one audit. The row in `audits` is the durable one. */
+  /**
+   * In-process view of one audit, including which attempt it is on and when
+   * the next one is due. The row in `audits` is the durable one.
+   */
   status(auditId: string): Job<AuditJob> | undefined {
     return this.#queue.get(auditId);
   }
@@ -180,6 +203,34 @@ export class AuditScheduler {
    */
   close(): Promise<void> {
     return this.#queue.close();
+  }
+
+  /**
+   * Ask the policy, then reopen the row before the wait begins.
+   *
+   * The failed attempt has already written `failed` and its message — that is
+   * `runAudit` reporting honestly on the run it just made, and it has no way
+   * to know another is coming. Putting the row back to `pending` here is what
+   * keeps the two consistent: for the length of the backoff the audit is
+   * pending with the last failure still readable in `error`, which is exactly
+   * what it is.
+   *
+   * If that write fails, so does the audit. A retry nobody can see coming
+   * would leave a row reading `failed` while a crawl of that site starts
+   * anyway, and a caller reading the row would have no way to know.
+   */
+  async #decideRetry(
+    policy: RetryPolicy<AuditJob>,
+    attempt: RetryAttempt<AuditJob>,
+  ): Promise<number | null> {
+    const delayMs = await policy(attempt);
+    if (delayMs === null) return null;
+
+    await this.#db
+      .update(audits)
+      .set({ status: 'pending', startedAt: null, finishedAt: null })
+      .where(eq(audits.id, attempt.job.payload.auditId));
+    return delayMs;
   }
 
   #optionsFor(origin: string, request: AuditRequest): CrawlOptions {

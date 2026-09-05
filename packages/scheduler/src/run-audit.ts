@@ -29,7 +29,15 @@ import type { AuditJob, AuditOutcome, CorpusSource } from './types.js';
  * Run the pipeline for one already-created audit row.
  *
  * The row is expected to exist and to be `pending`: the scheduler writes it at
- * submit time so a caller has an id to poll before any request goes out.
+ * submit time so a caller has an id to poll before any request goes out, and
+ * puts it back to `pending` before a retry.
+ *
+ * This function reports on the attempt it makes and nothing else. If the run
+ * fails it writes `failed` and the message, because that is true of the run it
+ * just made; whether another attempt follows is the scheduler's decision and
+ * the scheduler reopens the row when it makes it. A retried audit therefore
+ * writes a second crawl under the same audit id — the failed one stays, with
+ * whatever it managed to persist before it died.
  *
  * `signal` is checked between steps rather than inside them. The crawl loop has
  * no cancellation of its own yet (ROADMAP Phase 4), so the finest granularity
@@ -47,9 +55,12 @@ export async function runAudit(
   };
 
   stopIfCancelled();
+  // `error` is cleared as well as set: on a retry the column still holds the
+  // previous attempt's message, and a row that reads `running` next to a
+  // failure is a row nobody can act on.
   await db
     .update(audits)
-    .set({ status: 'running', startedAt: new Date() })
+    .set({ status: 'running', startedAt: new Date(), error: null })
     .where(eq(audits.id, job.auditId));
 
   try {

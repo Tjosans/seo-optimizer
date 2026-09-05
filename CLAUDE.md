@@ -13,8 +13,8 @@ seo-optimizer is an SEO launch-readiness auditor. It crawls a site, runs it agai
 - **@seo/crawler** — site crawler respecting robots.txt, redirect chains, sitemaps
 - **@seo/probes** — 6 detector categories (delivery, indexability, markup, media, metadata, site)
 - **@seo/persistence** — sink that streams crawls and probe runs into Postgres
-- **@seo/queue** — in-process job queue: bounded concurrency, one crawl at a time per origin
-- **@seo/scheduler** — the front door: submit an audit, get an id back, crawl and probes run on the queue
+- **@seo/queue** — in-process job queue: bounded concurrency, one crawl at a time per origin, retries on a caller's policy
+- **@seo/scheduler** — the front door: submit an audit, get an id back, crawl and probes run on the queue, failures a repeat could fix are retried
 - **@seo/grader** — reads probe evidence against the corpus, writes checkStates, freezes readiness
 - **@seo/db** — Drizzle schema, migrations, client factory
 - **@seo/testkit** — in-memory fixture website for tests
@@ -64,6 +64,13 @@ Key scripts:
 
 `@seo/scheduler` drives all five steps for one audit and owns its row's lifecycle; `@seo/queue` decides how many audits run at once and refuses to run two against one origin.
 
+### What a retry is and is not
+
+- A retry is the *same* audit running again: one id, one row, a second crawl under it. The failed crawl stays, with whatever it persisted before it died.
+- Between attempts the row goes back to `pending` with the last failure readable in `error`. `failed` on the row means no further attempt is coming.
+- The queue holds the mechanism and `@seo/scheduler`'s `auditRetryPolicy` holds the policy: cancellation, an unknown site, an unavailable corpus and runtime errors about the program are permanent; everything else gets three attempts, backing off from 30 seconds.
+- A site that answers 403, times out, or serves a broken page does not fail an audit at all — the crawler returns transport failures as data. By the time a retry is considered, the engine or its infrastructure fell over, not the site.
+
 ### What the grader will and will not say
 
 - A machine may **fail** a check; only an `automated` check may be **passed** by one. `assisted` means the engine proposes and a person confirms.
@@ -88,7 +95,7 @@ Together these let the sink resolve `discoveredFromId` from an in-memory map. Br
 
 ## Testing
 
-Unit tests (no database needed): `packages/corpus/test/corpus.test.ts`, `packages/crawler/test/{crawl,robots,url}.test.ts`, `packages/probes/test/{probes,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue}.test.ts`, `packages/grader/test/grade.test.ts`.
+Unit tests (no database needed): `packages/corpus/test/corpus.test.ts`, `packages/crawler/test/{crawl,robots,url}.test.ts`, `packages/probes/test/{probes,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry}.test.ts`, `packages/grader/test/grade.test.ts`, `packages/scheduler/test/retry.test.ts`.
 
 Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/scheduler.test.ts`, `packages/grader/test/record.test.ts`.
 
@@ -118,8 +125,8 @@ packages/
   db/src/{schema,enums,client}.ts  +  migrations/0000-0003
   persistence/src/{crawl-sink,map,probe-results}.ts
   probes/src/{registry,types,matrix}.ts  +  src/probes/*.ts
-  queue/src/{queue,types}.ts
-  scheduler/src/{scheduler,run-audit,types}.ts
+  queue/src/{queue,retry,types}.ts
+  scheduler/src/{scheduler,run-audit,retry,types}.ts
   grader/src/{grade,scope,record,types}.ts
   testkit/src/fixture-site.ts
 corpus/
@@ -139,4 +146,4 @@ scripts/{compile-corpus,probe-matrix,triage}.ts
 
 ## What to pick up next
 
-`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`) and the grader (`@seo/grader`) are in; what remains is retry policy, durable queue storage, cooperative cancellation inside `crawl()`, and detector coverage — 95 of the corpus's 128 detectors are unimplemented, which is the single thing most limiting what an audit can say. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.
+`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`) and the grader (`@seo/grader`) are in; what remains is durable queue storage, cooperative cancellation inside `crawl()`, and detector coverage — 95 of the corpus's 128 detectors are unimplemented, which is the single thing most limiting what an audit can say. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.

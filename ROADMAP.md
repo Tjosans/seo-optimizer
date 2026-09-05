@@ -2,7 +2,7 @@
 
 ## Status
 Current phase: Phase 4 — Orchestration & Scaling
-Last updated: 2026-09-04
+Last updated: 2026-09-05
 
 ## Phase 0 — Foundation
 - [x] Create monorepo structure with TypeScript workspace packages
@@ -37,12 +37,13 @@ Last updated: 2026-09-04
 ## Phase 4 — Orchestration & Scaling
 - [x] Implement job queue for managing concurrent crawls (@seo/queue: bounded concurrency, lane exclusion per origin, cancellation)
 - [x] Add audit scheduler to trigger crawls on demand or via API (@seo/scheduler: submit returns an audit id before the crawl runs; one audit at a time per origin)
-- [ ] Build retry logic and error recovery for failed audits
+- [x] Build retry logic and error recovery for failed audits (@seo/queue: held jobs, backoff, retry-aware cancellation; @seo/scheduler: which failures repeat, and the audit row across attempts)
 - [ ] Handle multiple concurrent site audits without resource contention
 - [ ] Back the job queue with durable storage so a restart does not lose queued audits
 - [ ] Give crawl() cooperative cancellation so a cancelled job stops mid-crawl rather than at the end
 - [x] Grade probe evidence into checkStates and freeze readiness on the audit (@seo/grader: verdicts, evidence trail, frozen readiness)
 - [ ] Implement more of the corpus's 128 detectors — 33 today, which is what limits grading to 10 of 97 checks
+
 
 ## Phase 5 — Rendered Crawl
 - [ ] Implement JavaScript rendering in @seo/crawler (renderMode column exists in schema but not used)
@@ -71,6 +72,10 @@ Last updated: 2026-09-04
 ## Blocked
 
 ## Decisions
+- 2026-09-05: split retries into mechanism in @seo/queue and policy in @seo/scheduler — the queue knows how to hold a failed job back, wake it and run it again, and consults a caller-supplied policy for whether to; which failures deserve a repeat is a fact about the work, and a queue that decided it would bury that judgement where nobody looks
+- 2026-09-05: made a retry policy allowed to be async, so a caller can record the decision durably before the wait starts; the scheduler uses that to put the audit row back to `pending` before the backoff, because a row reading `failed` while another attempt is already scheduled would mislead every status endpoint built on it
+- 2026-09-05: enumerated the permanent audit failures (cancellation, an unknown site, a corpus this process cannot produce, a runtime error about the program) and retried everything else, because an unrecognised blip retried costs one more crawl of a site already under audit, while an unrecognised blip written off loses the audit to a cause nobody will ever see
+- 2026-09-05: kept the audit id across attempts rather than opening a new audit per retry — a retry is the same audit running again, writing a second crawl under the same row, and a caller who was handed an id at submit time must not have to discover a new one to find out how it went
 - 2026-09-04: gave grading its own package (@seo/grader) rather than folding it into the scheduler, because reading the corpus against evidence is a judgement with its own rules and has to be re-runnable over a stored audit without re-crawling it
 - 2026-09-04: settled the grader's central rule as "a machine may fail a check, but only an `automated` check may be passed by one" — a failure is a defect a probe observed, while a pass is a clearance, and the corpus already says which checks are machine-verifiable end to end
 - 2026-09-04: made an unimplemented detector, an errored probe and a detector that observed nothing all leave the check at `not-started` with `unknown` coverage, because "we did not look" is not a finding about the site and 95 of 128 detectors are unimplemented, so the honest answer is the common one

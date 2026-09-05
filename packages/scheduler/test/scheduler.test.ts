@@ -7,8 +7,18 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { fileURLToPath } from 'node:url';
 import { eq } from 'drizzle-orm';
-import { audits, createDatabase, crawls, pages, probeResults, sites } from '@seo/db';
+import { loadCorpus } from '@seo/corpus';
+import {
+  audits,
+  checkStates,
+  createDatabase,
+  crawls,
+  pages,
+  probeResults,
+  sites,
+} from '@seo/db';
 import { AuditScheduler, UnknownSiteError } from '@seo/scheduler';
 import type { CrawlBudget } from '@seo/scheduler';
 import { startFixtureSite } from '@seo/testkit';
@@ -18,6 +28,14 @@ const BUDGET: CrawlBudget = {
   userAgent: 'seo-optimizer/0.1 (+test)',
   maxPages: 10,
   maxDepth: 2,
+};
+
+const CORPUS = loadCorpus(fileURLToPath(new URL('../../../corpus/v4.4', import.meta.url)));
+
+/** The real corpus, resolved the way an API process would resolve it. */
+const corpus = (version: string) => {
+  if (version !== CORPUS.version) throw new Error(`no corpus ${version} on disk`);
+  return CORPUS;
 };
 
 let site: FixtureSite;
@@ -57,7 +75,7 @@ describe.skipIf(!url)('the audit scheduler', () => {
   };
 
   it('hands back an audit id before the crawl has run', async () => {
-    const scheduler = new AuditScheduler({ db, crawl: BUDGET, paused: true });
+    const scheduler = new AuditScheduler({ db, corpus, crawl: BUDGET, paused: true });
     const submitted = await scheduler.submit({ siteId, corpusVersion: '4.4' });
 
     expect(submitted.auditId).toMatch(/^[0-9a-f-]{36}$/);
@@ -69,8 +87,8 @@ describe.skipIf(!url)('the audit scheduler', () => {
     await expect(submitted.done).rejects.toThrow();
   });
 
-  it('crawls, probes, and closes the audit out as complete', async () => {
-    const scheduler = new AuditScheduler({ db, crawl: BUDGET });
+  it('crawls, probes, grades, and closes the audit out as complete', async () => {
+    const scheduler = new AuditScheduler({ db, corpus, crawl: BUDGET });
     const submitted = await scheduler.submit({ siteId, corpusVersion: '4.4' });
     const outcome = await submitted.done;
 
@@ -82,9 +100,28 @@ describe.skipIf(!url)('the audit scheduler', () => {
     expect(audit?.corpusVersion).toBe('4.4');
     expect(audit?.startedAt).toBeInstanceOf(Date);
     expect(audit?.finishedAt).toBeInstanceOf(Date);
-    // Evidence is gathered; the verdict is not this layer's to write.
-    expect(audit?.readiness).toBeNull();
     expect(audit?.error).toBeNull();
+
+    // A complete audit is a graded one: every check has a state, and the
+    // verdict is frozen on the row rather than recomputed by whoever reads it.
+    expect(outcome.checksGraded).toBe(97);
+    expect(audit?.readiness).toMatchObject({
+      corpusVersion: '4.4',
+      readiness: { decision: outcome.readiness.readiness.decision },
+    });
+
+    const graded = await db
+      .select()
+      .from(checkStates)
+      .where(eq(checkStates.auditId, submitted.auditId));
+    expect(graded).toHaveLength(97);
+    // The fixture site is small and most detectors are unimplemented, so most
+    // checks come back ungraded. What must never happen is a check passing
+    // without evidence behind it.
+    expect(graded.some((row) => row.coverage === 'verified')).toBe(true);
+    expect(
+      graded.every((row) => row.status !== 'passed' || row.coverage !== 'unknown'),
+    ).toBe(true);
 
     const [crawlRow] = await db.select().from(crawls).where(eq(crawls.id, outcome.crawlId));
     expect(crawlRow?.status).toBe('complete');
@@ -103,7 +140,7 @@ describe.skipIf(!url)('the audit scheduler', () => {
   }, 60_000);
 
   it('never runs two audits of one site at the same time', async () => {
-    const scheduler = new AuditScheduler({ db, crawl: BUDGET, concurrency: 2 });
+    const scheduler = new AuditScheduler({ db, corpus, crawl: BUDGET, concurrency: 2 });
     const first = await scheduler.submit({ siteId, corpusVersion: '4.4' });
     const second = await scheduler.submit({ siteId, corpusVersion: '4.4' });
 
@@ -118,7 +155,7 @@ describe.skipIf(!url)('the audit scheduler', () => {
   }, 90_000);
 
   it('marks a cancelled audit cancelled and never crawls it', async () => {
-    const scheduler = new AuditScheduler({ db, crawl: BUDGET, paused: true });
+    const scheduler = new AuditScheduler({ db, corpus, crawl: BUDGET, paused: true });
     const submitted = await scheduler.submit({ siteId, corpusVersion: '4.4' });
 
     expect(await scheduler.cancel(submitted.auditId)).toBe(true);
@@ -136,7 +173,7 @@ describe.skipIf(!url)('the audit scheduler', () => {
   });
 
   it('records a failed audit as failed, with the reason', async () => {
-    const scheduler = new AuditScheduler({ db, crawl: BUDGET });
+    const scheduler = new AuditScheduler({ db, corpus, crawl: BUDGET });
     const submitted = await scheduler.submit({
       siteId,
       corpusVersion: '4.4',
@@ -153,8 +190,24 @@ describe.skipIf(!url)('the audit scheduler', () => {
     await scheduler.close();
   });
 
+  it('fails an audit pinned to a corpus this process cannot produce, before crawling', async () => {
+    const scheduler = new AuditScheduler({ db, corpus, crawl: BUDGET });
+    const submitted = await scheduler.submit({ siteId, corpusVersion: '9.9' });
+
+    await expect(submitted.done).rejects.toThrow(/no corpus 9\.9/);
+
+    const audit = await auditRow(submitted.auditId);
+    expect(audit?.status).toBe('failed');
+    // Nothing was fetched: an unreportable audit must not spend someone
+    // else's bandwidth finding that out.
+    expect(await db.select().from(crawls).where(eq(crawls.auditId, submitted.auditId)))
+      .toHaveLength(0);
+
+    await scheduler.close();
+  });
+
   it('refuses an audit for a site that does not exist', async () => {
-    const scheduler = new AuditScheduler({ db, crawl: BUDGET, paused: true });
+    const scheduler = new AuditScheduler({ db, corpus, crawl: BUDGET, paused: true });
     await expect(
       scheduler.submit({ siteId: crypto.randomUUID(), corpusVersion: '4.4' }),
     ).rejects.toBeInstanceOf(UnknownSiteError);
@@ -162,7 +215,7 @@ describe.skipIf(!url)('the audit scheduler', () => {
   });
 
   it('lets a request narrow the crawl budget it was given', async () => {
-    const scheduler = new AuditScheduler({ db, crawl: BUDGET });
+    const scheduler = new AuditScheduler({ db, corpus, crawl: BUDGET });
     const submitted = await scheduler.submit({
       siteId,
       corpusVersion: '4.4',

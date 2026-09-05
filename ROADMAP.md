@@ -41,7 +41,8 @@ Last updated: 2026-09-04
 - [ ] Handle multiple concurrent site audits without resource contention
 - [ ] Back the job queue with durable storage so a restart does not lose queued audits
 - [ ] Give crawl() cooperative cancellation so a cancelled job stops mid-crawl rather than at the end
-- [ ] Grade probe evidence into checkStates and freeze readiness on the audit (audits.readiness is left null today)
+- [x] Grade probe evidence into checkStates and freeze readiness on the audit (@seo/grader: verdicts, evidence trail, frozen readiness)
+- [ ] Implement more of the corpus's 128 detectors — 33 today, which is what limits grading to 10 of 97 checks
 
 ## Phase 5 — Rendered Crawl
 - [ ] Implement JavaScript rendering in @seo/crawler (renderMode column exists in schema but not used)
@@ -70,6 +71,13 @@ Last updated: 2026-09-04
 ## Blocked
 
 ## Decisions
+- 2026-09-04: gave grading its own package (@seo/grader) rather than folding it into the scheduler, because reading the corpus against evidence is a judgement with its own rules and has to be re-runnable over a stored audit without re-crawling it
+- 2026-09-04: settled the grader's central rule as "a machine may fail a check, but only an `automated` check may be passed by one" — a failure is a defect a probe observed, while a pass is a clearance, and the corpus already says which checks are machine-verifiable end to end
+- 2026-09-04: made an unimplemented detector, an errored probe and a detector that observed nothing all leave the check at `not-started` with `unknown` coverage, because "we did not look" is not a finding about the site and 95 of 128 detectors are unimplemented, so the honest answer is the common one
+- 2026-09-04: read an empty site profile as an unmade decision and a filled-in one as a statement — conditional checks stay at `review` when a site has no flags, and are narrowed to `no` with a rationale when it has flags but none that match — because treating silence as "none of these apply" would clear conditional launch gates on the strength of a form nobody filled in
+- 2026-09-04: let a check whose observations were all `not-applicable` pass with coverage `not-applicable`, because a check whose subject does not exist on the site cannot fail and holding the launch on it forever would be noise; the coverage column is what keeps "verified" and "nothing to verify" distinguishable in the report
+- 2026-09-04: made recording a grade a replace rather than an upsert, so a re-grade can retract an evidence link, and made it refuse to overwrite any row whose coverage is `attested`, because a human sign-off is the one part of an audit a machine cannot reproduce
+- 2026-09-04: had the scheduler resolve the pinned corpus version before the crawl rather than after it, because an audit pinned to a corpus this process cannot produce is unreportable however well the crawl goes, and finding that out afterwards spends someone else's bandwidth to learn it
 - 2026-08-27: split evidence (probeResults) from verdicts (checkStates) because machines observe and humans judge, which keeps every report traceable to what produced it
 - 2026-08-27: chose a memory-resident crawl loop with a streaming database sink over batch-at-end because a crawl that dies at page 400 still preserves those 400
 - 2026-08-27: chose file-backed immutable YAML under corpus/v4.4 over database-held checks, using text ids not foreign keys, so an audit pinned to a corpus version stays reproducible

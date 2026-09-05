@@ -6,7 +6,19 @@
  * crawl budget. Everything else the engine already knows or can default.
  */
 
+import type { Corpus } from '@seo/core';
 import type { CrawlOptions } from '@seo/crawler';
+import type { FrozenReadiness } from '@seo/grader';
+
+/**
+ * How the scheduler gets the corpus an audit pinned.
+ *
+ * A function rather than a `Corpus`, because the version is per request: an
+ * audit submitted against 4.4 must be graded against 4.4 however many newer
+ * corpora the process has since loaded. Resolving through the version is what
+ * keeps an old report re-explainable.
+ */
+export type CorpusSource = (version: string) => Corpus | Promise<Corpus>;
 
 /**
  * The crawl budget, minus the parts the scheduler fills in per site.
@@ -39,6 +51,8 @@ export interface AuditJob {
   readonly siteId: string;
   readonly origin: string;
   readonly flags: readonly string[];
+  /** Pinned at submit time; the version the grader must be handed. */
+  readonly corpusVersion: string;
   readonly options: CrawlOptions;
 }
 
@@ -47,6 +61,10 @@ export interface AuditOutcome {
   readonly crawlId: string;
   readonly pagesCrawled: number;
   readonly probeRuns: number;
+  /** Checks whose state this run wrote. */
+  readonly checksGraded: number;
+  /** The verdict, as frozen onto the audit row. */
+  readonly readiness: FrozenReadiness;
 }
 
 export interface AuditHandle {

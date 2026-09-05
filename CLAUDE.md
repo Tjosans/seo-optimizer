@@ -15,6 +15,7 @@ seo-optimizer is an SEO launch-readiness auditor. It crawls a site, runs it agai
 - **@seo/persistence** — sink that streams crawls and probe runs into Postgres
 - **@seo/queue** — in-process job queue: bounded concurrency, one crawl at a time per origin
 - **@seo/scheduler** — the front door: submit an audit, get an id back, crawl and probes run on the queue
+- **@seo/grader** — reads probe evidence against the corpus, writes checkStates, freezes readiness
 - **@seo/db** — Drizzle schema, migrations, client factory
 - **@seo/testkit** — in-memory fixture website for tests
 
@@ -59,9 +60,17 @@ Key scripts:
 2. **Extract** — parse each page's HTML; record head tags, links, hierarchy, structure.
 3. **Probe** (`@seo/probes`) — detectors observe the crawl result and emit evidence.
 4. **Persist** (`@seo/persistence`) — stream pages and probes into Postgres.
-5. **Score** (`@seo/core`) — compute launch readiness from check states.
+5. **Grade** (`@seo/grader`) — read the evidence against the pinned corpus, write `checkStates`, link each verdict to the observations behind it, and freeze launch readiness (`@seo/core`) onto `audits.readiness`.
 
-`@seo/scheduler` drives steps 1-4 for one audit and owns its row's lifecycle; `@seo/queue` decides how many audits run at once and refuses to run two against one origin. Nothing yet writes `checkStates`, so step 5 has no input and `audits.readiness` stays null.
+`@seo/scheduler` drives all five steps for one audit and owns its row's lifecycle; `@seo/queue` decides how many audits run at once and refuses to run two against one origin.
+
+### What the grader will and will not say
+
+- A machine may **fail** a check; only an `automated` check may be **passed** by one. `assisted` means the engine proposes and a person confirms.
+- A detector that is unimplemented, errored, or observed nothing leaves the check `not-started` / `unknown`. Missing evidence is never good news, and never bad news either.
+- Scope comes from `sites.flags`: an empty profile leaves conditional checks at `review`; a filled-in one narrows non-matching checks to `no` with a written rationale.
+- Only 33 of the corpus's 128 detectors exist, so today 10 of 97 checks can be graded end to end and most audits come back mostly ungraded. That is the honest answer, not a bug.
+- A row a human attested is never overwritten by a re-grade, and it counts in the frozen readiness.
 
 ### Guarantees the sink relies on
 
@@ -79,9 +88,9 @@ Together these let the sink resolve `discoveredFromId` from an in-memory map. Br
 
 ## Testing
 
-Unit tests (no database needed): `packages/corpus/test/corpus.test.ts`, `packages/crawler/test/{crawl,robots,url}.test.ts`, `packages/probes/test/{probes,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue}.test.ts`.
+Unit tests (no database needed): `packages/corpus/test/corpus.test.ts`, `packages/crawler/test/{crawl,robots,url}.test.ts`, `packages/probes/test/{probes,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue}.test.ts`, `packages/grader/test/grade.test.ts`.
 
-Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/scheduler.test.ts`.
+Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/scheduler.test.ts`, `packages/grader/test/record.test.ts`.
 
 All tests skip gracefully if `DATABASE_URL` is unset — which means a green local run does not prove the database layer works. `vitest.config.ts` aliases packages to source, so no build step is needed during test.
 
@@ -111,6 +120,7 @@ packages/
   probes/src/{registry,types,matrix}.ts  +  src/probes/*.ts
   queue/src/{queue,types}.ts
   scheduler/src/{scheduler,run-audit,types}.ts
+  grader/src/{grade,scope,record,types}.ts
   testkit/src/fixture-site.ts
 corpus/
   source/v4.4.tsv                  # immutable workbook export
@@ -129,4 +139,4 @@ scripts/{compile-corpus,probe-matrix,triage}.ts
 
 ## What to pick up next
 
-`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`) and the audit scheduler (`@seo/scheduler`) are in; what remains is retry policy, durable queue storage, and the grading step that turns probe evidence into `checkStates`. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.
+`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`) and the grader (`@seo/grader`) are in; what remains is retry policy, durable queue storage, cooperative cancellation inside `crawl()`, and detector coverage — 95 of the corpus's 128 detectors are unimplemented, which is the single thing most limiting what an audit can say. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.

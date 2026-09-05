@@ -16,6 +16,11 @@
  * however much concurrency is on offer, and the politeness the crawl loop
  * promises that origin survives being scheduled.
  *
+ * An audit that finishes here is graded: the run ends by turning the evidence
+ * it gathered into `checkStates` and freezing a readiness verdict onto the row,
+ * so `complete` means the launch decision is made rather than merely that the
+ * crawl stopped.
+ *
  * State lives in memory, so a restart loses what was queued and leaves those
  * audits `pending` forever. That is the durable-store item in ROADMAP Phase 4,
  * and it is the reason this is not yet safe to put behind a public API.
@@ -29,12 +34,27 @@ import { JobQueue } from '@seo/queue';
 import type { Job, JobEvent } from '@seo/queue';
 import { runAudit } from './run-audit.js';
 import { UnknownSiteError } from './types.js';
-import type { AuditHandle, AuditJob, AuditOutcome, AuditRequest, CrawlBudget } from './types.js';
+import type {
+  AuditHandle,
+  AuditJob,
+  AuditOutcome,
+  AuditRequest,
+  CorpusSource,
+  CrawlBudget,
+} from './types.js';
 
 export interface AuditSchedulerOptions {
   readonly db: Database;
   /** Applied to every audit; a request may override any field. */
   readonly crawl: CrawlBudget;
+  /**
+   * Resolves the version an audit pinned to the checks it is graded against.
+   *
+   * Required rather than optional: an audit that gathered evidence and never
+   * graded it leaves a row that reads `complete` next to a null readiness, and
+   * a caller has no way to tell that from a site with nothing to report.
+   */
+  readonly corpus: CorpusSource;
   /**
    * Audits running at once, across all sites. Two is a deliberately shy
    * default: each audit holds a whole crawl in memory and a database
@@ -49,14 +69,16 @@ export interface AuditSchedulerOptions {
 export class AuditScheduler {
   readonly #db: Database;
   readonly #crawl: CrawlBudget;
+  readonly #corpus: CorpusSource;
   readonly #queue: JobQueue<AuditJob, AuditOutcome>;
 
   constructor(options: AuditSchedulerOptions) {
     this.#db = options.db;
     this.#crawl = options.crawl;
+    this.#corpus = options.corpus;
     this.#queue = new JobQueue<AuditJob, AuditOutcome>({
       concurrency: options.concurrency ?? 2,
-      handler: (job, context) => runAudit(this.#db, job, context.signal),
+      handler: (job, context) => runAudit(this.#db, job, this.#corpus, context.signal),
       ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
       ...(options.paused === undefined ? {} : { paused: options.paused }),
     });
@@ -98,6 +120,7 @@ export class AuditScheduler {
       siteId: site.id,
       origin: site.origin,
       flags: site.flags,
+      corpusVersion: request.corpusVersion,
       options,
     };
 

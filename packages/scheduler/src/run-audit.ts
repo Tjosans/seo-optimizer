@@ -1,27 +1,29 @@
 /**
  * One audit, start to finish.
  *
- * Crawl, observe, record — in that order, because each step needs the rows the
- * one before it wrote. This is the only place that knows the whole sequence,
- * which is what lets the scheduler above it care about nothing but when to
- * start one and how many to run at once.
+ * Crawl, observe, record, grade — in that order, because each step needs what
+ * the one before it wrote. This is the only place that knows the whole
+ * sequence, which is what lets the scheduler above it care about nothing but
+ * when to start one and how many to run at once.
  *
- * What this deliberately does NOT do is grade. Probes produce evidence and it
- * is filed against the audit; turning that evidence into `checkStates` and a
- * readiness verdict is a separate concern with its own package to come, so
- * `audits.readiness` is left null and the report layer is what will fill it.
- * An audit that reads `complete` here means "the evidence is gathered", not
- * "the launch decision is made" — see ROADMAP Phase 4.
+ * Grading is last and it is deliberately the only step that writes a verdict.
+ * Everything before it states what was seen; `@seo/grader` states what that
+ * means against the pinned corpus and freezes the answer onto the audit row, so
+ * an audit that reads `complete` now means the decision is made and will not
+ * move when the engine's scoring later does. What the verdict is allowed to say
+ * is the grader's business, not this file's — including that most of the corpus
+ * comes back ungraded, because most detectors are not implemented yet.
  */
 
 import { eq } from 'drizzle-orm';
 import { audits } from '@seo/db';
 import type { Database } from '@seo/db';
+import { CorpusVersionMismatchError, gradeAudit, recordGrade, toEvidence } from '@seo/grader';
 import { crawlToDatabase, persistProbeRuns } from '@seo/persistence';
 import { runProbes } from '@seo/probes';
 import type { SiteContext } from '@seo/probes';
 import { JobCancelledError } from '@seo/queue';
-import type { AuditJob, AuditOutcome } from './types.js';
+import type { AuditJob, AuditOutcome, CorpusSource } from './types.js';
 
 /**
  * Run the pipeline for one already-created audit row.
@@ -37,6 +39,7 @@ import type { AuditJob, AuditOutcome } from './types.js';
 export async function runAudit(
   db: Database,
   job: AuditJob,
+  corpusSource: CorpusSource,
   signal?: AbortSignal,
 ): Promise<AuditOutcome> {
   const stopIfCancelled = (): void => {
@@ -50,6 +53,16 @@ export async function runAudit(
     .where(eq(audits.id, job.auditId));
 
   try {
+    // Resolved before anything is fetched. An audit pinned to a corpus this
+    // process cannot produce is unreportable however well the crawl goes, and
+    // finding that out after twenty minutes of someone else's bandwidth would
+    // be nobody's idea of a good failure.
+    const corpus = await corpusSource(job.corpusVersion);
+    if (corpus.version !== job.corpusVersion) {
+      throw new CorpusVersionMismatchError(job.corpusVersion, corpus.version);
+    }
+    stopIfCancelled();
+
     const crawled = await crawlToDatabase(db, {
       auditId: job.auditId,
       options: job.options,
@@ -63,13 +76,24 @@ export async function runAudit(
     };
     const runs = runProbes(context);
 
-    await persistProbeRuns(db, {
+    const resultIds = await persistProbeRuns(db, {
       auditId: job.auditId,
       crawlId: crawled.crawlId,
       runs,
       pageIds: crawled.pageIds,
     });
     stopIfCancelled();
+
+    const grade = gradeAudit({
+      corpus,
+      flags: job.flags,
+      evidence: toEvidence(runs, resultIds),
+    });
+    const recorded = await recordGrade(db, {
+      auditId: job.auditId,
+      corpus,
+      grade,
+    });
 
     await db
       .update(audits)
@@ -81,6 +105,8 @@ export async function runAudit(
       crawlId: crawled.crawlId,
       pagesCrawled: crawled.result.pages.length,
       probeRuns: runs.length,
+      checksGraded: recorded.written,
+      readiness: recorded.frozen,
     };
   } catch (cause) {
     // The crawl's own rows are already closed out by the sink. What is recorded

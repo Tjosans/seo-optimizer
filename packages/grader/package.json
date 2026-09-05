@@ -1,5 +1,5 @@
 {
-  "name": "@seo/scheduler",
+  "name": "@seo/grader",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -7,13 +7,9 @@
   "types": "./dist/index.d.ts",
   "exports": { ".": "./dist/index.js" },
   "dependencies": {
-    "@seo/crawler": "*",
     "@seo/core": "*",
     "@seo/db": "*",
-    "@seo/grader": "*",
-    "@seo/persistence": "*",
     "@seo/probes": "*",
-    "@seo/queue": "*",
     "drizzle-orm": "^0.45.2"
   }
 }

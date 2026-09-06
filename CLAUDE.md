@@ -50,6 +50,8 @@ Key scripts:
 - `npm run corpus:compile` — regenerate v4.4 YAML from source TSV
 - `npm run corpus:validate` — corpus integrity
 - `npm run probes:matrix` — detector coverage vs corpus checks
+- `npm run analyze -- <url>` — prototype: crawl, probe and grade a live URL, print a report, save a snapshot to `benchmarks/runs/`
+- `npm run compare -- <older.json> <newer.json>` — diff two snapshots to see whether a change improved coverage or verdicts
 - `npm run db:generate` — diff schema and write a new migration
 - `npm run db:studio` — Drizzle Studio against the live database
 - `npm run stack:down` — stop containers

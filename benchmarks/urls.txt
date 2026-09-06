@@ -1,0 +1,12 @@
+# Benchmark URLs for the prototype analyzer.
+#
+# One URL per line; "#" starts a comment. Keep this list stable — the point is
+# that two runs over the same list are comparable. Add a URL rather than
+# swapping one out, and prefer small, public, slow-moving sites so a moved
+# verdict is more likely to be the engine changing than the site.
+#
+#   npm run analyze -- --file benchmarks/urls.txt --label baseline
+#   npm run compare -- benchmarks/runs/<older>.json benchmarks/runs/<newer>.json
+
+https://example.com
+https://www.iana.org

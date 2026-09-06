@@ -17,6 +17,8 @@
     "corpus:compile": "node scripts/compile-corpus.ts",
     "corpus:validate": "vitest run packages/corpus",
     "probes:matrix": "npm run build && node scripts/probe-matrix.ts",
+    "analyze": "tsc --build packages/crawler packages/corpus packages/probes packages/grader && node scripts/analyze.ts",
+    "compare": "node scripts/compare.ts",
     "db:generate": "npm run db:generate -w @seo/db",
     "db:migrate": "npm run db:migrate -w @seo/db",
     "db:studio": "npm run db:studio -w @seo/db",

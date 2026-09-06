@@ -36,13 +36,14 @@
  * forever with nothing on its way to run them — fine for a test, not something
  * to put a public API in front of.
  *
- * What recovery does *not* do is find audits the store never knew about. A row
- * that reads `pending` with no job behind it — submitted before this table
- * existed, or lost to a store that refused the write — is invisible here and
- * stays that way until someone resubmits it.
+ * Recovery only finds work the store knows about. A row that reads `pending`
+ * with no job behind it — submitted before the store existed, or lost to a
+ * store that refused the write — would otherwise stay pending forever, waited
+ * on by whoever holds its id. `reconcile` is the sweep that closes those out,
+ * so every audit row eventually reaches a state that is true.
  */
 
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, lt, sql } from 'drizzle-orm';
 import type { CrawlOptions } from '@seo/crawler';
 import { audits, sites } from '@seo/db';
 import type { Database } from '@seo/db';
@@ -100,11 +101,26 @@ export interface AuditSchedulerOptions {
   readonly paused?: boolean;
 }
 
+/** Written to `audits.error` for a row `reconcile` closes out. */
+export const ORPHANED_AUDIT_ERROR =
+  'interrupted: no queued work was found for this audit, so nothing was going to run it';
+
 export class AuditScheduler {
   readonly #db: Database;
   readonly #crawl: CrawlBudget;
   readonly #corpus: CorpusSource;
   readonly #queue: JobQueue<AuditJob, AuditOutcome>;
+  /**
+   * When this process took the queue over, read from the database clock.
+   *
+   * `reconcile` looks no later than this, so an audit submitted while the sweep
+   * runs cannot be mistaken for an abandoned one — nothing this process
+   * accepted can have been orphaned by the last. It has to come from the same
+   * clock as `audits.createdAt`: comparing a Postgres timestamp against this
+   * process's own `new Date()` makes the sweep's correctness depend on two
+   * machines agreeing about the time, and they do not.
+   */
+  #cutoff: Date | null = null;
 
   constructor(options: AuditSchedulerOptions) {
     this.#db = options.db;
@@ -206,6 +222,9 @@ export class AuditScheduler {
     const wasPaused = this.#queue.paused;
     this.#queue.pause();
     try {
+      // Read before anything is restored, so nothing this process goes on to
+      // start can fall on the abandoned side of the line.
+      this.#cutoff = await this.#databaseNow();
       const restored = await this.#queue.recover();
       if (restored.length === 0) return 0;
 
@@ -225,9 +244,67 @@ export class AuditScheduler {
   }
 
   /**
+   * Close out audits that nothing is going to run.
+   *
+   * `recover` brings back the work the store wrote down. This is the other
+   * half: a row that says `pending` or `running` from before this process
+   * started, with no job behind it, is an audit that was lost — the store never
+   * accepted it, or it predates the store — and leaving it pending means
+   * whoever holds its id waits forever for an answer that is not coming. Each
+   * one is marked `failed` with `ORPHANED_AUDIT_ERROR`, which is what happened:
+   * the audit did not run and no one is going to make it.
+   *
+   * Call once, after `recover` and before accepting submissions. It refuses to
+   * run before `recover`, and refuses entirely without a store, because in
+   * either case every pending audit would look abandoned and the sweep would
+   * fail the whole backlog.
+   *
+   * The sweep is database-wide by default, which is right when one scheduler
+   * owns the database — the same single owner the store already assumes. Pass
+   * `siteIds` to narrow it when that is not true, and a second scheduler's live
+   * audits are left alone instead of being closed out from under it.
+   *
+   * Returns how many rows it closed.
+   */
+  async reconcile(options: { readonly siteIds?: readonly string[] } = {}): Promise<number> {
+    if (!this.#queue.durable) {
+      throw new Error('reconcile needs a store: without one every audit looks abandoned');
+    }
+    const cutoff = this.#cutoff;
+    if (cutoff === null) throw new Error('call recover() before reconcile()');
+
+    const live = new Set<string>();
+    for (const state of ['queued', 'running'] as const) {
+      for (const job of this.#queue.list(state)) live.add(job.payload.auditId);
+    }
+
+    const open = await this.#db
+      .select({ id: audits.id })
+      .from(audits)
+      .where(
+        and(
+          inArray(audits.status, ['pending', 'running']),
+          lt(audits.createdAt, cutoff),
+          ...(options.siteIds === undefined
+            ? []
+            : [inArray(audits.siteId, [...options.siteIds])]),
+        ),
+      );
+
+    const orphaned = open.map((row) => row.id).filter((id) => !live.has(id));
+    if (orphaned.length === 0) return 0;
+
+    await this.#db
+      .update(audits)
+      .set({ status: 'failed', finishedAt: new Date(), error: ORPHANED_AUDIT_ERROR })
+      .where(inArray(audits.id, orphaned));
+    return orphaned.length;
+  }
+
+  /**
    * Stop an audit. One still queued never starts; one already running is
-   * signalled and stops at its next checkpoint — which, until the crawl loop
-   * takes a signal of its own, is after the crawl it started has finished.
+   * signalled, and its crawl stops after at most the one request already in
+   * flight rather than at the end of its page budget.
    *
    * Returns false when the audit is unknown to this process or already over.
    */
@@ -305,6 +382,20 @@ export class AuditScheduler {
       .set({ status: 'pending', startedAt: null, finishedAt: null })
       .where(eq(audits.id, attempt.job.payload.auditId));
     return delayMs;
+  }
+
+  /**
+   * The database's idea of now.
+   *
+   * Every timestamp `reconcile` compares against was written by Postgres, so
+   * the boundary has to be Postgres's too.
+   */
+  async #databaseNow(): Promise<Date> {
+    const rows = (await this.#db.execute(sql`select now() as now`)) as unknown as readonly {
+      readonly now: Date;
+    }[];
+    const now = rows[0]?.now;
+    return now instanceof Date ? now : new Date();
   }
 
   #optionsFor(origin: string, request: AuditRequest): CrawlOptions {

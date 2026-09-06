@@ -41,8 +41,8 @@ Last updated: 2026-09-05
 - [ ] Handle multiple concurrent site audits without resource contention
 - [x] Back the job queue with durable storage so a restart does not lose queued audits (@seo/queue: a `JobStore` seam; @seo/job-store: the `jobs` table behind it; @seo/scheduler: `recover()` on the way up)
 - [ ] Expire and renew job leases so a second worker can share one queue namespace (the `owner` and `leased_at` columns exist and are stamped; nothing reads them yet)
-- [ ] Reconcile audits left `pending` with no job behind them — recovery only finds work the store knows about, so a row lost before its job was written stays invisible
-- [ ] Give crawl() cooperative cancellation so a cancelled job stops mid-crawl rather than at the end
+- [x] Reconcile audits left `pending` with no job behind them (@seo/scheduler: `reconcile()` closes out rows nothing is going to run, bounded by the database clock at recovery)
+- [x] Give crawl() cooperative cancellation so a cancelled job stops mid-crawl rather than at the end (@seo/crawler: a `signal` checked between requests and inside the politeness delay; a cancelled crawl reads `cancelled`, not `failed`)
 - [x] Grade probe evidence into checkStates and freeze readiness on the audit (@seo/grader: verdicts, evidence trail, frozen readiness)
 - [ ] Implement more of the corpus's 128 detectors — 33 today, which is what limits grading to 10 of 97 checks
 
@@ -75,6 +75,12 @@ Last updated: 2026-09-05
 ## Blocked
 
 ## Decisions
+- 2026-09-05: made crawl cancellation a check between requests rather than an abort of the request in flight, because abandoning a response already on the wire saves the site nothing and hands the extractor a half-read body; the guarantee worth making is "no further requests", which is the one the site can feel
+- 2026-09-05: made the politeness delay interruptible, because it is the one part of a crawl deliberately measured in seconds and waiting it out would have made it the floor on how long cancelling takes — nobody is owed the pause before a request that will not be made
+- 2026-09-05: closed a cancelled crawl out as `cancelled` with a null error rather than `failed` with one, so a report never sends someone looking for a fault where a person simply stopped the work; `runAudit` restates `CrawlCancelledError` as `JobCancelledError` so the queue and the retry policy see one identity for it
+- 2026-09-05: had `reconcile()` mark orphaned audits `failed` rather than re-enqueue them, because the crawl budget and seeds a caller asked for live only in the job payload that was lost — resubmitting under this process's defaults would quietly run a different audit than the one requested
+- 2026-09-05: took reconcile's cutoff from the database clock at recovery rather than `new Date()` in the process, because every timestamp it compares against was written by Postgres and a sweep whose correctness depends on two machines agreeing about the time will eventually be wrong on a laptop that slept
+- 2026-09-05: made reconcile refuse to run before `recover()` and refuse entirely without a store, because in either case every pending audit looks abandoned and the sweep would fail the whole backlog instead of the lost rows
 - 2026-09-05: backed the queue with a Postgres `jobs` table rather than Redis, superseding the 2026-09-04 expectation that durability would arrive as Redis — the audit's durable record already lives in Postgres, and a second store would be a second source of truth to reconcile after exactly the restart it exists to survive, for an operational component nothing else in the system needs yet
 - 2026-09-05: put durability behind a three-method `JobStore` the queue is handed, rather than in the queue itself, so @seo/queue keeps knowing nothing about Postgres and the memory-only path stays the default — a test, and the offline analyzer, must not need a database to run a queue
 - 2026-09-05: made only the enqueue write blocking, and every later transition best-effort, because a job that is not written down is work a restart drops, while a `running` update that was lost costs at most one repeated run — failing an audit over a storage blip would be the opposite of what a durable queue is for

@@ -39,6 +39,17 @@ export interface CrawlOptions {
   readonly respectRobots?: boolean;
   readonly followSitemaps?: boolean;
   readonly timeoutMs?: number;
+  /**
+   * Stops the crawl where it stands, throwing `CrawlCancelledError`.
+   *
+   * Cooperative and checked between requests, not inside one: the request in
+   * flight when the signal arrives is allowed to finish, because abandoning it
+   * saves the site nothing — the bytes are already on their way — and because a
+   * half-read response is not something the extractor should be handed. So the
+   * guarantee is "no further requests", which is the one that matters to the
+   * site being crawled.
+   */
+  readonly signal?: AbortSignal;
   /** Injection seam for tests and for replaying a stored crawl. */
   readonly fetchImpl?: typeof fetchPage;
   /** Called as each page completes, so a long crawl can stream to storage. */
@@ -67,8 +78,51 @@ interface QueueEntry {
 
 const HTML = /^(text\/html|application\/xhtml\+xml)/i;
 
-const sleep = (ms: number): Promise<void> =>
-  ms <= 0 ? Promise.resolve() : new Promise((resolve) => setTimeout(resolve, ms));
+/**
+ * Thrown when a crawl is stopped by its caller's signal.
+ *
+ * A crawl that was cancelled is not a crawl that failed, and the two must stay
+ * distinguishable all the way to the report: one is something a person did, the
+ * other is something to look into. Whatever the crawl had already streamed
+ * through `onPage` stays written — the pages fetched before the stop are
+ * evidence, not debris.
+ */
+export class CrawlCancelledError extends Error {
+  constructor() {
+    super('the crawl was cancelled');
+    this.name = 'CrawlCancelledError';
+  }
+}
+
+const stopIfCancelled = (signal: AbortSignal | undefined): void => {
+  if (signal?.aborted === true) throw new CrawlCancelledError();
+};
+
+/**
+ * The politeness delay, interruptible.
+ *
+ * A plain `setTimeout` would make the delay the floor on how long cancelling
+ * takes, and the delay is the one part of a crawl deliberately measured in
+ * seconds. Waiting it out before noticing would also be the wrong shape of
+ * politeness: nobody is owed the pause before a request that is not going to
+ * be made.
+ */
+const sleep = (ms: number, signal?: AbortSignal): Promise<void> => {
+  stopIfCancelled(signal);
+  if (ms <= 0) return Promise.resolve();
+
+  return new Promise((resolve, reject) => {
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(new CrawlCancelledError());
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+};
 
 async function loadRobots(
   origin: string,
@@ -103,6 +157,7 @@ async function loadSitemaps(
   const urls = new Set<string>();
 
   while (queue.length > 0 && seen.size < 50) {
+    stopIfCancelled(options.signal);
     const next = queue.shift();
     if (next === undefined || seen.has(next)) continue;
     seen.add(next);
@@ -128,6 +183,7 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
   const firstSeed = options.seeds[0];
   if (firstSeed === undefined) throw new Error('a crawl needs at least one seed URL');
 
+  stopIfCancelled(options.signal);
   const { robots, text: robotsTxt } = await loadRobots(firstSeed, options, request);
   const delayMs = Math.max(options.requestDelayMs ?? 0, crawlDelayMs(robots, options.userAgent));
 
@@ -161,9 +217,12 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
   let first = true;
 
   while (queue.length > 0 && pages.length < options.maxPages) {
+    // Checked here and again inside the delay, so the longest a cancelled
+    // crawl keeps going is the single request already in flight.
+    stopIfCancelled(options.signal);
     const entry = queue.shift();
     if (entry === undefined) break;
-    if (!first) await sleep(delayMs);
+    if (!first) await sleep(delayMs, options.signal);
     first = false;
 
     const result = await request(entry.url, {

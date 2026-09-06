@@ -16,7 +16,7 @@ import { eq } from 'drizzle-orm';
 import { loadCorpus } from '@seo/corpus';
 import { audits, createDatabase, jobs, sites } from '@seo/db';
 import { PostgresJobStore } from '@seo/job-store';
-import { AuditScheduler, PermanentAuditError } from '@seo/scheduler';
+import { AuditScheduler, ORPHANED_AUDIT_ERROR, PermanentAuditError } from '@seo/scheduler';
 import type { AuditJob, CrawlBudget } from '@seo/scheduler';
 import { startFixtureSite } from '@seo/testkit';
 import type { FixtureSite } from '@seo/testkit';
@@ -144,5 +144,80 @@ describe.skipIf(!url)('an audit across a restart', () => {
     const scheduler = new AuditScheduler({ db, corpus, crawl: BUDGET, paused: true });
     expect(await scheduler.recover()).toBe(0);
     await scheduler.close();
+  });
+
+  describe('reconciling rows nothing is going to run', () => {
+    // Scoped to this file's own site: `audits` is shared, and a database-wide
+    // sweep would close out audits belonging to a test running beside this one.
+    const scope = () => ({ siteIds: [siteId] });
+
+    it('closes out an audit with no job behind it', async () => {
+      // What a lost enqueue leaves: a row, and nothing on its way to run it.
+      const [orphan] = await db
+        .insert(audits)
+        .values({ siteId, corpusVersion: '4.4' })
+        .returning({ id: audits.id });
+
+      const scheduler = new AuditScheduler({
+        db,
+        corpus,
+        crawl: BUDGET,
+        store: store(),
+        paused: true,
+      });
+      await scheduler.recover();
+      expect(await scheduler.reconcile(scope())).toBeGreaterThanOrEqual(1);
+
+      const row = await auditRow(orphan!.id);
+      expect(row?.status).toBe('failed');
+      expect(row?.error).toBe(ORPHANED_AUDIT_ERROR);
+      expect(row?.finishedAt).toBeInstanceOf(Date);
+
+      await scheduler.close();
+    });
+
+    it('leaves a recovered audit alone', async () => {
+      const dying = new AuditScheduler({
+        db,
+        corpus,
+        crawl: BUDGET,
+        store: store(),
+        paused: true,
+      });
+      const submitted = await dying.submit({ siteId, corpusVersion: '4.4' });
+
+      const revived = new AuditScheduler({
+        db,
+        corpus,
+        crawl: BUDGET,
+        store: store(),
+        paused: true,
+      });
+      expect(await revived.recover()).toBe(1);
+      await revived.reconcile(scope());
+
+      // It has a job behind it, so it is queued work rather than a lost row.
+      expect((await auditRow(submitted.auditId))?.status).toBe('pending');
+      await revived.close();
+    });
+
+    it('refuses to run before recovery, or without a store', async () => {
+      const unrecovered = new AuditScheduler({
+        db,
+        corpus,
+        crawl: BUDGET,
+        store: store(),
+        paused: true,
+      });
+      await expect(unrecovered.reconcile(scope())).rejects.toThrow('call recover()');
+      await unrecovered.close();
+
+      // Without a store nothing is written down, so every pending audit would
+      // look abandoned and the sweep would fail the entire backlog.
+      const storeless = new AuditScheduler({ db, corpus, crawl: BUDGET, paused: true });
+      await storeless.recover();
+      await expect(storeless.reconcile(scope())).rejects.toThrow('needs a store');
+      await storeless.close();
+    });
   });
 });

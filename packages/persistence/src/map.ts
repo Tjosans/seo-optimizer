@@ -13,7 +13,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { crawlDelayMs, normalizeUrl } from '@seo/crawler';
+import { CrawlCancelledError, crawlDelayMs, normalizeUrl } from '@seo/crawler';
 import type { CrawlOptions, CrawlResult, CrawledPage } from '@seo/crawler';
 import type { crawls, pageLinks, pages, probeResults, renders } from '@seo/db';
 import type { ProbeRun } from '@seo/probes';
@@ -92,10 +92,21 @@ export function toCrawlCompletion(
 }
 
 /** Marker so a failed crawl says why, without inventing a verdict about the site. */
+/**
+ * Close a crawl out on the way it ended.
+ *
+ * A crawl someone stopped is `cancelled` with no error, not `failed` with one:
+ * a failed crawl is something to investigate and a cancelled one is something a
+ * person did, and a report that ran them together would send someone looking
+ * for a fault that was never there.
+ */
 export function toCrawlFailure(
   cause: unknown,
   finishedAt: Date = new Date(),
 ): Pick<NewCrawl, 'status' | 'finishedAt' | 'error'> {
+  if (cause instanceof CrawlCancelledError) {
+    return { status: 'cancelled', finishedAt, error: null };
+  }
   return {
     status: 'failed',
     finishedAt,

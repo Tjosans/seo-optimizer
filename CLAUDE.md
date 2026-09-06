@@ -10,7 +10,7 @@ seo-optimizer is an SEO launch-readiness auditor. It crawls a site, runs it agai
 
 - **@seo/core** — types for checks, check state, readiness scoring
 - **@seo/corpus** — loader for the v4.4 check corpus (YAML phases 0-7, source TSV)
-- **@seo/crawler** — site crawler respecting robots.txt, redirect chains, sitemaps
+- **@seo/crawler** — site crawler respecting robots.txt, redirect chains, sitemaps; stops between requests on a caller's signal
 - **@seo/probes** — 6 detector categories (delivery, indexability, markup, media, metadata, site)
 - **@seo/persistence** — sink that streams crawls and probe runs into Postgres
 - **@seo/queue** — in-process job queue: bounded concurrency, one crawl at a time per origin, retries on a caller's policy, outstanding work written to an optional durable store
@@ -74,8 +74,16 @@ Key scripts:
 - Only the enqueue write blocks. `submit()` does not resolve until the job is written down, so an id handed back is a promise the work will happen. Every later transition is best-effort — a lost update costs a repeated run, never a lost audit.
 - Settled jobs are deleted from `jobs`. What became of an audit is already on `audits`.
 - Delivery is at-least-once: a process that dies between a handler returning and the removal landing runs that job again. Handlers must tolerate a repeat, which an audit already does.
-- Recovery only finds work the store knows about. An `audits` row that reads `pending` with no job row behind it stays invisible until someone resubmits it.
+- Recovery only finds work the store knows about. `scheduler.reconcile()` is the sweep for the rest: a row from before this process started, with no job behind it, is closed out as `failed` with `ORPHANED_AUDIT_ERROR` rather than left pending forever. Call it after `recover()`; it refuses to run before, and refuses without a store, because either way every pending audit would look abandoned.
 - One process per `queue` namespace. `owner` and `leased_at` are stamped for diagnostics and to leave the claim in the right shape, but nothing enforces single ownership yet.
+
+### What cancelling does
+
+- `scheduler.cancel(auditId)` on a queued audit means it never starts. On a running one the signal reaches `crawl()`, which checks it between requests and inside the politeness delay, so the crawl stops after at most the one request already in flight.
+- The request in flight is allowed to finish. Abandoning it saves the site nothing — the bytes are already coming — and a half-read response is not something to hand the extractor.
+- Pages already streamed to the database stay. They are evidence of what was there, not debris.
+- Both the `audits` row and the `crawls` row read `cancelled` with a null `error`. A cancelled audit is something a person did; a failed one is something to investigate, and the two must not be confused in a report.
+- Cancellation is never retried. `runAudit` restates the crawler's `CrawlCancelledError` as `JobCancelledError`, which `auditRetryPolicy` treats as permanent.
 
 ### What a retry is and is not
 
@@ -108,9 +116,9 @@ Together these let the sink resolve `discoveredFromId` from an in-memory map. Br
 
 ## Testing
 
-Unit tests (no database needed): `packages/corpus/test/corpus.test.ts`, `packages/crawler/test/{crawl,robots,url}.test.ts`, `packages/probes/test/{probes,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store}.test.ts`, `packages/grader/test/grade.test.ts`, `packages/scheduler/test/retry.test.ts`.
+Unit tests (no database needed): `packages/corpus/test/corpus.test.ts`, `packages/crawler/test/{crawl,cancel,robots,url}.test.ts`, `packages/probes/test/{probes,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store}.test.ts`, `packages/grader/test/grade.test.ts`, `packages/scheduler/test/retry.test.ts`.
 
-Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/{scheduler,recovery}.test.ts`, `packages/job-store/test/postgres.test.ts`, `packages/grader/test/record.test.ts`.
+Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/{scheduler,recovery,cancel}.test.ts`, `packages/job-store/test/postgres.test.ts`, `packages/grader/test/record.test.ts`.
 
 All tests skip gracefully if `DATABASE_URL` is unset — which means a green local run does not prove the database layer works. `vitest.config.ts` aliases packages to source, so no build step is needed during test.
 
@@ -160,4 +168,4 @@ scripts/{compile-corpus,probe-matrix,triage}.ts
 
 ## What to pick up next
 
-`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; what remains is cooperative cancellation inside `crawl()`, lease expiry so a second worker can share a queue, reconciling audits left `pending` with no job behind them, and detector coverage — 95 of the corpus's 128 detectors are unimplemented, which is the single thing most limiting what an audit can say. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.
+`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; what remains is lease expiry so a second worker can share a queue, and detector coverage — 95 of the corpus's 128 detectors are unimplemented, which is the single thing most limiting what an audit can say. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.

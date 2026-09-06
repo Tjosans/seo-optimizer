@@ -19,11 +19,15 @@
  *   origin queue behind each other and the site sees the request rate the crawl
  *   loop promised it.
  *
- * The queue is in-process and holds its state in memory: a restart loses what
- * was queued. That is the same trade the crawl loop makes and it is fine for a
- * library, but it is why an API-triggered scheduler needs a durable store
- * behind this before it can promise an audit will actually run (ROADMAP Phase
- * 4). The public surface here is the seam that change goes through.
+ * Scheduling state stays in memory — which lane is busy, which slot just freed,
+ * which job is next — because none of it needs to outlive the process. What
+ * does is the fact that work was asked for and has not happened, and that goes
+ * to an optional `JobStore`: written at enqueue, updated on every transition,
+ * removed when the job settles, and read back by `recover` on the way up. With
+ * one attached, a restart resumes what was queued instead of dropping it; with
+ * none, the queue behaves exactly as it did before, which is what keeps it
+ * usable in a test and in the offline analyzer. See `./store.ts` for what the
+ * store does and does not promise.
  *
  * Retries are mechanism here and policy elsewhere. This file knows how to hold
  * a failed job back, wake it and run it again; it holds no opinion on which
@@ -35,6 +39,7 @@
 
 import { JobCancelledError } from './types.js';
 import type { RetryPolicy } from './retry.js';
+import type { JobStore, StoredJob } from './store.js';
 import type { Job, JobEvent, JobHandler, JobState } from './types.js';
 
 export interface JobQueueOptions<TPayload, TResult> {
@@ -49,6 +54,25 @@ export interface JobQueueOptions<TPayload, TResult> {
    * starts — the job stays this queue's responsibility throughout.
    */
   readonly retry?: RetryPolicy<TPayload>;
+  /**
+   * Where outstanding jobs are written down, so a restart can resume them.
+   *
+   * Without one the queue is memory-only and a restart loses what was queued.
+   * With one, `enqueue` is not durable until the returned handle's `stored`
+   * resolves — await it when the caller needs the guarantee, ignore it when a
+   * lost job is acceptable.
+   */
+  readonly store?: JobStore<TPayload>;
+  /**
+   * Called when a store write fails after the job was created.
+   *
+   * Those writes are best-effort by design: a job whose `running` update was
+   * lost still runs, and the cost of the loss is that a restart runs it again.
+   * Failing the job instead would turn a storage blip into a lost audit, which
+   * is the thing the store exists to prevent. The handler is how an operator
+   * finds out the store is unwell.
+   */
+  readonly onStoreError?: (error: unknown, job: Job<TPayload>) => void;
   /** Called on every state transition. Throwing from it never fails a job. */
   readonly onEvent?: (event: JobEvent<TPayload>) => void;
   /** Start paused, so a caller can enqueue a batch before anything runs. */
@@ -77,6 +101,16 @@ export interface JobHandle<TPayload, TResult> {
   /** The job as it stands now. */
   snapshot(): Job<TPayload>;
   /**
+   * Resolves once the job is durable, and immediately when there is no store.
+   *
+   * This is the promise a caller awaits to mean "queued" honestly. Until it
+   * settles the job cannot start, and if it rejects the job never runs and
+   * `done` rejects with the same error — a job the store would not accept was
+   * never really enqueued, and reporting it as queued would be the lie the
+   * store was added to stop telling.
+   */
+  readonly stored: Promise<void>;
+  /**
    * The handler's result. Rejects with whatever the handler threw, or with a
    * `JobCancelledError` if the job was cancelled.
    */
@@ -92,6 +126,8 @@ interface Entry<TPayload, TResult> {
   readonly controller: AbortController;
   readonly resolve: (result: TResult) => void;
   readonly reject: (cause: unknown) => void;
+  /** Settled by `#settle`. Held on the entry because a recovered job has no handle. */
+  readonly done: Promise<TResult>;
   state: JobState;
   attempt: number;
   startedAt: Date | null;
@@ -108,6 +144,17 @@ interface Entry<TPayload, TResult> {
   error: string | null;
   /** Set by `cancel` on a running job; read once the handler returns. */
   cancelRequested: boolean;
+  /**
+   * Whether the job's first store write has landed. A `pending` job is skipped
+   * by `#take`, so nothing runs before it is durable.
+   */
+  durability: 'none' | 'pending' | 'stored';
+  /**
+   * Serializes this job's store writes. Transitions are generated faster than
+   * a database answers, and two updates racing could leave the stored state
+   * behind the real one — for a retry backoff, by the whole delay.
+   */
+  storeChain: Promise<void>;
 }
 
 const TERMINAL: ReadonlySet<JobState> = new Set<JobState>(['complete', 'failed', 'cancelled']);
@@ -120,6 +167,8 @@ export class JobQueue<TPayload, TResult = void> {
 
   readonly #handler: JobHandler<TPayload, TResult>;
   readonly #retry: RetryPolicy<TPayload> | undefined;
+  readonly #store: JobStore<TPayload> | undefined;
+  readonly #onStoreError: ((error: unknown, job: Job<TPayload>) => void) | undefined;
   readonly #onEvent: ((event: JobEvent<TPayload>) => void) | undefined;
   readonly #now: () => Date;
   readonly #historyLimit: number;
@@ -136,6 +185,14 @@ export class JobQueue<TPayload, TResult = void> {
   #closed = false;
   /** Failed jobs whose retry policy has not answered yet. Not idle. */
   #deciding = 0;
+  /**
+   * Store writes still in flight. Counted into `idle` so `drain` and `close`
+   * wait for them: a caller that shuts down on drain and takes the process
+   * with it would otherwise leave finished jobs stored, and a restart would
+   * run them again.
+   */
+  #writes = 0;
+  #recovered = false;
   #retryTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(options: JobQueueOptions<TPayload, TResult>) {
@@ -145,6 +202,8 @@ export class JobQueue<TPayload, TResult = void> {
     this.concurrency = options.concurrency;
     this.#handler = options.handler;
     this.#retry = options.retry;
+    this.#store = options.store;
+    this.#onStoreError = options.onStoreError;
     this.#onEvent = options.onEvent;
     this.#now = options.now ?? (() => new Date());
     this.#historyLimit = options.historyLimit ?? 500;
@@ -169,9 +228,22 @@ export class JobQueue<TPayload, TResult = void> {
     return this.#closed;
   }
 
-  /** True when nothing is waiting, running, or awaiting a retry decision. */
+  /**
+   * True when nothing is waiting, running, awaiting a retry decision, or
+   * still being written to the store.
+   */
   get idle(): boolean {
-    return this.#queued.length === 0 && this.#active.size === 0 && this.#deciding === 0;
+    return (
+      this.#queued.length === 0 &&
+      this.#active.size === 0 &&
+      this.#deciding === 0 &&
+      this.#writes === 0
+    );
+  }
+
+  /** Whether jobs are being written down at all. */
+  get durable(): boolean {
+    return this.#store !== undefined;
   }
 
   enqueue(payload: TPayload, options: EnqueueOptions = {}): JobHandle<TPayload, TResult> {
@@ -180,6 +252,105 @@ export class JobQueue<TPayload, TResult = void> {
     const id = options.id ?? crypto.randomUUID();
     if (this.#byId.has(id)) throw new Error(`a job with id ${id} already exists`);
 
+    const entry = this.#newEntry({
+      id,
+      payload,
+      lane: options.lane ?? null,
+      priority: options.priority ?? 0,
+      enqueuedAt: this.#now(),
+      attempt: 0,
+      notBefore: null,
+      error: null,
+    });
+
+    // The create is the one store write the queue refuses to treat as
+    // best-effort, and the one it will not let a job outrun: until it lands the
+    // job is skipped by `#take`, so nothing runs that a restart could not find.
+    const stored = this.#create(entry);
+
+    this.#admit(entry);
+    return {
+      id,
+      snapshot: () => snapshot(entry),
+      stored,
+      done: entry.done,
+    };
+  }
+
+  /**
+   * Take back the outstanding jobs from the store and queue them.
+   *
+   * Call once, on the way up, before submitting anything new. Jobs come back
+   * `queued` whatever they were when the process stopped, keeping their attempt
+   * count, and one that was mid-retry keeps whatever is left of its backoff — a
+   * wait that exists to give an outage time to clear is not served by a restart
+   * cancelling it. Ids already known here are skipped, so a second call adds
+   * nothing rather than duplicating work.
+   *
+   * Returns the jobs it queued, so a caller that keeps its own record of them
+   * can bring that record back in line — @seo/scheduler puts each restored
+   * audit's row back to `pending`, because a row still reading `running` from a
+   * process that no longer exists is a status nobody can act on.
+   */
+  async recover(): Promise<readonly Job<TPayload>[]> {
+    if (this.#store === undefined) return [];
+    if (this.#recovered) throw new Error('recover has already run on this queue');
+    if (this.#closed) throw new Error('cannot recover a closed queue');
+    this.#recovered = true;
+
+    const stored = await this.#store.load();
+    const restored: Job<TPayload>[] = [];
+    for (const job of stored) {
+      if (this.#byId.has(job.id)) continue;
+
+      const entry = this.#newEntry({
+        id: job.id,
+        payload: job.payload,
+        lane: job.lane,
+        priority: job.priority,
+        enqueuedAt: job.enqueuedAt,
+        attempt: job.attempt,
+        notBefore: job.nextAttemptAt,
+        error: job.error,
+      });
+      // It came out of the store, so it is already in it. Marking it stored
+      // rather than writing it back keeps recovery a read.
+      entry.durability = 'stored';
+      if (job.nextAttemptAt !== null) {
+        entry.dueAt = Math.max(Date.now(), job.nextAttemptAt.getTime());
+      }
+
+      this.#admit(entry);
+      restored.push(snapshot(entry));
+    }
+    return restored;
+  }
+
+  /** Everything the queue would write down for `entry` as it stands. */
+  #stored(entry: Entry<TPayload, TResult>): StoredJob<TPayload> {
+    return {
+      id: entry.id,
+      payload: entry.payload,
+      lane: entry.lane,
+      priority: entry.priority,
+      state: entry.state,
+      attempt: entry.attempt,
+      enqueuedAt: entry.enqueuedAt,
+      nextAttemptAt: entry.notBefore,
+      error: entry.error,
+    };
+  }
+
+  #newEntry(seed: {
+    readonly id: string;
+    readonly payload: TPayload;
+    readonly lane: string | null;
+    readonly priority: number;
+    readonly enqueuedAt: Date;
+    readonly attempt: number;
+    readonly notBefore: Date | null;
+    readonly error: string | null;
+  }): Entry<TPayload, TResult> {
     let resolve!: (result: TResult) => void;
     let reject!: (cause: unknown) => void;
     const done = new Promise<TResult>((res, rej) => {
@@ -187,39 +358,113 @@ export class JobQueue<TPayload, TResult = void> {
       reject = rej;
     });
     // A caller is free to ignore `done` — a fire-and-forget batch is the normal
-    // case — so the rejection is claimed here rather than left to crash the
-    // process as an unhandled one. Awaiting `done` later still rejects.
+    // case, and a recovered job has no caller at all — so the rejection is
+    // claimed here rather than left to crash the process as an unhandled one.
+    // Awaiting `done` later still rejects.
     done.catch(() => {});
 
-    const entry: Entry<TPayload, TResult> = {
-      id,
-      payload,
-      lane: options.lane ?? null,
-      priority: options.priority ?? 0,
-      enqueuedAt: this.#now(),
+    return {
+      id: seed.id,
+      payload: seed.payload,
+      lane: seed.lane,
+      priority: seed.priority,
+      enqueuedAt: seed.enqueuedAt,
       controller: new AbortController(),
       resolve,
       reject,
+      done,
       state: 'queued',
-      attempt: 0,
+      attempt: seed.attempt,
       startedAt: null,
       finishedAt: null,
-      notBefore: null,
+      notBefore: seed.notBefore,
       dueAt: null,
-      error: null,
+      error: seed.error,
       cancelRequested: false,
+      durability: this.#store === undefined ? 'none' : 'pending',
+      storeChain: Promise.resolve(),
     };
+  }
 
-    this.#byId.set(id, entry);
+  #admit(entry: Entry<TPayload, TResult>): void {
+    this.#byId.set(entry.id, entry);
     this.#queued.push(entry);
     this.#emit({ type: 'enqueued', job: snapshot(entry) });
     this.#pump();
+  }
 
-    return {
-      id,
-      snapshot: () => snapshot(entry),
-      done,
-    };
+  /**
+   * Write a new job down, and hold it back until that lands.
+   *
+   * A store that refuses the job fails it here rather than running it. The
+   * caller was about to be told the work is queued, and a job that is not
+   * written down is precisely the work a restart drops.
+   */
+  #create(entry: Entry<TPayload, TResult>): Promise<void> {
+    const store = this.#store;
+    if (store === undefined) return Promise.resolve();
+
+    this.#writes += 1;
+    const write = store.save(this.#stored(entry)).then(
+      () => {
+        entry.durability = 'stored';
+      },
+      (error: unknown) => {
+        // Nothing has started, so there is nothing to stop: it never runs.
+        const index = this.#queued.indexOf(entry);
+        if (index >= 0) this.#queued.splice(index, 1);
+        if (!TERMINAL.has(entry.state)) this.#settle(entry, 'failed', error);
+        throw error;
+      },
+    );
+    entry.storeChain = write.then(
+      () => {},
+      () => {},
+    );
+
+    const settled = write.finally(() => {
+      this.#writes -= 1;
+      this.#pump();
+    });
+    // Claimed here so a caller who ignores `stored` does not crash the process.
+    settled.catch(() => {});
+    return settled;
+  }
+
+  /**
+   * Update or remove a stored job, behind that job's own earlier writes.
+   *
+   * Best-effort: a failure is reported and otherwise swallowed. By the time one
+   * of these runs the job is already going or already over, and the worst a
+   * lost write costs is that a restart sees a staler version of it than the
+   * truth. Failing the job instead would turn a storage blip into a lost audit,
+   * which is the thing the store exists to prevent.
+   */
+  #persist(entry: Entry<TPayload, TResult>, op: 'save' | 'remove'): void {
+    const store = this.#store;
+    if (store === undefined || entry.durability === 'none') return;
+
+    const job = op === 'save' ? this.#stored(entry) : undefined;
+    this.#writes += 1;
+    entry.storeChain = entry.storeChain
+      .then(() => (job === undefined ? store.remove(entry.id) : store.save(job)))
+      .catch((error: unknown) => {
+        this.#reportStoreError(error, entry);
+      })
+      .finally(() => {
+        this.#writes -= 1;
+        this.#checkIdle();
+      });
+  }
+
+  /** A store that will not take a write is an operational fact, not a job's. */
+  #reportStoreError(error: unknown, entry: Entry<TPayload, TResult>): void {
+    if (this.#onStoreError === undefined) return;
+    try {
+      this.#onStoreError(error, snapshot(entry));
+    } catch {
+      // deliberately ignored
+    }
   }
 
   /**
@@ -327,6 +572,7 @@ export class JobQueue<TPayload, TResult = void> {
     const now = Date.now();
     let earliest: number | undefined;
     for (const entry of this.#queued) {
+      if (entry.durability === 'pending') continue;
       if (entry.dueAt === null || entry.dueAt <= now) continue;
       if (earliest === undefined || entry.dueAt < earliest) earliest = entry.dueAt;
     }
@@ -348,6 +594,7 @@ export class JobQueue<TPayload, TResult = void> {
     for (let i = 0; i < this.#queued.length; i += 1) {
       const candidate = this.#queued[i];
       if (candidate === undefined) continue;
+      if (candidate.durability === 'pending') continue;
       if (candidate.lane !== null && this.#busyLanes.has(candidate.lane)) continue;
       if (candidate.dueAt !== null && candidate.dueAt > Date.now()) continue;
       const incumbent = best === -1 ? undefined : this.#queued[best];
@@ -365,6 +612,11 @@ export class JobQueue<TPayload, TResult = void> {
     entry.dueAt = null;
     this.#active.add(entry);
     if (entry.lane !== null) this.#busyLanes.add(entry.lane);
+    // Recorded before the handler is called, and not awaited. The attempt
+    // number is the part that matters: a job that takes the process down with
+    // it must come back having used an attempt, or a poison payload would be
+    // retried by every restart forever.
+    this.#persist(entry, 'save');
     this.#emit({ type: 'started', job: snapshot(entry) });
 
     let result: TResult | undefined;
@@ -451,6 +703,7 @@ export class JobQueue<TPayload, TResult = void> {
     entry.notBefore = new Date(this.#now().getTime() + delayMs);
     entry.dueAt = Date.now() + delayMs;
     this.#queued.push(entry);
+    this.#persist(entry, 'save');
     this.#emit({ type: 'retrying', job: snapshot(entry), cause, delayMs });
   }
 
@@ -475,6 +728,7 @@ export class JobQueue<TPayload, TResult = void> {
       entry.reject(cause);
     }
 
+    this.#persist(entry, 'remove');
     this.#remember(entry.id);
   }
 

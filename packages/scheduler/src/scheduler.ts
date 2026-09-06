@@ -29,17 +29,25 @@
  * status a failed attempt wrote is reopened to `pending` before the wait
  * starts, and only the last attempt's failure is left standing as `failed`.
  *
- * State lives in memory, so a restart loses what was queued and leaves those
- * audits `pending` forever. That is the durable-store item in ROADMAP Phase 4,
- * and it is the reason this is not yet safe to put behind a public API.
+ * A queue given a `store` survives a restart: outstanding audits are written to
+ * the `jobs` table as they are submitted, and `recover` on the way up reads them
+ * back and puts each row to `pending` before anything runs again. Without one
+ * the scheduler is memory-only, and a restart leaves those audits `pending`
+ * forever with nothing on its way to run them — fine for a test, not something
+ * to put a public API in front of.
+ *
+ * What recovery does *not* do is find audits the store never knew about. A row
+ * that reads `pending` with no job behind it — submitted before this table
+ * existed, or lost to a store that refused the write — is invisible here and
+ * stays that way until someone resubmits it.
  */
 
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import type { CrawlOptions } from '@seo/crawler';
 import { audits, sites } from '@seo/db';
 import type { Database } from '@seo/db';
 import { JobQueue } from '@seo/queue';
-import type { Job, JobEvent, RetryAttempt, RetryPolicy } from '@seo/queue';
+import type { Job, JobEvent, JobStore, RetryAttempt, RetryPolicy } from '@seo/queue';
 import { auditRetryPolicy } from './retry.js';
 import { runAudit } from './run-audit.js';
 import { UnknownSiteError } from './types.js';
@@ -76,6 +84,17 @@ export interface AuditSchedulerOptions {
    * could fix. Pass `false` to let every failure stand on its first attempt.
    */
   readonly retry?: RetryPolicy<AuditJob> | false;
+  /**
+   * Where queued audits are written down, so a restart resumes them.
+   *
+   * Pass a `PostgresJobStore` from @seo/job-store in anything long-lived.
+   * Without one the scheduler keeps its queue in memory only, and `submit`
+   * resolving means the audit row exists — not that anything will ever run it
+   * again after a restart.
+   */
+  readonly store?: JobStore<AuditJob>;
+  /** Told when the store refuses a write for an audit already under way. */
+  readonly onStoreError?: (error: unknown, job: Job<AuditJob>) => void;
   readonly onEvent?: (event: JobEvent<AuditJob>) => void;
   /** Start paused, so a batch can be submitted before anything runs. */
   readonly paused?: boolean;
@@ -99,6 +118,8 @@ export class AuditScheduler {
       ...(policy === undefined
         ? {}
         : { retry: (attempt: RetryAttempt<AuditJob>) => this.#decideRetry(policy, attempt) }),
+      ...(options.store === undefined ? {} : { store: options.store }),
+      ...(options.onStoreError === undefined ? {} : { onStoreError: options.onStoreError }),
       ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
       ...(options.paused === undefined ? {} : { paused: options.paused }),
     });
@@ -117,8 +138,16 @@ export class AuditScheduler {
   /**
    * Create the audit and queue it.
    *
-   * Resolves as soon as the row exists — long before the crawl finishes. Await
-   * the handle's `done` only if you actually want to wait for the result.
+   * Resolves as soon as the audit is queued durably — long before the crawl
+   * finishes. Await the handle's `done` only if you actually want to wait for
+   * the result.
+   *
+   * "Durably" is the part worth being exact about. With a store attached this
+   * waits for the job to be written down before it returns, so an id handed
+   * back is a promise that the work will happen even across a restart. If the
+   * store refuses, the audit is closed out as `failed` and the error is thrown
+   * rather than swallowed: a caller told an audit is queued has no other way to
+   * find out that nothing is going to run it.
    */
   async submit(request: AuditRequest): Promise<AuditHandle> {
     const [site] = await this.#db
@@ -147,7 +176,52 @@ export class AuditScheduler {
     // The audit id doubles as the job id, so `cancel` and `status` take the one
     // identifier a caller was given rather than a second one to keep track of.
     const handle = this.#queue.enqueue(job, { id: audit.id, lane: site.origin });
+    try {
+      await handle.stored;
+    } catch (cause) {
+      await this.#db
+        .update(audits)
+        .set({ status: 'failed', finishedAt: new Date(), error: messageOf(cause) })
+        .where(eq(audits.id, audit.id));
+      throw cause;
+    }
     return { auditId: audit.id, done: handle.done };
+  }
+
+  /**
+   * Resume the audits a previous process left outstanding.
+   *
+   * Call once, before submitting anything. Each recovered audit keeps its id
+   * and its attempt count, and its row goes back to `pending` with the last
+   * error still readable — which is what it is: an audit that was interrupted
+   * and is queued again, not one that failed. A row left reading `running` by a
+   * process that no longer exists is the status this exists to clear.
+   *
+   * The queue is held paused for the length of it, so no recovered audit starts
+   * and overwrites its own row's status before the reset lands.
+   *
+   * Returns how many audits were resumed. Without a store, that is always zero.
+   */
+  async recover(): Promise<number> {
+    const wasPaused = this.#queue.paused;
+    this.#queue.pause();
+    try {
+      const restored = await this.#queue.recover();
+      if (restored.length === 0) return 0;
+
+      await this.#db
+        .update(audits)
+        .set({ status: 'pending', startedAt: null, finishedAt: null })
+        .where(
+          inArray(
+            audits.id,
+            restored.map((job) => job.payload.auditId),
+          ),
+        );
+      return restored.length;
+    } finally {
+      if (!wasPaused) this.#queue.resume();
+    }
   }
 
   /**
@@ -240,3 +314,6 @@ export class AuditScheduler {
     return { ...budget, seeds };
   }
 }
+
+const messageOf = (cause: unknown): string =>
+  cause instanceof Error ? cause.message : String(cause);

@@ -13,8 +13,9 @@ seo-optimizer is an SEO launch-readiness auditor. It crawls a site, runs it agai
 - **@seo/crawler** — site crawler respecting robots.txt, redirect chains, sitemaps
 - **@seo/probes** — 6 detector categories (delivery, indexability, markup, media, metadata, site)
 - **@seo/persistence** — sink that streams crawls and probe runs into Postgres
-- **@seo/queue** — in-process job queue: bounded concurrency, one crawl at a time per origin, retries on a caller's policy
-- **@seo/scheduler** — the front door: submit an audit, get an id back, crawl and probes run on the queue, failures a repeat could fix are retried
+- **@seo/queue** — in-process job queue: bounded concurrency, one crawl at a time per origin, retries on a caller's policy, outstanding work written to an optional durable store
+- **@seo/job-store** — the Postgres `JobStore` behind that queue, so a restart resumes what was queued
+- **@seo/scheduler** — the front door: submit an audit, get an id back, crawl and probes run on the queue, failures a repeat could fix are retried, and `recover()` resumes what a previous process left queued
 - **@seo/grader** — reads probe evidence against the corpus, writes checkStates, freezes readiness
 - **@seo/db** — Drizzle schema, migrations, client factory
 - **@seo/testkit** — in-memory fixture website for tests
@@ -66,6 +67,16 @@ Key scripts:
 
 `@seo/scheduler` drives all five steps for one audit and owns its row's lifecycle; `@seo/queue` decides how many audits run at once and refuses to run two against one origin.
 
+### What durable means here
+
+- The queue keeps scheduling state in memory — busy lanes, free slots, what runs next — and writes the one fact that has to outlive the process to a `JobStore`: this work was asked for and has not happened.
+- `PostgresJobStore` (@seo/job-store) is that store, backed by the `jobs` table. Pass it to `AuditScheduler` as `store`, and call `await scheduler.recover()` once on the way up.
+- Only the enqueue write blocks. `submit()` does not resolve until the job is written down, so an id handed back is a promise the work will happen. Every later transition is best-effort — a lost update costs a repeated run, never a lost audit.
+- Settled jobs are deleted from `jobs`. What became of an audit is already on `audits`.
+- Delivery is at-least-once: a process that dies between a handler returning and the removal landing runs that job again. Handlers must tolerate a repeat, which an audit already does.
+- Recovery only finds work the store knows about. An `audits` row that reads `pending` with no job row behind it stays invisible until someone resubmits it.
+- One process per `queue` namespace. `owner` and `leased_at` are stamped for diagnostics and to leave the claim in the right shape, but nothing enforces single ownership yet.
+
 ### What a retry is and is not
 
 - A retry is the *same* audit running again: one id, one row, a second crawl under it. The failed crawl stays, with whatever it persisted before it died.
@@ -97,9 +108,9 @@ Together these let the sink resolve `discoveredFromId` from an in-memory map. Br
 
 ## Testing
 
-Unit tests (no database needed): `packages/corpus/test/corpus.test.ts`, `packages/crawler/test/{crawl,robots,url}.test.ts`, `packages/probes/test/{probes,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry}.test.ts`, `packages/grader/test/grade.test.ts`, `packages/scheduler/test/retry.test.ts`.
+Unit tests (no database needed): `packages/corpus/test/corpus.test.ts`, `packages/crawler/test/{crawl,robots,url}.test.ts`, `packages/probes/test/{probes,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store}.test.ts`, `packages/grader/test/grade.test.ts`, `packages/scheduler/test/retry.test.ts`.
 
-Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/scheduler.test.ts`, `packages/grader/test/record.test.ts`.
+Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/{scheduler,recovery}.test.ts`, `packages/job-store/test/postgres.test.ts`, `packages/grader/test/record.test.ts`.
 
 All tests skip gracefully if `DATABASE_URL` is unset — which means a green local run does not prove the database layer works. `vitest.config.ts` aliases packages to source, so no build step is needed during test.
 
@@ -124,10 +135,11 @@ packages/
   core/src/{check,state,readiness}.ts
   corpus/src/load.ts
   crawler/src/{crawl,extract,fetch,robots,url}.ts
-  db/src/{schema,enums,client}.ts  +  migrations/0000-0003
+  db/src/{schema,enums,client}.ts  +  migrations/0000-0004
   persistence/src/{crawl-sink,map,probe-results}.ts
   probes/src/{registry,types,matrix}.ts  +  src/probes/*.ts
-  queue/src/{queue,retry,types}.ts
+  queue/src/{queue,retry,store,types}.ts
+  job-store/src/postgres.ts
   scheduler/src/{scheduler,run-audit,retry,types}.ts
   grader/src/{grade,scope,record,types}.ts
   testkit/src/fixture-site.ts
@@ -148,4 +160,4 @@ scripts/{compile-corpus,probe-matrix,triage}.ts
 
 ## What to pick up next
 
-`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`) and the grader (`@seo/grader`) are in; what remains is durable queue storage, cooperative cancellation inside `crawl()`, and detector coverage — 95 of the corpus's 128 detectors are unimplemented, which is the single thing most limiting what an audit can say. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.
+`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; what remains is cooperative cancellation inside `crawl()`, lease expiry so a second worker can share a queue, reconciling audits left `pending` with no job behind them, and detector coverage — 95 of the corpus's 128 detectors are unimplemented, which is the single thing most limiting what an audit can say. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.

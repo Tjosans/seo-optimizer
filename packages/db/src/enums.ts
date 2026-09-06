@@ -104,6 +104,25 @@ export const crawlStatusEnum = pgEnum('crawl_status', [
 ]);
 
 /**
+ * Lifecycle of one queued job. The same five words again, because a job, a
+ * crawl and an audit are one piece of work seen from three heights, and a
+ * report explaining why an audit never finished has to line them up.
+ *
+ * Only `queued` and `running` are ever written today: @seo/queue removes a job
+ * from the store the moment it settles, because what happened to a finished
+ * audit is already recorded on `audits` and a second history would only be
+ * something to keep consistent with the first. The terminal three are here so
+ * that a store which does want to retain them needs no migration.
+ */
+export const jobStateEnum = pgEnum('job_state', [
+  'queued',
+  'running',
+  'complete',
+  'failed',
+  'cancelled',
+]);
+
+/**
  * How a page representation was captured. Detector 1.1 compares the two:
  * `raw` is the server response as delivered, `rendered` is the DOM after
  * client-side JavaScript has run.

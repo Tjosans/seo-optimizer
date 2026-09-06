@@ -29,6 +29,13 @@
       "when": 1787867743077,
       "tag": "0003_flawless_invaders",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788609682521,
+      "tag": "0004_wandering_black_bird",
+      "breakpoints": true
     }
   ]
 }

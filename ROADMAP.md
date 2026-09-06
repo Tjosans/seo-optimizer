@@ -39,7 +39,9 @@ Last updated: 2026-09-05
 - [x] Add audit scheduler to trigger crawls on demand or via API (@seo/scheduler: submit returns an audit id before the crawl runs; one audit at a time per origin)
 - [x] Build retry logic and error recovery for failed audits (@seo/queue: held jobs, backoff, retry-aware cancellation; @seo/scheduler: which failures repeat, and the audit row across attempts)
 - [ ] Handle multiple concurrent site audits without resource contention
-- [ ] Back the job queue with durable storage so a restart does not lose queued audits
+- [x] Back the job queue with durable storage so a restart does not lose queued audits (@seo/queue: a `JobStore` seam; @seo/job-store: the `jobs` table behind it; @seo/scheduler: `recover()` on the way up)
+- [ ] Expire and renew job leases so a second worker can share one queue namespace (the `owner` and `leased_at` columns exist and are stamped; nothing reads them yet)
+- [ ] Reconcile audits left `pending` with no job behind them — recovery only finds work the store knows about, so a row lost before its job was written stays invisible
 - [ ] Give crawl() cooperative cancellation so a cancelled job stops mid-crawl rather than at the end
 - [x] Grade probe evidence into checkStates and freeze readiness on the audit (@seo/grader: verdicts, evidence trail, frozen readiness)
 - [ ] Implement more of the corpus's 128 detectors — 33 today, which is what limits grading to 10 of 97 checks
@@ -73,6 +75,14 @@ Last updated: 2026-09-05
 ## Blocked
 
 ## Decisions
+- 2026-09-05: backed the queue with a Postgres `jobs` table rather than Redis, superseding the 2026-09-04 expectation that durability would arrive as Redis — the audit's durable record already lives in Postgres, and a second store would be a second source of truth to reconcile after exactly the restart it exists to survive, for an operational component nothing else in the system needs yet
+- 2026-09-05: put durability behind a three-method `JobStore` the queue is handed, rather than in the queue itself, so @seo/queue keeps knowing nothing about Postgres and the memory-only path stays the default — a test, and the offline analyzer, must not need a database to run a queue
+- 2026-09-05: made only the enqueue write blocking, and every later transition best-effort, because a job that is not written down is work a restart drops, while a `running` update that was lost costs at most one repeated run — failing an audit over a storage blip would be the opposite of what a durable queue is for
+- 2026-09-05: deleted jobs from the store the moment they settle instead of archiving them, because `audits` already records what became of an audit with its status, timings and error, and a second history is only something to keep consistent with the first
+- 2026-09-05: kept the attempt count across a restart and wrote it before the handler runs, so a payload that takes the process down with it burns an attempt and eventually gives up, rather than being retried by every restart forever
+- 2026-09-05: let a recovered job keep whatever is left of its retry backoff instead of running it at once, because the wait exists to give whatever fell over time to get back up, and a restart is not evidence that it has
+- 2026-09-05: keyed `jobs` on `(queue, id)` rather than `id`, because a job id belongs to the queue that minted it and a single-column key would have two namespaces silently overwrite each other — the namespace has to reach the constraint, not only the `where` clause
+- 2026-09-05: had `load()` claim every outstanding row in its namespace rather than only rows matching its own owner string, because a restart comes back with a new pid and an owner-matched claim would strand precisely the jobs the previous process had started; single ownership is assumed and recorded, not enforced
 - 2026-09-05: split retries into mechanism in @seo/queue and policy in @seo/scheduler — the queue knows how to hold a failed job back, wake it and run it again, and consults a caller-supplied policy for whether to; which failures deserve a repeat is a fact about the work, and a queue that decided it would bury that judgement where nobody looks
 - 2026-09-05: made a retry policy allowed to be async, so a caller can record the decision durably before the wait starts; the scheduler uses that to put the audit row back to `pending` before the backoff, because a row reading `failed` while another attempt is already scheduled would mislead every status endpoint built on it
 - 2026-09-05: enumerated the permanent audit failures (cancellation, an unknown site, a corpus this process cannot produce, a runtime error about the program) and retried everything else, because an unrecognised blip retried costs one more crawl of a site already under audit, while an unrecognised blip written off loses the audit to a cause nobody will ever see

@@ -13,6 +13,7 @@ export default defineConfig(({ mode }) => ({
       '@seo/crawler': r('./packages/crawler/src/index.ts'),
       '@seo/db': r('./packages/db/src/index.ts'),
       '@seo/grader': r('./packages/grader/src/index.ts'),
+      '@seo/job-store': r('./packages/job-store/src/index.ts'),
       '@seo/persistence': r('./packages/persistence/src/index.ts'),
       '@seo/probes': r('./packages/probes/src/index.ts'),
       '@seo/queue': r('./packages/queue/src/index.ts'),

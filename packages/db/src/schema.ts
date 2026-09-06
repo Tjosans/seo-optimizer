@@ -39,6 +39,7 @@ import {
   checkStatusEnum,
   coverageEnum,
   crawlStatusEnum,
+  jobStateEnum,
   linkKindEnum,
   probeOutcomeEnum,
   probeScopeEnum,
@@ -319,6 +320,75 @@ export const probeResults = pgTable(
       'page_scope_needs_page',
       sql`${t.scope} <> 'page' OR ${t.pageId} IS NOT NULL`,
     ),
+  ],
+);
+
+/**
+ * Work that has been asked for and has not happened yet.
+ *
+ * This is the durable half of @seo/queue: the queue keeps its scheduling state
+ * in memory, because which lane is busy and which slot just freed does not need
+ * to outlive the process, and writes the one fact that does here. A restart
+ * reads this table and puts the queue back where it was, instead of leaving a
+ * batch of audits `pending` with nothing on its way to run them.
+ *
+ * Three shapes here are deliberate.
+ *
+ *   **No foreign key to `audits`.** The table is generic infrastructure. An
+ *   audit is the only thing queued today, but the queue is written against a
+ *   payload it does not interpret, and pinning the store to one payload would
+ *   push the next kind of job into a second table with the same columns. `id`
+ *   is text for the same reason: it is whatever the caller used, which for an
+ *   audit is its own id.
+ *
+ *   **The key is `(queue, id)`, not `id`.** A job id belongs to the queue that
+ *   minted it. Two queues that happen to number their work the same way are not
+ *   describing one job, and a single-column key would have them silently
+ *   overwrite each other — the namespace has to reach the constraint, not just
+ *   the `where` clause.
+ *
+ *   **Rows are deleted, not archived.** A settled job leaves. `audits` already
+ *   records what happened to an audit, with its status, timings and error, and
+ *   outlives the queue entirely.
+ *
+ *   **`owner` and `leasedAt` are here before anything reads them.** One process
+ *   owns the queue today, and claiming its own rows on recovery is a no-op. The
+ *   columns exist so that a second worker is a change of query rather than a
+ *   migration, and so the claim is already the atomic one — `SELECT … FOR
+ *   UPDATE SKIP LOCKED`, then stamp — rather than something retrofitted onto a
+ *   table that never had a place to write it. Lease expiry and heartbeats are
+ *   not implemented, so a crashed owner's rows stay claimed until it comes back
+ *   and reclaims them, which for a single process is exactly what happens.
+ */
+export const jobs = pgTable(
+  'jobs',
+  {
+    /** The caller's id, not a generated one. For an audit, the audit id. */
+    id: text('id').notNull(),
+    /** Namespace, so two queues in one process do not read each other's work. */
+    queue: text('queue').notNull(),
+    /** Whatever the queue was handed. Opaque here on purpose. */
+    payload: jsonb('payload').notNull(),
+    /** Mutual-exclusion key; for an audit, the site's origin. */
+    lane: text('lane'),
+    priority: integer('priority').notNull().default(0),
+    state: jobStateEnum('state').notNull().default('queued'),
+    /** Attempts started, kept across a restart so a crash still costs one. */
+    attempt: integer('attempt').notNull().default(0),
+    enqueuedAt: timestamp('enqueued_at', { withTimezone: true }).notNull(),
+    /** When a job waiting out a retry backoff becomes eligible again. */
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }),
+    /** The last failure, while a retry is pending. */
+    error: text('error'),
+    /** Which process holds this job. Null until claimed. */
+    owner: text('owner'),
+    leasedAt: timestamp('leased_at', { withTimezone: true }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.queue, t.id] }),
+    index('jobs_queue_claim_idx').on(t.queue, t.owner, t.enqueuedAt),
+    index('jobs_queue_due_idx').on(t.queue, t.state, t.nextAttemptAt),
   ],
 );
 

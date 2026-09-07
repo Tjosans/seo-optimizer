@@ -12,6 +12,12 @@ import { fail, notApplicable, pass, warn } from '../types.js';
 const htmlPages = (pages: readonly CrawledPage[]): CrawledPage[] =>
   pages.filter((page) => page.extracted !== null && page.fetch.status === 200);
 
+/** BCP 47 as hreflang uses it: language, optional script, optional region. */
+const LANG_TAG = /^[a-z]{2,3}(-[A-Za-z]{4})?(-([A-Za-z]{2}|\d{3}))?$/i;
+
+/** URL shapes a paginated series takes: ?page=2, /page/2, /p/2, ?p=2. */
+const PAGED_URL = /([?&](page|p)=\d+|\/(page|p)\/\d+)/i;
+
 export const robotsTxt: SiteProbe = {
   id: 'robots-txt',
   scope: 'site',
@@ -202,6 +208,199 @@ export const internalLinking: SiteProbe = {
   },
 };
 
+/**
+ * Hreflang, read across the whole crawl rather than one page at a time.
+ *
+ * A single page's hreflang block is almost never wrong on its own terms — it
+ * lists locales and points at URLs, and nothing about it looks broken. The
+ * defect lives between pages: A names B, B does not name A, and the cluster
+ * silently stops working. Google discards a non-reciprocal annotation, so a
+ * one-sided cluster is not a partial win, it is nothing.
+ *
+ * What this can see is what the crawl fetched. A target on another host is out
+ * of scope for the crawl and cannot be checked for reciprocity here, so it is
+ * reported as unverified rather than counted as a defect — a multi-domain
+ * international setup is a normal shape, not a mistake.
+ */
+export const hreflangClusterQa: SiteProbe = {
+  id: 'hreflang-cluster-qa',
+  scope: 'site',
+  title: 'Hreflang clusters are complete, reciprocal and indexable',
+  run({ crawl, origin }) {
+    const pages = htmlPages(crawl.pages);
+    const annotated = pages.filter((page) => (page.extracted?.hreflang.length ?? 0) > 0);
+    if (annotated.length === 0) {
+      return notApplicable('No crawled page carries an hreflang annotation.');
+    }
+
+    const byUrl = new Map(pages.map((page) => [page.normalizedUrl, page]));
+    /** What each page claims, normalized: page -> the URLs it names. */
+    const claims = new Map<string, Set<string>>();
+    const selfMissing: string[] = [];
+    const badCodes: { page: string; hreflang: string }[] = [];
+    const offSite = new Set<string>();
+
+    for (const page of annotated) {
+      const named = new Set<string>();
+      let namesSelf = false;
+      for (const entry of page.extracted?.hreflang ?? []) {
+        if (!LANG_TAG.test(entry.hreflang) && entry.hreflang.toLowerCase() !== 'x-default') {
+          badCodes.push({ page: page.normalizedUrl, hreflang: entry.hreflang });
+        }
+        const target = normalizeUrl(entry.url);
+        if (target === null) continue;
+        if (target === page.normalizedUrl) namesSelf = true;
+        if (!isSameSite(target, origin)) {
+          offSite.add(target);
+          continue;
+        }
+        named.add(target);
+      }
+      claims.set(page.normalizedUrl, named);
+      // Every page in a cluster must name itself, or the set each page
+      // declares is a different set and none of them agree.
+      if (!namesSelf) selfMissing.push(page.normalizedUrl);
+    }
+
+    const oneWay: { from: string; to: string }[] = [];
+    const unreachable: { from: string; to: string }[] = [];
+    for (const [from, targets] of claims) {
+      for (const to of targets) {
+        if (to === from) continue;
+        const target = byUrl.get(to);
+        if (target === undefined) {
+          // Named but never fetched: blocked, out of budget, or simply gone.
+          unreachable.push({ from, to });
+          continue;
+        }
+        if (!(claims.get(to)?.has(from) ?? false)) oneWay.push({ from, to });
+      }
+    }
+
+    const noindex = annotated.filter((page) => /\bnoindex\b/i.test(page.extracted?.metaRobots ?? ''));
+
+    // Ordered worst first: a broken cluster beats a cosmetic complaint.
+    if (oneWay.length > 0) {
+      return fail(`${oneWay.length} hreflang annotation(s) are not reciprocated.`, {
+        samples: oneWay.slice(0, 10),
+      });
+    }
+    if (selfMissing.length > 0) {
+      return fail(`${selfMissing.length} page(s) omit their own self-referential hreflang.`, {
+        samples: selfMissing.slice(0, 10),
+      });
+    }
+    if (noindex.length > 0) {
+      return fail(`${noindex.length} page(s) in an hreflang cluster are noindex.`, {
+        samples: noindex.slice(0, 10).map((page) => page.normalizedUrl),
+      });
+    }
+    if (unreachable.length > 0) {
+      return fail(`${unreachable.length} hreflang target(s) were never reached by the crawl.`, {
+        samples: unreachable.slice(0, 10),
+      });
+    }
+    if (badCodes.length > 0) {
+      return fail(`${badCodes.length} hreflang value(s) are not a valid language tag.`, {
+        samples: badCodes.slice(0, 10),
+      });
+    }
+
+    const xDefault = annotated.some((page) =>
+      (page.extracted?.hreflang ?? []).some((entry) => entry.hreflang.toLowerCase() === 'x-default'),
+    );
+    const detail = {
+      annotatedPages: annotated.length,
+      ...(offSite.size > 0 ? { offSiteTargetsNotVerified: [...offSite].slice(0, 10) } : {}),
+    };
+    if (!xDefault) {
+      return warn(
+        `${annotated.length} page(s) form reciprocal clusters, but none declares x-default.`,
+        detail,
+      );
+    }
+    return pass(
+      `${annotated.length} annotated page(s) form complete, reciprocal clusters.`,
+      detail,
+    );
+  },
+};
+
+/**
+ * Can a crawler get past page one without running JavaScript?
+ *
+ * The failure this exists to catch is a listing whose "load more" is a button
+ * and nothing else: everything after the first screen is then invisible to a
+ * crawler, however many products are behind it. The corpus asks for page 2+ to
+ * be reachable "without interaction or JavaScript", so the question is whether
+ * a paginated URL appeared in the raw HTML — which is exactly what the crawl
+ * saw — and whether following it actually produced a page.
+ *
+ * A site with no pagination at all is not a defect. Silence here means the
+ * crawl found no paginated series, which is the normal shape of a small site.
+ */
+export const paginationCrawlPath: SiteProbe = {
+  id: 'pagination-crawl-path',
+  scope: 'site',
+  title: 'Paginated series are crawlable without JavaScript',
+  run({ crawl, origin }) {
+    const pages = htmlPages(crawl.pages);
+    if (pages.length === 0) return notApplicable('No HTML pages were crawled.');
+
+    const fetched = new Map(crawl.pages.map((page) => [page.normalizedUrl, page]));
+    const found: { from: string; to: string }[] = [];
+
+    for (const page of pages) {
+      for (const link of page.extracted?.links ?? []) {
+        if (!isSameSite(link.url, origin)) continue;
+        const isPagination =
+          (link.rel !== null && /\b(next|prev)\b/i.test(link.rel)) || PAGED_URL.test(link.url);
+        if (!isPagination) continue;
+        const target = normalizeUrl(link.url);
+        if (target === null || target === page.normalizedUrl) continue;
+        found.push({ from: page.normalizedUrl, to: target });
+      }
+    }
+
+    if (found.length === 0) {
+      return notApplicable('The crawl found no paginated series in the raw HTML.');
+    }
+
+    // A link in the markup is the claim; a fetched page is the proof.
+    const broken = found.filter(({ to }) => {
+      const page = fetched.get(to);
+      return page !== undefined && page.fetch.status !== null && page.fetch.status >= 400;
+    });
+    if (broken.length > 0) {
+      return fail(`${broken.length} paginated URL(s) answered 4xx or 5xx.`, {
+        samples: broken.slice(0, 10),
+      });
+    }
+
+    const reached = found.filter(({ to }) => fetched.has(to));
+    if (reached.length === 0) {
+      return warn(
+        `${found.length} paginated URL(s) were linked but none was reached within the crawl budget.`,
+        { samples: found.slice(0, 10) },
+      );
+    }
+
+    const noindex = reached.filter(({ to }) =>
+      /\bnoindex\b/i.test(fetched.get(to)?.extracted?.metaRobots ?? ''),
+    );
+    if (noindex.length > 0) {
+      return fail(`${noindex.length} paginated page(s) are noindex, hiding their items.`, {
+        samples: noindex.slice(0, 10),
+      });
+    }
+
+    return pass(
+      `${reached.length} paginated URL(s) were reachable from raw HTML and answered 200.`,
+      { samples: reached.slice(0, 10) },
+    );
+  },
+};
+
 export const urlConvention: SiteProbe = {
   id: 'url-convention',
   scope: 'site',
@@ -309,4 +508,6 @@ export const siteProbes = [
   urlConvention,
   hostSlashPolicy,
   thirdPartyBudget,
+  hreflangClusterQa,
+  paginationCrawlPath,
 ];

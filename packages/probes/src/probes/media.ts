@@ -111,4 +111,59 @@ export const lcpNotLazy: PageProbe = {
   },
 };
 
-export const mediaProbes = [imageAltQuality, imageDimensions, responsiveMedia, lcpNotLazy];
+/**
+ * Media that carries meaning has a way to reach it without playing.
+ *
+ * The corpus asks for accessibility alternatives to be "present" and
+ * "accurate". Present is a markup fact and is answered here; accurate is a
+ * person watching the video and reading the captions, and no probe should
+ * pretend otherwise — so a page with captions passes this detector on the
+ * question it can actually settle, and 1.9 still needs the rest of its
+ * detectors before the check clears.
+ *
+ * Images are not this probe's business: their alternative is alt text, which
+ * `image-alt-quality` already reads.
+ */
+export const mediaAlternatives: PageProbe = {
+  id: 'media-alternatives',
+  scope: 'page',
+  htmlOnly: true,
+  title: 'Video and audio carry captions or a text alternative',
+  run({ page }) {
+    const extracted = page.extracted;
+    if (extracted === null) return notApplicable(NO_HTML);
+
+    const media = extracted.media;
+    if (media.length === 0) {
+      return notApplicable('The page embeds no <video> or <audio> element.');
+    }
+
+    // A caption track is the alternative; fallback text between the tags is a
+    // weaker one, and no track plus no text is content only some people get.
+    const silent = media.filter((item) => !item.hasCaptions && !item.hasFallbackText);
+    if (silent.length > 0) {
+      return fail(
+        `${silent.length} of ${media.length} media element(s) offer no captions and no text alternative.`,
+        { samples: silent.slice(0, 5).map((item) => item.src ?? `<${item.kind}>`) },
+      );
+    }
+
+    const textOnly = media.filter((item) => !item.hasCaptions);
+    if (textOnly.length > 0) {
+      return warn(
+        `${textOnly.length} media element(s) have fallback text but no caption track.`,
+        { samples: textOnly.slice(0, 5).map((item) => item.src ?? `<${item.kind}>`) },
+      );
+    }
+
+    return pass(`All ${media.length} media element(s) declare a caption or subtitle track.`);
+  },
+};
+
+export const mediaProbes = [
+  imageAltQuality,
+  imageDimensions,
+  responsiveMedia,
+  lcpNotLazy,
+  mediaAlternatives,
+];

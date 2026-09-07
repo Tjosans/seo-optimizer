@@ -49,7 +49,7 @@ Last updated: 2026-09-05
 - [x] Reconcile audits left `pending` with no job behind them (@seo/scheduler: `reconcile()` closes out rows nothing is going to run, bounded by the database clock at recovery)
 - [x] Give crawl() cooperative cancellation so a cancelled job stops mid-crawl rather than at the end (@seo/crawler: a `signal` checked between requests and inside the politeness delay; a cancelled crawl reads `cancelled`, not `failed`)
 - [x] Grade probe evidence into checkStates and freeze readiness on the audit (@seo/grader: verdicts, evidence trail, frozen readiness)
-- [ ] Implement more of the corpus's 128 detectors — 33 today, which is what limits grading to 10 of 97 checks
+- [ ] Implement more of the corpus's 128 detectors — 37 today (was 33), covering 14 of 43 automated checks and 11 launch gates. Most of the remainder need evidence a raw crawl does not hold: Search Console, Lighthouse, RDAP, a rendered DOM, or active probing of host variants
 
 - [x] Prototype URL analyzer with snapshot comparison (npm run analyze / npm run compare) so engine changes can be measured against live sites
 
@@ -80,6 +80,11 @@ Last updated: 2026-09-05
 ## Blocked
 
 ## Decisions
+- 2026-09-07: picked the first detector batch by what a raw crawl can honestly answer rather than by how many checks it would unblock — 24 automated checks are one detector short, but most of those detectors need Search Console, Lighthouse, RDAP, a rendered DOM or extra HTTP requests the crawler does not make, and shipping a probe that guesses at those would put a `pass` on a check nobody verified
+- 2026-09-07: kept `media-alternatives` to whether a caption track or text alternative exists, not whether it is accurate, because the corpus asks for both and only the first is a markup fact; 1.9 still needs its other detectors before the check clears, which is the mechanism that stops a partial answer reading as a whole one
+- 2026-09-07: made `hreflang-cluster-qa` treat a cross-domain locale as unverified rather than broken — a crawl scoped to one origin cannot see the other side of the cluster, and multi-domain international setups are a normal shape, so counting them as defects would train people to ignore the detector
+- 2026-09-07: had `breadcrumb-navigation` read the visible trail while `breadcrumblist-schema` reads the markup, rather than folding them into one detector, because the two come apart constantly — perfect JSON-LD beside a trail a redesign removed — and 2.17 asks for them to match
+- 2026-09-07: tested these four against hand-built pages instead of extending the fixture site, because each answers a question about a shape (a reciprocal cluster, a paginated series, an ancestor that 404s) and one fixture carrying every shape at once would be a site nobody has built; the markup still goes through the real `extract`
 - 2026-09-07: dropped the `priority`, `automation_tier` and `remediation_class` Postgres enums, which no column ever used — an enum with no column behind it guards nothing, because the `AssertSame` line compares a union against itself, while still charging a migration for every change to it. They also mirrored corpus vocabulary specifically, and the corpus is file-backed so that a methodology revision needs no migration; keeping the types would have quietly reintroduced the coupling the corpus was kept out of the database to avoid. The rule now stated in `enums.ts`: a vocabulary earns a Postgres type by being written to a row.
 - 2026-09-07: settled the corpus source of record — the TSV under corpus/source/ bootstraps exactly one event, the first compile of a version, and corpus/v<version>/*.yaml owns it from then on; the compiler now refuses to overwrite an existing version, because the old header promised hand-editable YAML while the script silently discarded those edits and both halves were true
 - 2026-09-07: made a methodology revision a new version directory rather than a re-compile of a live one, since a delivered report pins `audits.corpusVersion` and has to keep explaining itself after the methodology moves on

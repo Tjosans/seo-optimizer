@@ -148,10 +148,82 @@ export const breadcrumbListSchema: PageProbe = {
   },
 };
 
+/**
+ * The breadcrumb a person can actually see, and whether it leads anywhere.
+ *
+ * `breadcrumblist-schema` reads what the page claims to search engines. This
+ * reads what it shows the reader, and 2.17 asks for both because they come
+ * apart constantly: a template emits perfect BreadcrumbList JSON-LD next to a
+ * trail that was removed in a redesign, or shows a trail whose ancestors 404
+ * after a URL change. Google's own guidance is that the markup must match the
+ * visible navigation, so a page with only one of the two is not most of the way
+ * there — it is misrepresenting itself.
+ *
+ * The ancestor links are checked against the crawl rather than re-fetched. A
+ * link to a page the crawl never reached is not evidence of a broken ancestor —
+ * it may simply have been out of budget — so that is reported as unverified,
+ * while an ancestor the crawl *did* fetch and got a 4xx from is a real defect.
+ */
+export const breadcrumbNavigation: PageProbe = {
+  id: 'breadcrumb-navigation',
+  scope: 'page',
+  htmlOnly: true,
+  title: 'A visible breadcrumb trail leads to ancestors that resolve',
+  run({ page, site }) {
+    const extracted = page.extracted;
+    if (extracted === null) return notApplicable(NO_HTML);
+    if (!site.flags.includes('hierarchical')) {
+      return notApplicable('Site profile does not claim hierarchical content.');
+    }
+    if (page.depth === 0) return notApplicable('The home page sits above any breadcrumb trail.');
+
+    const trails = extracted.breadcrumbs;
+    if (trails.length === 0) {
+      return fail('No visible breadcrumb trail on a page below the root.');
+    }
+
+    const linked = trails.flatMap((trail) => trail.links);
+    if (linked.length === 0) {
+      return fail('A breadcrumb trail is present but none of its crumbs is a link.', {
+        labels: trails.flatMap((trail) => trail.labels).slice(0, 10),
+      });
+    }
+
+    const byUrl = new Map(site.crawl.pages.map((crawled) => [crawled.normalizedUrl, crawled]));
+    const broken: { url: string; status: number }[] = [];
+    let verified = 0;
+    for (const href of linked) {
+      const normalized = normalizeUrl(href);
+      if (normalized === null) continue;
+      const ancestor = byUrl.get(normalized);
+      if (ancestor === undefined) continue;
+      const status = ancestor.fetch.status;
+      if (status !== null && status >= 400) broken.push({ url: normalized, status });
+      else verified += 1;
+    }
+
+    if (broken.length > 0) {
+      return fail(`${broken.length} breadcrumb ancestor(s) do not resolve.`, {
+        samples: broken.slice(0, 5),
+      });
+    }
+    if (verified === 0) {
+      return warn(
+        `A breadcrumb trail links ${linked.length} ancestor(s), none of which the crawl reached.`,
+        { samples: linked.slice(0, 5) },
+      );
+    }
+    return pass(`A visible breadcrumb trail links ${verified} ancestor(s), all resolving.`, {
+      labels: trails.flatMap((trail) => trail.labels).slice(0, 10),
+    });
+  },
+};
+
 export const metadataProbes = [
   canonicalization,
   metaDescription,
   titleTag,
   socialMetadata,
   breadcrumbListSchema,
+  breadcrumbNavigation,
 ];

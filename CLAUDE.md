@@ -160,7 +160,7 @@ packages/
   core/src/{check,state,readiness}.ts
   corpus/src/{load,flags}.ts
   crawler/src/{crawl,extract,fetch,robots,url}.ts
-  db/src/{schema,enums,client}.ts  +  migrations/0000-0004
+  db/src/{schema,enums,client}.ts  +  migrations/0000-0005
   persistence/src/{crawl-sink,map,probe-results}.ts
   probes/src/{registry,types,matrix}.ts  +  src/probes/*.ts
   queue/src/{queue,retry,store,types}.ts

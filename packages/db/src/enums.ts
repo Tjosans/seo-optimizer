@@ -1,25 +1,33 @@
 /**
- * Postgres enums for the corpus vocabulary.
+ * Postgres enums: the closed vocabularies a column may hold.
  *
- * Every enum here mirrors a union type in @seo/core. The `AssertSame` lines
- * below are the guard: if a union in core gains or loses a member and this
- * file is not updated, the package stops compiling. Without that, drift would
- * only show up as a runtime insert failure against a live database.
+ * Every enum here mirrors a union type in @seo/core AND is used by a column.
+ * The `AssertSame` lines are the guard on the first half: if a union in core
+ * gains or loses a member and this file is not updated, the package stops
+ * compiling, rather than the drift surfacing as a runtime insert failure
+ * against a live database.
+ *
+ * The second half is the rule that keeps this file from growing things nobody
+ * stores. An enum with no column behind it guards nothing — the type checker
+ * already compares the union against itself — while still charging a migration
+ * for every change to it. So a vocabulary earns a Postgres type by being
+ * written to a row, and not otherwise.
+ *
+ * That is why the corpus's own vocabulary is absent. `Priority`,
+ * `AutomationTier` and `RemediationClass` are properties of a check, and checks
+ * are file-backed and versioned under `corpus/v<version>` precisely so a
+ * methodology revision needs no migration (see the note atop `schema.ts`).
+ * Mirroring them here would have made a corpus edit a schema change — the exact
+ * coupling the corpus was kept out of the database to avoid. If a column ever
+ * does need one of them, add the enum back with the column, in the same
+ * migration.
  *
  * Adding a member to a Postgres enum requires a migration, so these are
  * deliberately narrow — anything genuinely open-ended is stored as text.
  */
 
 import { pgEnum } from 'drizzle-orm/pg-core';
-import type {
-  Applicability,
-  AutomationTier,
-  CheckStatus,
-  Coverage,
-  Priority,
-  Profile,
-  RemediationClass,
-} from '@seo/core';
+import type { Applicability, CheckStatus, Coverage, Profile } from '@seo/core';
 
 /** Compiles to `true` only when the two unions have exactly the same members. */
 type AssertSame<A extends string, B extends string> = [
@@ -28,9 +36,6 @@ type AssertSame<A extends string, B extends string> = [
 ] extends [never, never]
   ? true
   : never;
-
-export const priorityEnum = pgEnum('priority', ['P0', 'P1', 'P2']);
-const _priority: AssertSame<Priority, (typeof priorityEnum.enumValues)[number]> = true;
 
 export const profileEnum = pgEnum('profile', ['core', 'extended']);
 const _profile: AssertSame<Profile, (typeof profileEnum.enumValues)[number]> = true;
@@ -60,28 +65,6 @@ export const coverageEnum = pgEnum('coverage', [
   'not-applicable',
 ]);
 const _coverage: AssertSame<Coverage, (typeof coverageEnum.enumValues)[number]> = true;
-
-export const automationTierEnum = pgEnum('automation_tier', [
-  'automated',
-  'assisted',
-  'attested',
-]);
-const _automationTier: AssertSame<
-  AutomationTier,
-  (typeof automationTierEnum.enumValues)[number]
-> = true;
-
-export const remediationClassEnum = pgEnum('remediation_class', [
-  'config',
-  'content',
-  'code',
-  'structural',
-  'platform',
-]);
-const _remediationClass: AssertSame<
-  RemediationClass,
-  (typeof remediationClassEnum.enumValues)[number]
-> = true;
 
 // --- run-time vocabulary, owned by the engine rather than the corpus --------
 

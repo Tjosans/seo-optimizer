@@ -80,6 +80,7 @@ Last updated: 2026-09-05
 ## Blocked
 
 ## Decisions
+- 2026-09-07: dropped the `priority`, `automation_tier` and `remediation_class` Postgres enums, which no column ever used — an enum with no column behind it guards nothing, because the `AssertSame` line compares a union against itself, while still charging a migration for every change to it. They also mirrored corpus vocabulary specifically, and the corpus is file-backed so that a methodology revision needs no migration; keeping the types would have quietly reintroduced the coupling the corpus was kept out of the database to avoid. The rule now stated in `enums.ts`: a vocabulary earns a Postgres type by being written to a row.
 - 2026-09-07: settled the corpus source of record — the TSV under corpus/source/ bootstraps exactly one event, the first compile of a version, and corpus/v<version>/*.yaml owns it from then on; the compiler now refuses to overwrite an existing version, because the old header promised hand-editable YAML while the script silently discarded those edits and both halves were true
 - 2026-09-07: made a methodology revision a new version directory rather than a re-compile of a live one, since a delivered report pins `audits.corpusVersion` and has to keep explaining itself after the methodology moves on
 - 2026-09-07: made the compile version a required argument with no default, because a default is how a compile meant for 4.5 lands on 4.4 and takes a year of corpus edits with it

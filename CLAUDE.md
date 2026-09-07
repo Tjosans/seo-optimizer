@@ -48,7 +48,7 @@ Key scripts:
 
 - `npm run typecheck` — full TypeScript validation (`tsc --build --force`)
 - `npm run test:watch` — Vitest in watch mode
-- `npm run corpus:compile` — regenerate v4.4 YAML from source TSV
+- `npm run corpus:compile -- <version>` — bootstrap a new corpus version from its TSV export; refuses to overwrite one that exists
 - `npm run corpus:validate` — corpus integrity
 - `npm run probes:matrix` — detector coverage vs corpus checks
 - `npm run analyze -- <url>` — prototype: crawl, probe and grade a live URL, print a report, save a snapshot to `benchmarks/runs/`

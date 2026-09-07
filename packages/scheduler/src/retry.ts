@@ -12,9 +12,10 @@
  *   reasonable answer to all of them.
  *
  *   A repeat cannot fix a failure that was about *this audit*. A site id that
- *   names no row, a corpus version this process cannot produce, a bug in the
- *   engine: those come back identically however many times they are run, and
- *   retrying them spends a site's bandwidth to learn nothing.
+ *   names no row, a site profile the pinned corpus cannot read, a corpus
+ *   version this process cannot produce, a bug in the engine: those come back
+ *   identically however many times they are run, and retrying them spends a
+ *   site's bandwidth to learn nothing.
  *
  * So permanence is enumerated and everything else is retried. That direction is
  * deliberate. An unrecognised failure retried three times costs one extra crawl
@@ -32,7 +33,7 @@
 import { CorpusVersionMismatchError } from '@seo/grader';
 import { exponentialBackoff, JobCancelledError } from '@seo/queue';
 import type { RetryPolicy } from '@seo/queue';
-import { UnknownSiteError } from './types.js';
+import { UnknownSiteError, UnknownSiteFlagsError } from './types.js';
 import type { AuditJob } from './types.js';
 
 /**
@@ -66,6 +67,7 @@ export function isPermanentAuditFailure(cause: unknown): boolean {
     cause instanceof JobCancelledError ||
     cause instanceof PermanentAuditError ||
     cause instanceof UnknownSiteError ||
+    cause instanceof UnknownSiteFlagsError ||
     cause instanceof CorpusVersionMismatchError ||
     isProgrammerError(cause)
   );

@@ -1,0 +1,107 @@
+# Fixture corpus v9.1 — see ../README.md. Not a real methodology version.
+#
+# What a methodology revision actually does, in one file:
+#   1.1  kept, but its "Done when" is stricter and it gained a second detector
+#   1.2  dropped entirely — the practice stopped being one anybody checks
+#   1.3  added — a signal that did not exist when 9.0 was written
+#   1.4  re-tiered from attested to assisted, because a detector caught up
+
+- id: "1.1"
+  phase: 1
+  phaseLabel: "1 — Delivery"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Every URL answers with a usable status, over a chain worth following
+  whatToDo: >-
+    Request each discovered URL, record the status, and record the redirect chain that led there.
+  doneWhen: >-
+    No in-scope URL answers with a server error, and no redirect chain exceeds two hops.
+  owners: ["engineering"]
+  ownerSource: >-
+    Engineering
+  tools: >-
+    Crawler
+  cadence:
+    triggers: ["before-launch"]
+    source: >-
+      Before launch
+  notes: >-
+    Fixture check, revised from 9.0: stricter acceptance and a second detector.
+  automation: automated
+  remediationClass: code
+  detectors: ["http-status", "redirect-chain"]
+  sources: []
+
+- id: "1.3"
+  phase: 1
+  phaseLabel: "1 — Delivery"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    The site is served over HTTPS throughout
+  whatToDo: >-
+    Confirm every in-scope URL is reachable over HTTPS and that HTTP requests are redirected to it.
+  doneWhen: >-
+    Every in-scope URL resolves over HTTPS and no page loads a resource over plain HTTP.
+  owners: ["engineering"]
+  ownerSource: >-
+    Engineering
+  tools: >-
+    Crawler
+  cadence:
+    triggers: ["before-launch"]
+    source: >-
+      Before launch
+  notes: >-
+    Fixture check added in 9.1, with no counterpart in 9.0.
+  automation: automated
+  remediationClass: platform
+  detectors: ["https-enforcement"]
+  sources: []
+
+- id: "1.4"
+  phase: 1
+  phaseLabel: "1 — Delivery"
+  priority: P1
+  profile: extended
+  launchGate: true
+  applicability:
+    universal: false
+    any: ["ecommerce"]
+    source: >-
+      E-commerce / product catalogue
+  task: >-
+    Mixed content is kept out of the catalogue
+  whatToDo: >-
+    Check catalogue pages for subresources requested over plain HTTP and list any found.
+  doneWhen: >-
+    No catalogue page requests a subresource over plain HTTP, and any exception is signed off.
+  owners: ["engineering"]
+  ownerSource: >-
+    Engineering
+  tools: >-
+    Crawler
+  cadence:
+    triggers: ["before-launch"]
+    source: >-
+      Before launch
+  notes: >-
+    Fixture check re-tiered in 9.1 from attested to assisted: the engine can now
+    gather the evidence, but a person still signs off the exception.
+  automation: assisted
+  remediationClass: code
+  detectors: ["mixed-content"]
+  sources: []

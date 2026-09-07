@@ -74,6 +74,30 @@ export interface AuditHandle {
   readonly done: Promise<AuditOutcome>;
 }
 
+/**
+ * The site's profile carries flags the pinned corpus does not recognise.
+ *
+ * Permanent, and raised before the crawl: `resolveScope` reads a filled-in
+ * profile as a statement, so an unrecognised flag does not fail loudly — it
+ * narrows every check it was meant to bring into scope, each with a rationale
+ * that reads as a decision somebody made. A typo would silently excuse launch
+ * gates, so it has to stop the audit instead.
+ */
+export class UnknownSiteFlagsError extends Error {
+  readonly siteId: string;
+  readonly unknown: readonly string[];
+
+  constructor(siteId: string, unknown: readonly string[], corpusVersion: string) {
+    super(
+      `site ${siteId} declares flags corpus ${corpusVersion} does not recognise: ` +
+        `${unknown.join(', ')}`,
+    );
+    this.name = 'UnknownSiteFlagsError';
+    this.siteId = siteId;
+    this.unknown = unknown;
+  }
+}
+
 /** The site id in an audit request names no row. */
 export class UnknownSiteError extends Error {
   readonly siteId: string;

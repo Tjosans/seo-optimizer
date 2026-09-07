@@ -1,21 +1,45 @@
 /**
- * Compile the preserved v4.4 TSV export into the structured YAML corpus.
+ * Bootstrap a corpus version from its workbook export.
  *
- * The TSV under corpus/source/ is an immutable provenance record of the original
- * workbook. This script enriches it with the fields the engine needs but the
- * spreadsheet does not carry: applicability predicates, normalized owner roles,
- * structured cadence, automation tier, remediation class, detector bindings and
- * resolved citations.
+ * ## Who owns the corpus
  *
- * After the first compile the YAML is the authoritative, hand-editable corpus.
- * Re-running this regenerates it from source and discards manual YAML edits.
+ * This used to be ambiguous, and the ambiguity was the dangerous part: the
+ * header claimed the YAML was "authoritative and hand-editable" while the
+ * script silently overwrote it. Both halves were true and they cannot both be
+ * the policy, so the line is drawn here:
+ *
+ *   The TSV under corpus/source/ is the provenance record of a workbook — what
+ *   the author wrote, preserved unchanged. It is the source for exactly one
+ *   event: the first compile of a version.
+ *
+ *   From that compile onward, corpus/v<version>/*.yaml is the source of record.
+ *   Checks change because search changes, and a corpus that could only be
+ *   edited by round-tripping a spreadsheet would either go stale or be edited
+ *   anyway and lose the edits.
+ *
+ * So this script refuses to overwrite a version that already exists. A new
+ * revision of the methodology is a NEW version directory compiled from a new
+ * export, never a re-compile on top of a live one — which is also what keeps
+ * `audits.corpusVersion` meaningful, since a delivered report pins a version
+ * and must still explain itself years later.
+ *
+ * What it adds to the spreadsheet: applicability predicates, normalized owner
+ * roles, structured cadence, automation tier, remediation class, detector
+ * bindings and resolved citations. The tier/class/detector triple comes from
+ * scripts/triage.ts, which requires sign-off — a version whose rows are not all
+ * triaged compiles with a non-zero exit and says which are missing.
  *
  * Build-time tool: run directly on Node's TypeScript support, never bundled.
  *
- *     npm run corpus:compile
+ *     npm run corpus:compile -- 4.5                    # from corpus/source/v4.5.tsv
+ *     npm run corpus:compile -- 4.5 --reviewed 2026-09-07
+ *     npm run corpus:compile -- 4.4 --force            # deliberate re-bootstrap
+ *
+ * `--force` discards every hand edit in that version's YAML. It exists for
+ * fixing a botched bootstrap, not for editing the corpus.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AutomationTier, RemediationClass, Role, SourceRef } from '../packages/core/src/check.ts';
@@ -23,10 +47,40 @@ import { TRIAGE } from './triage.ts';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const SRC = join(ROOT, 'corpus', 'source');
-const OUT = join(ROOT, 'corpus', 'v4.4');
 
-const CORPUS_VERSION = '4.4';
-const CORPUS_REVIEWED = '2026-08-27';
+/**
+ * Read the version to compile, the review date to stamp, and whether the
+ * caller means to overwrite.
+ *
+ * The version is required rather than defaulted. A default is how a compile
+ * meant for 4.5 lands on 4.4 and takes a year of corpus edits with it.
+ */
+function readArgs(argv: readonly string[]): {
+  version: string;
+  reviewed: string;
+  force: boolean;
+} {
+  const args = [...argv];
+  const force = args.includes('--force');
+  const at = args.indexOf('--reviewed');
+  const reviewed =
+    at >= 0 ? (args[at + 1] ?? '') : new Date().toISOString().slice(0, 10);
+  if (at >= 0) args.splice(at, 2);
+
+  const version = args.find((arg) => !arg.startsWith('-'));
+  if (version === undefined || !/^\d+\.\d+$/.test(version)) {
+    throw new Error(
+      'usage: npm run corpus:compile -- <version> [--reviewed YYYY-MM-DD] [--force]\n' +
+        '       e.g. npm run corpus:compile -- 4.5',
+    );
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(reviewed)) {
+    throw new Error(`--reviewed must be YYYY-MM-DD, got "${reviewed}"`);
+  }
+  return { version, reviewed, force };
+}
+
+
 
 // --- applicability: "Applies to" text -> site-profile flags ------------------
 // Universal checks apply to every site. Everything else is in scope only when
@@ -293,6 +347,14 @@ const write = (path: string, lines: readonly string[]): void =>
 const cell = (row: readonly string[], index: number): string => (row[index] ?? '').trim();
 
 function main(): number {
+  const {
+    version: CORPUS_VERSION,
+    reviewed: CORPUS_REVIEWED,
+    force: FORCE,
+  } = readArgs(process.argv.slice(2));
+  const OUT = join(ROOT, 'corpus', `v${CORPUS_VERSION}`);
+  const TSV = join(SRC, `v${CORPUS_VERSION}.tsv`);
+
   const sources: SourceRef[] = readTsv(join(SRC, 'sources.tsv'))
     .slice(1)
     .filter((r) => r.length >= 4 && (r[0] ?? '').trim() !== '')
@@ -303,7 +365,25 @@ function main(): number {
       verified: r[3] as string,
     }));
 
-  const data = readTsv(join(SRC, 'v4.4.tsv'))
+  if (!existsSync(TSV)) {
+    console.error(`no workbook export at ${TSV}`);
+    console.error(`export the v${CORPUS_VERSION} sheet as TSV and save it there first.`);
+    return 1;
+  }
+
+  // The guard that makes the YAML the source of record: a version that exists
+  // is a version somebody may have edited, and this script cannot tell an edit
+  // from a compilation artifact.
+  if (existsSync(OUT) && !FORCE) {
+    console.error(`corpus/v${CORPUS_VERSION} already exists.`);
+    console.error('Its YAML is the source of record — editing it is how the corpus changes.');
+    console.error('A new revision of the methodology is a new version, compiled from a new');
+    console.error('export. Pass --force only to redo a bootstrap that went wrong; it discards');
+    console.error('every hand edit in that directory.');
+    return 1;
+  }
+
+  const data = readTsv(TSV)
     .slice(1)
     .filter((r) => r.some((c) => c.trim() !== ''));
 
@@ -356,8 +436,9 @@ function main(): number {
     const label = subset[0]?.phaseLabel ?? '';
     const body = [
       `# Corpus v${CORPUS_VERSION} - phase ${phase}: ${label}`,
-      '# Generated by scripts/compile-corpus.ts from corpus/source/v4.4.tsv.',
-      '# Edit here; re-running the compiler will overwrite this file.',
+      `# Bootstrapped by scripts/compile-corpus.ts from corpus/source/v${CORPUS_VERSION}.tsv.`,
+      '# This file is the source of record now: edit it directly. The compiler',
+      '# refuses to overwrite an existing version, so these edits are safe.',
       '',
       ...subset.map(emitCheck),
     ];
@@ -390,7 +471,7 @@ function main(): number {
   write(join(OUT, 'manifest.yaml'), manifest);
 
   const cited = checks.filter((c) => c.sources.length > 0).length;
-  console.log(`compiled ${checks.length} checks across ${phases.length} phases`);
+  console.log(`compiled v${CORPUS_VERSION} — ${checks.length} checks across ${phases.length} phases`);
   console.log(`sources: ${sources.length} | checks with citations: ${cited}`);
   if (unmapped.length > 0) {
     console.log('UNMAPPED applicability:');
@@ -401,5 +482,11 @@ function main(): number {
   return unmapped.length > 0 || untriaged.length > 0 ? 1 : 0;
 }
 
-// Non-zero when the compile found rows it could not map or triage.
-process.exitCode = main();
+// Non-zero when the compile found rows it could not map or triage, or when it
+// refused to run at all.
+try {
+  process.exitCode = main();
+} catch (cause) {
+  console.error(cause instanceof Error ? cause.message : String(cause));
+  process.exitCode = 1;
+}

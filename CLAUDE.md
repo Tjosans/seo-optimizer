@@ -92,6 +92,17 @@ Key scripts:
 - The queue holds the mechanism and `@seo/scheduler`'s `auditRetryPolicy` holds the policy: cancellation, an unknown site, an unavailable corpus and runtime errors about the program are permanent; everything else gets three attempts, backing off from 30 seconds.
 - A site that answers 403, times out, or serves a broken page does not fail an audit at all — the crawler returns transport failures as data. By the time a retry is considered, the engine or its infrastructure fell over, not the site.
 
+### How the corpus changes
+
+- **The YAML is the source of record.** `corpus/v<version>/*.yaml` is what the engine reads and what you edit. The TSV under `corpus/source/` is the workbook's provenance record, and it is the source for exactly one event: the first compile of a version.
+- **A methodology revision is a new version directory**, compiled from a new export: `npm run corpus:compile -- 4.5 --reviewed 2026-09-07`. Never a re-compile over a live one — a delivered report pins `audits.corpusVersion` and has to keep explaining itself afterwards.
+- **Every row needs a triage entry.** `scripts/triage.ts` maps check id to `[automation tier, remediation class, detector ids]` and requires sign-off; the compiler exits non-zero and names any untriaged row. The current table is signed off against v4.4 only.
+- **Every "Applies to" wording needs a mapping** in the compiler's `APPLICABILITY` table, or the row compiles as `UNMAPPED` and the loader refuses it.
+- **`manifest.yaml` carries `checkCount`**, and `loadCorpus` throws when it disagrees with the files. Editing checks by hand means editing that number.
+- **Tests follow automatically.** `packages/corpus/test/corpus.test.ts` discovers every `corpus/v*` directory and applies the structural invariants to each; `provenance.test.ts` is frozen to v4.4 and its workbook, and must not be edited when the corpus grows.
+- **Adding a detector needs no migration.** Write the probe, add it to its category array in `packages/probes/src/probes/`, and the matrix test will fail if no corpus check declares its id. `probe_results.probeId` is text, and the grader defaults to whatever the registry holds.
+- **A new site-profile flag needs no migration either** — `sites.flags` is `text[]` and the corpus defines the vocabulary. But an audit now fails fast (`UnknownSiteFlagsError`, permanent) when a site declares a flag the pinned corpus does not name, because `resolveScope` would otherwise narrow those checks to `no` with a rationale that reads deliberate.
+
 ### What the grader will and will not say
 
 - A machine may **fail** a check; only an `automated` check may be **passed** by one. `assisted` means the engine proposes and a person confirms.
@@ -116,13 +127,17 @@ Together these let the sink resolve `discoveredFromId` from an in-memory map. Br
 
 ## Testing
 
-Unit tests (no database needed): `packages/corpus/test/corpus.test.ts`, `packages/crawler/test/{crawl,cancel,robots,url}.test.ts`, `packages/probes/test/{probes,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store}.test.ts`, `packages/grader/test/grade.test.ts`, `packages/scheduler/test/retry.test.ts`.
+Unit tests (no database needed): `packages/corpus/test/{corpus,provenance,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,robots,url}.test.ts`, `packages/probes/test/{probes,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store}.test.ts`, `packages/grader/test/grade.test.ts`, `packages/scheduler/test/retry.test.ts`.
 
-Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/{scheduler,recovery,cancel}.test.ts`, `packages/job-store/test/postgres.test.ts`, `packages/grader/test/record.test.ts`.
+Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/{scheduler,recovery,cancel,flags}.test.ts`, `packages/job-store/test/postgres.test.ts`, `packages/grader/test/record.test.ts`.
 
 All tests skip gracefully if `DATABASE_URL` is unset — which means a green local run does not prove the database layer works. `vitest.config.ts` aliases packages to source, so no build step is needed during test.
 
-Corpus tests assert 97 checks with unique ids, the phase distribution (9, 19, 17, 13, 12, 8, 9, 10), priority distribution (P0:55, P1:35, P2:7), profile distribution (core:68, extended:29), and that detectors bind only to automated/assisted checks.
+`provenance.test.ts` is frozen against the v4.4 workbook: 97 checks, phase distribution (9, 19, 17, 13, 12, 8, 9, 10), priority (P0:55, P1:35, P2:7), profile (core:68, extended:29), and the launch-readiness block. Do not update those numbers — a newer methodology is a new version with a provenance file of its own.
+
+`corpus.test.ts` runs the version-independent invariants against every `corpus/v*` directory it finds: unique ids, phases in range, the detector/tier contract, conditional checks having a way into scope, and launch-gate semantics. A new version is covered the moment it lands.
+
+`versions.test.ts` proves two versions load and grade side by side, using the fixtures under `packages/corpus/test/fixtures/` (deliberately outside `corpus/`, and numbered 9.0/9.1 so no real version is shadowed).
 
 ## CI
 
@@ -143,7 +158,7 @@ It is bypassable with `--no-verify` and is a convenience, not the gate — the r
 ```
 packages/
   core/src/{check,state,readiness}.ts
-  corpus/src/load.ts
+  corpus/src/{load,flags}.ts
   crawler/src/{crawl,extract,fetch,robots,url}.ts
   db/src/{schema,enums,client}.ts  +  migrations/0000-0004
   persistence/src/{crawl-sink,map,probe-results}.ts
@@ -163,7 +178,7 @@ scripts/{compile-corpus,probe-matrix,triage}.ts
 ## Known gotchas
 
 1. **drizzle-kit is strict.** Changing `schema.ts` without `npm run db:generate` makes migrations fail. Always diff first.
-2. **`npm run corpus:compile` is destructive.** It overwrites the v4.4 YAML from the source TSV, discarding manual edits.
+2. **`npm run corpus:compile` bootstraps a version and then refuses.** It takes a required version argument, reads `corpus/source/v<version>.tsv`, and will not overwrite a version directory that already exists. `--force` does, discarding every hand edit — it is for fixing a botched bootstrap, not for editing the corpus.
 3. **Integration tests skip silently** when `DATABASE_URL` is unset. Run `npm run stack:up` before trusting a green test run.
 4. **The pre-push hook is opt-in** and must be enabled in each clone. It is a local convenience; the real gate is the server-side ruleset on `master`.
 5. **Response bodies are external by design.** The schema stores hashes and keys only; the content-addressing store does not exist yet (see Phase 6).

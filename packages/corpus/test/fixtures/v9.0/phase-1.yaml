@@ -1,0 +1,69 @@
+# Fixture corpus v9.0 — see ../README.md. Not a real methodology version.
+
+- id: "1.1"
+  phase: 1
+  phaseLabel: "1 — Delivery"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Every URL answers with a usable status
+  whatToDo: >-
+    Request each discovered URL and record the status it answers with, following redirects.
+  doneWhen: >-
+    No in-scope URL answers with a server error or an unresolvable redirect chain.
+  owners: ["engineering"]
+  ownerSource: >-
+    Engineering
+  tools: >-
+    Crawler
+  cadence:
+    triggers: ["before-launch"]
+    source: >-
+      Before launch
+  notes: >-
+    Fixture check. Bound to a detector the probe registry really implements, so
+    grading this corpus produces a verdict rather than an ungraded row.
+  automation: automated
+  remediationClass: code
+  detectors: ["http-status"]
+  sources: []
+
+- id: "1.2"
+  phase: 1
+  phaseLabel: "1 — Delivery"
+  priority: P1
+  profile: core
+  launchGate: false
+  applicability:
+    universal: false
+    any: ["ecommerce"]
+    source: >-
+      E-commerce / product catalogue
+  task: >-
+    Someone owns the catalogue feed
+  whatToDo: >-
+    Name the person accountable for the product feed and record where it is published.
+  doneWhen: >-
+    An owner is named in writing and the feed's location is recorded alongside them.
+  owners: ["business"]
+  ownerSource: >-
+    Business
+  tools: >-
+    None
+  cadence:
+    triggers: ["once"]
+    source: >-
+      Once
+  notes: >-
+    Fixture check. Attested, so it must declare no detectors — the other half of
+    the corpus contract.
+  automation: attested
+  remediationClass: config
+  detectors: []
+  sources: []

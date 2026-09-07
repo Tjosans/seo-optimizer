@@ -33,6 +33,11 @@ Last updated: 2026-09-05
 
 ## Phase 3 — Pre-Release Validation
 - [x] Audit triage sign-off: confirm automation tier and remediation class for all 97 checks (scripts/triage.ts requires sign-off before release)
+- [x] Settle the corpus source of record: the TSV bootstraps a version, the YAML owns it thereafter, and `corpus:compile` refuses to overwrite an existing version
+- [x] Split corpus tests into frozen provenance (v4.4 against its workbook) and structural invariants that run against every version on disk
+- [x] Validate site-profile flags against the pinned corpus before an audit runs, so a typo cannot silently excuse launch gates
+- [x] Prove two corpus versions load and grade side by side (packages/corpus/test/versions.test.ts, fixtures v9.0/v9.1)
+- [ ] Triage sign-off for corpus v4.5 once its rows exist — `scripts/triage.ts` is keyed by check id and signed off against v4.4 only
 
 ## Phase 4 — Orchestration & Scaling
 - [x] Implement job queue for managing concurrent crawls (@seo/queue: bounded concurrency, lane exclusion per origin, cancellation)
@@ -75,6 +80,13 @@ Last updated: 2026-09-05
 ## Blocked
 
 ## Decisions
+- 2026-09-07: settled the corpus source of record — the TSV under corpus/source/ bootstraps exactly one event, the first compile of a version, and corpus/v<version>/*.yaml owns it from then on; the compiler now refuses to overwrite an existing version, because the old header promised hand-editable YAML while the script silently discarded those edits and both halves were true
+- 2026-09-07: made a methodology revision a new version directory rather than a re-compile of a live one, since a delivered report pins `audits.corpusVersion` and has to keep explaining itself after the methodology moves on
+- 2026-09-07: made the compile version a required argument with no default, because a default is how a compile meant for 4.5 lands on 4.4 and takes a year of corpus edits with it
+- 2026-09-07: split the corpus suite into a frozen `provenance.test.ts` pinned to v4.4 and a `corpus.test.ts` that discovers every version directory, because one file was being asked to prove both "we reproduced the 2026 workbook" and "this corpus is well-formed" — goals that diverge the moment search changes, and which together made adding a check mean editing six numbers about a spreadsheet
+- 2026-09-07: validated site flags against the pinned corpus in `runAudit`, beside the corpus version check, because `resolveScope` reads a filled-in profile as a statement — so a misspelt flag does not go unmatched, it narrows checks to `no` with a rationale that reads deliberate, and would excuse launch gates while explaining itself confidently
+- 2026-09-07: put the flag vocabulary in the corpus rather than a Postgres enum, so a version that introduces a flag needs no migration; a flag no check names today may be named by the next version
+- 2026-09-07: kept the two-version fixtures outside `corpus/` and numbered them 9.0/9.1, so the version-discovery loop cannot pick up a test double and a real version directory can never be shadowed by one
 - 2026-09-05: made crawl cancellation a check between requests rather than an abort of the request in flight, because abandoning a response already on the wire saves the site nothing and hands the extractor a half-read body; the guarantee worth making is "no further requests", which is the one the site can feel
 - 2026-09-05: made the politeness delay interruptible, because it is the one part of a crawl deliberately measured in seconds and waiting it out would have made it the floor on how long cancelling takes — nobody is owed the pause before a request that will not be made
 - 2026-09-05: closed a cancelled crawl out as `cancelled` with a null error rather than `failed` with one, so a report never sends someone looking for a fault where a person simply stopped the work; `runAudit` restates `CrawlCancelledError` as `JobCancelledError` so the queue and the retry policy see one identity for it

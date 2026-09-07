@@ -4,6 +4,7 @@
   "include": ["src/**/*.ts"],
   "references": [
     { "path": "../core" },
+    { "path": "../corpus" },
     { "path": "../crawler" },
     { "path": "../db" },
     { "path": "../grader" },

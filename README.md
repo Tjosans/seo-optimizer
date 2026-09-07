@@ -104,13 +104,31 @@ such a change into two `db:generate` runs instead.
 ## Working with the corpus
 
 ```bash
-npm run corpus:compile   # compile corpus/source/*.tsv into corpus/v4.4/*.yaml
-npm run corpus:validate  # run the corpus package's own test suite
-npm run probes:matrix    # build + report which corpus detectors have a probe behind them
+npm run corpus:compile -- 4.5   # bootstrap corpus/v4.5 from corpus/source/v4.5.tsv
+npm run corpus:validate         # run the corpus package's own test suite
+npm run probes:matrix           # which corpus detectors have a probe behind them
 ```
 
-`corpus:compile` is destructive: it overwrites `corpus/v4.4/*.yaml` from the
-TSV, discarding hand edits. The TSV is the source of record.
+**Which file owns the corpus.** `corpus/v<version>/*.yaml` is the source of
+record: it is what the engine reads and what you edit. The TSV under
+`corpus/source/` is the provenance record of a workbook, and it is the source
+for exactly one event — the first compile of a version. `corpus:compile`
+therefore refuses to overwrite a version that already exists.
+
+A revision of the methodology is a **new version directory**, not a re-compile
+over a live one, because a delivered report pins `audits.corpusVersion` and has
+to keep explaining itself years later. Export the new sheet to
+`corpus/source/v4.5.tsv`, add triage rows for any new check ids in
+`scripts/triage.ts`, then:
+
+```bash
+npm run corpus:compile -- 4.5 --reviewed 2026-09-07
+```
+
+The compiler exits non-zero and names any row it could not triage or whose
+"Applies to" wording it could not map. `--force` re-bootstraps a version and
+discards every hand edit in it; it is for fixing a botched bootstrap, not for
+editing the corpus.
 
 ## Measuring the engine against real sites
 

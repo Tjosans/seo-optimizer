@@ -19,11 +19,13 @@ import { eq } from 'drizzle-orm';
 import { audits } from '@seo/db';
 import type { Database } from '@seo/db';
 import { CorpusVersionMismatchError, gradeAudit, recordGrade, toEvidence } from '@seo/grader';
+import { unknownFlags } from '@seo/corpus';
 import { CrawlCancelledError } from '@seo/crawler';
 import { crawlToDatabase, persistProbeRuns } from '@seo/persistence';
 import { runProbes } from '@seo/probes';
 import type { SiteContext } from '@seo/probes';
 import { JobCancelledError } from '@seo/queue';
+import { UnknownSiteFlagsError } from './types.js';
 import type { AuditJob, AuditOutcome, CorpusSource } from './types.js';
 
 /**
@@ -72,6 +74,15 @@ export async function runAudit(
     const corpus = await corpusSource(job.corpusVersion);
     if (corpus.version !== job.corpusVersion) {
       throw new CorpusVersionMismatchError(job.corpusVersion, corpus.version);
+    }
+
+    // Checked here, in the same breath as the corpus version and for the same
+    // reason: a profile this corpus cannot read produces a report that quietly
+    // excuses checks rather than one that is obviously wrong, and finding that
+    // out after twenty minutes of someone else's bandwidth helps nobody.
+    const unknown = unknownFlags(corpus, job.flags);
+    if (unknown.length > 0) {
+      throw new UnknownSiteFlagsError(job.siteId, unknown, corpus.version);
     }
     stopIfCancelled();
 

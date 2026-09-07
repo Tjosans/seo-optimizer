@@ -5,15 +5,19 @@ checks, and grade what launched.
 
 The system is a pipeline of packages under `packages/`, each with one job:
 
-| Package             | Job                                                              |
-| -------------------- | ----------------------------------------------------------------- |
-| `@seo/corpus`         | Loads and validates the versioned check corpus (`corpus/v4.4`).   |
-| `@seo/core`           | The check/state/readiness types every other package speaks in.    |
-| `@seo/crawler`        | Fetches a site, respecting robots.txt, and extracts page signals. |
-| `@seo/probes`         | Runs detectors over a crawl and produces observations.            |
-| `@seo/persistence`    | Writes a crawl and its probe runs into Postgres.                  |
-| `@seo/db`             | The Postgres schema and migrations (Drizzle).                     |
-| `@seo/testkit`        | A fixture website, served from memory, for tests to crawl.        |
+| Package            | Job                                                               |
+| ------------------ | ----------------------------------------------------------------- |
+| `@seo/core`        | The check/state/readiness types every other package speaks in.    |
+| `@seo/corpus`      | Loads and validates the versioned check corpus (`corpus/v4.4`).   |
+| `@seo/crawler`     | Fetches a site, respecting robots.txt, and extracts page signals. |
+| `@seo/probes`      | Runs detectors over a crawl and produces observations.            |
+| `@seo/persistence` | Writes a crawl and its probe runs into Postgres.                  |
+| `@seo/grader`      | Reads evidence against the corpus and freezes launch readiness.   |
+| `@seo/queue`       | Runs audits at a bounded concurrency, one at a time per origin.   |
+| `@seo/job-store`   | Keeps queued work in Postgres, so a restart resumes it.           |
+| `@seo/scheduler`   | The front door: submit an audit, get an id back, poll the row.    |
+| `@seo/db`          | The Postgres schema and migrations (Drizzle).                     |
+| `@seo/testkit`     | A fixture website, served from memory, for tests to crawl.        |
 
 ## Prerequisites
 
@@ -42,10 +46,13 @@ npm test
 ```
 
 Most tests run against source directly (see `vitest.config.ts`) and need
-nothing running. A few — `packages/db/test` and `packages/persistence/test` —
-are integration tests against a live Postgres and skip themselves
-automatically when `DATABASE_URL` is unset, so `stack:up` + `.env` unlocks
-them rather than being required for the rest of the suite.
+nothing running. The rest — `packages/db/test`, `packages/persistence/test`,
+`packages/job-store/test`, `packages/grader/test/record.test.ts` and
+`packages/scheduler/test/{scheduler,recovery,cancel}.test.ts` — are
+integration tests against a live Postgres and skip themselves automatically
+when `DATABASE_URL` is unset, so `stack:up` + `.env` unlocks them rather than
+being required for the rest of the suite. A green run without a database
+therefore does not prove the database layer works.
 
 ```bash
 npm run typecheck   # tsc --build --force, project-referenced

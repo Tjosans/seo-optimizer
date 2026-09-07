@@ -31,6 +31,12 @@
  *
  * Build-time tool: run directly on Node's TypeScript support, never bundled.
  *
+ * Two exports feed a version, both from the workbook of the same name:
+ *
+ *     corpus/source/v<version>.tsv           the Checklist sheet
+ *     corpus/source/v<version>-sources.tsv   the Sources sheet (falls back to
+ *                                            sources.tsv, with a warning)
+ *
  *     npm run corpus:compile -- 4.5                    # from corpus/source/v4.5.tsv
  *     npm run corpus:compile -- 4.5 --reviewed 2026-09-07
  *     npm run corpus:compile -- 4.4 --force            # deliberate re-bootstrap
@@ -355,7 +361,22 @@ function main(): number {
   const OUT = join(ROOT, 'corpus', `v${CORPUS_VERSION}`);
   const TSV = join(SRC, `v${CORPUS_VERSION}.tsv`);
 
-  const sources: SourceRef[] = readTsv(join(SRC, 'sources.tsv'))
+  // The Sources sheet is versioned like the Checklist sheet, because a new
+  // methodology revises its citations — new URLs, and new verified dates on the
+  // old ones. A version-specific export wins; falling back to the shared file
+  // keeps v4.4 compiling from the layout it was bootstrapped with, and says out
+  // loud that the citations are inherited rather than this version's own.
+  const versioned = join(SRC, `v${CORPUS_VERSION}-sources.tsv`);
+  const SOURCES = existsSync(versioned) ? versioned : join(SRC, 'sources.tsv');
+
+  if (SOURCES !== versioned) {
+    console.warn(
+      `no v${CORPUS_VERSION}-sources.tsv; using corpus/source/sources.tsv. ` +
+        'Export the Sources sheet alongside the Checklist sheet if this version revised its citations.',
+    );
+  }
+
+  const sources: SourceRef[] = readTsv(SOURCES)
     .slice(1)
     .filter((r) => r.length >= 4 && (r[0] ?? '').trim() !== '')
     .map((r) => ({

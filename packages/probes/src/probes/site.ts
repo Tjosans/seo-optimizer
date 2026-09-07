@@ -4,7 +4,7 @@
  * the URL space is shaped.
  */
 
-import { isSameSite, normalizeUrl, pathDepth } from '@seo/crawler';
+import { isAllowed, isSameSite, normalizeUrl, pathDepth } from '@seo/crawler';
 import type { CrawledPage } from '@seo/crawler';
 import type { SiteProbe } from '../types.js';
 import { fail, notApplicable, pass, warn } from '../types.js';
@@ -653,6 +653,108 @@ export const faviconSiteName: SiteProbe = {
   },
 };
 
+/**
+ * Does what the site does to AI crawlers match what its owners decided?
+ *
+ * The corpus asks for robots.txt, CDN behaviour and a dated user-agent test to
+ * agree with the policy, and the policy is the part no crawl can supply — a
+ * site that wants to be in AI answers and one that wants to be out of them look
+ * identical from outside. So this is silent until somebody has written the
+ * decision down on the site record, and that is the honest answer rather than a
+ * gap: an unrecorded policy is not a policy the site is failing to keep.
+ *
+ * With a policy, three things are compared:
+ *
+ *   robots.txt against the stance, in both directions. A crawler the policy
+ *   welcomes but robots.txt turns away is as much a defect as the reverse, and
+ *   it is the direction people miss — a blanket disallow written years ago
+ *   quietly excludes the crawler someone has since decided to court.
+ *
+ *   The edge against the stance, for crawlers the policy allows. robots.txt is
+ *   a request; a CDN rule is a wall. A 403 to a welcomed crawler means the
+ *   policy is being enforced by infrastructure nobody told about it.
+ *
+ *   Not the reverse. A disallowed crawler that still gets a 200 is the normal
+ *   shape of robots-only enforcement, not a finding: robots.txt asks, and
+ *   well-behaved crawlers comply without needing to be blocked.
+ */
+export const aiCrawlerDirectiveVerify: SiteProbe = {
+  id: 'ai-crawler-directive-verify',
+  scope: 'site',
+  title: 'robots.txt and the edge agree with the approved AI crawler policy',
+  run({ crawl, aiPolicy, origin }) {
+    if (aiPolicy === null || aiPolicy === undefined) {
+      return notApplicable('No AI crawler policy is recorded on the site record.');
+    }
+    const agents = Object.entries(aiPolicy.agents);
+    if (agents.length === 0) {
+      return notApplicable('The recorded AI crawler policy names no crawlers.');
+    }
+    if (crawl.robots.absent || crawl.robotsTxt === null) {
+      return fail('The policy names AI crawlers, but the site serves no robots.txt.', {
+        agents: agents.map(([agent]) => agent),
+      });
+    }
+
+    const root = new URL('/', origin).toString();
+    const disagrees: { agent: string; policy: string; robotsTxt: string }[] = [];
+    for (const [agent, stance] of agents) {
+      const allowed = isAllowed(crawl.robots, agent, root);
+      if (allowed !== (stance === 'allow')) {
+        disagrees.push({
+          agent,
+          policy: stance,
+          robotsTxt: allowed ? 'allow' : 'disallow',
+        });
+      }
+    }
+    if (disagrees.length > 0) {
+      return fail(`robots.txt contradicts the policy for ${disagrees.length} crawler(s).`, {
+        approvedAt: aiPolicy.approvedAt,
+        disagreements: disagrees,
+      });
+    }
+
+    const tests = crawl.auxiliary.filter((entry) => entry.reason === 'user-agent-test');
+    const blocked = tests.filter((entry) => {
+      const stance = entry.userAgent === undefined ? undefined : aiPolicy.agents[entry.userAgent];
+      if (stance !== 'allow') return false;
+      const status = entry.fetch.status;
+      return status === 401 || status === 403 || status === 429;
+    });
+    if (blocked.length > 0) {
+      return fail(
+        `${blocked.length} crawler(s) the policy allows are turned away at the edge.`,
+        {
+          approvedAt: aiPolicy.approvedAt,
+          samples: blocked.map((entry) => ({
+            agent: entry.userAgent,
+            status: entry.fetch.status,
+          })),
+        },
+      );
+    }
+
+    const detail = {
+      approvedAt: aiPolicy.approvedAt,
+      approvedBy: aiPolicy.approvedBy,
+      agents: agents.length,
+      userAgentTests: tests.length,
+    };
+    if (tests.length === 0) {
+      return warn(
+        `robots.txt matches the policy for all ${agents.length} crawler(s), but no ` +
+          'user-agent test was run, so edge behaviour is unverified.',
+        detail,
+      );
+    }
+    return pass(
+      `robots.txt and the edge agree with the policy for all ${agents.length} crawler(s).`,
+      detail,
+    );
+  },
+};
+
 export const urlConvention: SiteProbe = {
   id: 'url-convention',
   scope: 'site',
@@ -764,4 +866,5 @@ export const siteProbes = [
   paginationCrawlPath,
   hostRedirect,
   faviconSiteName,
+  aiCrawlerDirectiveVerify,
 ];

@@ -6,7 +6,7 @@
  * crawl budget. Everything else the engine already knows or can default.
  */
 
-import type { Corpus } from '@seo/core';
+import type { AiCrawlerPolicy, Corpus } from '@seo/core';
 import type { CrawlOptions } from '@seo/crawler';
 import type { FrozenReadiness } from '@seo/grader';
 
@@ -51,6 +51,12 @@ export interface AuditJob {
   readonly siteId: string;
   readonly origin: string;
   readonly flags: readonly string[];
+  /**
+   * The site's approved AI crawler policy, or null. Carried on the job rather
+   * than re-read at run time for the same reason the flags are: an audit
+   * reports on the site as it was described when it was submitted.
+   */
+  readonly aiPolicy: AiCrawlerPolicy | null;
   /** Pinned at submit time; the version the grader must be handed. */
   readonly corpusVersion: string;
   readonly options: CrawlOptions;

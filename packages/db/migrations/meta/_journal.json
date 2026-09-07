@@ -43,6 +43,13 @@
       "when": 1788806673731,
       "tag": "0005_talented_marvel_zombies",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788819852995,
+      "tag": "0006_common_inhumans",
+      "breakpoints": true
     }
   ]
 }

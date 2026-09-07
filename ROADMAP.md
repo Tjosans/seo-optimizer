@@ -49,7 +49,7 @@ Last updated: 2026-09-05
 - [x] Reconcile audits left `pending` with no job behind them (@seo/scheduler: `reconcile()` closes out rows nothing is going to run, bounded by the database clock at recovery)
 - [x] Give crawl() cooperative cancellation so a cancelled job stops mid-crawl rather than at the end (@seo/crawler: a `signal` checked between requests and inside the politeness delay; a cancelled crawl reads `cancelled`, not `failed`)
 - [x] Grade probe evidence into checkStates and freeze readiness on the audit (@seo/grader: verdicts, evidence trail, frozen readiness)
-- [ ] Implement more of the corpus's 128 detectors — 39 today (was 33), covering 16 of 43 automated checks and 12 launch gates. The remainder need evidence this engine does not yet gather: Search Console, Lighthouse/CrUX, RDAP, a rendered DOM (Phase 5), or a previous audit to compare against
+- [ ] Implement more of the corpus's 128 detectors — 40 today (was 33), covering 17 of 43 automated checks and 12 launch gates. The remainder need evidence this engine does not yet gather: Search Console, Lighthouse/CrUX, RDAP, a rendered DOM (Phase 5), or a previous audit to compare against
 
 - [x] Prototype URL analyzer with snapshot comparison (npm run analyze / npm run compare) so engine changes can be measured against live sites
 
@@ -80,6 +80,11 @@ Last updated: 2026-09-05
 ## Blocked
 
 ## Decisions
+- 2026-09-08: added `sites.aiPolicy` as jsonb rather than a table or an enum, because the shape is a map from crawler name to stance and crawler names change faster than anything needing a migration should; the policy joins `flags` as the second thing on a site record that a person states and no crawl can derive
+- 2026-09-08: had `ai-crawler-directive-verify` compare robots.txt against the policy in *both* directions, because the missed case is the welcoming one — a blanket disallow written years ago quietly excludes the crawler someone has since decided to court, and only the policy makes that visible
+- 2026-09-08: treated a disallowed crawler still receiving a 200 as normal rather than a defect: robots.txt asks and well-behaved crawlers comply, so robots-only enforcement is the common shape. Only the reverse — a welcomed crawler turned away at the edge — is infrastructure contradicting a decision
+- 2026-09-08: sent user-agent tests honestly, as real requests carrying the named crawler's user-agent, and capped them at twelve, because each is a real visit to someone's origin and a policy naming forty crawlers must not cost forty visits
+- 2026-09-08: moved the AI-policy parse ahead of the `audits` insert in `submit()` after a test caught the ordering: a policy the engine cannot read is a bad request, and a bad request must leave nothing behind rather than a `pending` row waiting for the reconcile sweep to explain it
 - 2026-09-07: put auxiliary requests in `crawl()` rather than letting a probe fetch for itself, because politeness is owed to a host and the crawl loop is the only thing that knows what was promised — the same delay and the same cancellation signal cover them, where a probe making its own requests would be a second, unmetered visitor to a site that agreed to one
 - 2026-09-07: skipped host variants for a seed whose host cannot have them — an IP literal, `localhost`, any single-label name — because `www.127.0.0.1` is not a spelling of anything, and reporting its DNS failure would fail every audit of a staging environment for being a staging environment
 - 2026-09-07: gave `FetchResult` an optional `bytes` for small non-textual responses behind a `keepBytes` flag, rather than keeping every asset, because exactly one question today needs to look inside a file (is the favicon square) and holding megabytes of images in a crawl that already holds every page would spend a real memory budget on nothing

@@ -91,7 +91,15 @@ export async function runAudit(
       // The crawl's own stopping point. Without this the signal would only be
       // read between steps, and a cancelled audit would keep fetching until the
       // page budget ran out.
-      options: { ...job.options, ...(signal === undefined ? {} : { signal }) },
+      options: {
+        ...job.options,
+        // The crawlers the site has an opinion on are the crawlers worth
+        // arriving as. No policy, no extra requests to anybody's origin.
+        ...(job.aiPolicy === null
+          ? {}
+          : { userAgentTests: Object.keys(job.aiPolicy.agents) }),
+        ...(signal === undefined ? {} : { signal }),
+      },
     });
     stopIfCancelled();
 
@@ -99,6 +107,7 @@ export async function runAudit(
       origin: job.origin,
       crawl: crawled.result,
       flags: job.flags,
+      aiPolicy: job.aiPolicy,
     };
     const runs = runProbes(context);
 

@@ -8,7 +8,7 @@ Read [`ROADMAP.md`](./ROADMAP.md) first — it holds the phase list, what is don
 
 seo-optimizer is an SEO launch-readiness auditor. It crawls a site, runs it against a versioned corpus of 97 checks across 8 corpus phases, and grades what launched. The system is a pipeline of independent packages:
 
-- **@seo/core** — types for checks, check state, readiness scoring
+- **@seo/core** — types for checks, check state, readiness scoring, and the site inputs a person supplies (AI crawler policy)
 - **@seo/corpus** — loader for the v4.4 check corpus (YAML phases 0-7, source TSV)
 - **@seo/crawler** — site crawler respecting robots.txt, redirect chains, sitemaps; stops between requests on a caller's signal; makes the auxiliary requests probes are not allowed to make themselves
 - **@seo/probes** — 6 detector categories (delivery, indexability, markup, media, metadata, site)
@@ -101,6 +101,8 @@ Key scripts:
 - **`manifest.yaml` carries `checkCount`**, and `loadCorpus` throws when it disagrees with the files. Editing checks by hand means editing that number.
 - **Tests follow automatically.** `packages/corpus/test/corpus.test.ts` discovers every `corpus/v*` directory and applies the structural invariants to each; `provenance.test.ts` is frozen to v4.4 and its workbook, and must not be edited when the corpus grows.
 - **Adding a detector needs no migration.** Write the probe, add it to its category array in `packages/probes/src/probes/`, and the matrix test will fail if no corpus check declares its id. `probe_results.probeId` is text, and the grader defaults to whatever the registry holds.
+- **A site's AI crawler policy is an input, not an observation.** `sites.aiPolicy` (jsonb) holds `{ agents: { GPTBot: 'disallow', … }, approvedAt, approvedBy }` — see `AiCrawlerPolicy` in @seo/core. Nothing observable can stand in for it: a site that wants to be in AI answers and one that wants to be out look identical from outside. `ai-crawler-directive-verify` is `not-applicable` without one, and `submit()` refuses a malformed one before it writes the audit row. Agent names are text keys because new crawlers appear faster than a migration should.
+
 - **A new site-profile flag needs no migration either** — `sites.flags` is `text[]` and the corpus defines the vocabulary. But an audit now fails fast (`UnknownSiteFlagsError`, permanent) when a site declares a flag the pinned corpus does not name, because `resolveScope` would otherwise narrow those checks to `no` with a rationale that reads deliberate.
 
 ### What the grader will and will not say
@@ -108,7 +110,7 @@ Key scripts:
 - A machine may **fail** a check; only an `automated` check may be **passed** by one. `assisted` means the engine proposes and a person confirms.
 - A detector that is unimplemented, errored, or observed nothing leaves the check `not-started` / `unknown`. Missing evidence is never good news, and never bad news either.
 - Scope comes from `sites.flags`: an empty profile leaves conditional checks at `review`; a filled-in one narrows non-matching checks to `no` with a written rationale.
-- Only 39 of the corpus's 128 detectors exist, so today 16 of 43 automated checks can be graded end to end and most audits come back mostly ungraded. That is the honest answer, not a bug. `npm run probes:matrix` prints the current figure; do not quote one from memory.
+- Only 40 of the corpus's 128 detectors exist, so today 17 of 43 automated checks can be graded end to end and most audits come back mostly ungraded. That is the honest answer, not a bug. `npm run probes:matrix` prints the current figure; do not quote one from memory.
 - A row a human attested is never overwritten by a re-grade, and it counts in the frozen readiness.
 
 ### Guarantees the sink relies on
@@ -129,7 +131,7 @@ Together these let the sink resolve `discoveredFromId` from an in-memory map. Br
 
 Unit tests (no database needed): `packages/corpus/test/{corpus,provenance,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,robots,url}.test.ts`, `packages/probes/test/{probes,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store}.test.ts`, `packages/grader/test/grade.test.ts`, `packages/scheduler/test/retry.test.ts`.
 
-Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/{scheduler,recovery,cancel,flags}.test.ts`, `packages/job-store/test/postgres.test.ts`, `packages/grader/test/record.test.ts`.
+Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/{scheduler,recovery,cancel,flags,ai-policy}.test.ts`, `packages/job-store/test/postgres.test.ts`, `packages/grader/test/record.test.ts`.
 
 All tests skip gracefully if `DATABASE_URL` is unset — which means a green local run does not prove the database layer works. `vitest.config.ts` aliases packages to source, so no build step is needed during test.
 
@@ -157,10 +159,10 @@ It is bypassable with `--no-verify` and is a convenience, not the gate — the r
 
 ```
 packages/
-  core/src/{check,state,readiness}.ts
+  core/src/{check,state,readiness,site}.ts
   corpus/src/{load,flags}.ts
   crawler/src/{crawl,extract,fetch,robots,url}.ts
-  db/src/{schema,enums,client}.ts  +  migrations/0000-0005
+  db/src/{schema,enums,client}.ts  +  migrations/0000-0006
   persistence/src/{crawl-sink,map,probe-results}.ts
   probes/src/{registry,types,matrix}.ts  +  src/probes/*.ts
   queue/src/{queue,retry,store,types}.ts
@@ -185,4 +187,4 @@ scripts/{compile-corpus,probe-matrix,triage}.ts
 
 ## What to pick up next
 
-`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; what remains is lease expiry so a second worker can share a queue, and detector coverage — 89 of the corpus's 128 detectors are unimplemented, which is the single thing most limiting what an audit can say. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.
+`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; what remains is lease expiry so a second worker can share a queue, and detector coverage — 88 of the corpus's 128 detectors are unimplemented, which is the single thing most limiting what an audit can say. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.

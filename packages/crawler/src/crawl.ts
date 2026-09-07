@@ -60,6 +60,19 @@ export interface CrawlOptions {
    * error in the report.
    */
   readonly auxiliary?: boolean;
+  /**
+   * Other crawlers to fetch the seed as, once each.
+   *
+   * robots.txt is a request, not a fence. What a site *does* to a named crawler
+   * — serve it, or have a CDN turn it away at the edge — is only observable by
+   * arriving under that name, which is what corpus check 2.9 means by a
+   * user-agent test. The list comes from the site's own AI crawler policy, so
+   * this asks about crawlers the site has an opinion on and no others.
+   *
+   * Sent honestly: the request really does carry that user-agent, and the site
+   * really does get to decide what to do about it.
+   */
+  readonly userAgentTests?: readonly string[];
   /** Injection seam for tests and for replaying a stored crawl. */
   readonly fetchImpl?: typeof fetchPage;
   /** Called as each page completes, so a long crawl can stream to storage. */
@@ -86,9 +99,13 @@ export interface AuxiliaryFetch {
   /**
    * `host-variant` — a scheme/host spelling of the seed, tested once.
    * `icon` — an icon the root document declared.
+   * `user-agent-test` — the seed fetched as somebody else, to see whether the
+   *   site treats that crawler differently from this one.
    */
-  readonly reason: 'host-variant' | 'icon';
+  readonly reason: 'host-variant' | 'icon' | 'user-agent-test';
   readonly url: string;
+  /** The `user-agent` sent, when it was not the crawl's own. */
+  readonly userAgent?: string;
   readonly fetch: FetchResult;
 }
 
@@ -259,17 +276,19 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
   const aside = async (
     reason: AuxiliaryFetch['reason'],
     target: string,
-    extra: { readonly keepBytes?: boolean } = {},
+    extra: { readonly keepBytes?: boolean; readonly userAgent?: string } = {},
   ): Promise<void> => {
     if (!first) await sleep(delayMs, options.signal);
     first = false;
+    const userAgent = extra.userAgent ?? options.userAgent;
     auxiliary.push({
       reason,
       url: target,
+      ...(extra.userAgent === undefined ? {} : { userAgent: extra.userAgent }),
       fetch: await request(target, {
-        userAgent: options.userAgent,
+        userAgent,
         ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
-        ...extra,
+        ...(extra.keepBytes === undefined ? {} : { keepBytes: extra.keepBytes }),
       }),
     });
   };
@@ -278,6 +297,10 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
     for (const variant of hostVariants(firstSeed)) {
       stopIfCancelled(options.signal);
       await aside('host-variant', variant);
+    }
+    for (const agent of [...new Set(options.userAgentTests ?? [])].slice(0, MAX_UA_TESTS)) {
+      stopIfCancelled(options.signal);
+      await aside('user-agent-test', firstSeed, { userAgent: agent });
     }
   }
 
@@ -347,6 +370,12 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
 
 /** At most three: a favicon, a touch icon, and one more. Beyond that is noise. */
 const MAX_ICON_FETCHES = 3;
+
+/**
+ * A ceiling on user-agent tests, because each is a real request to someone's
+ * origin and a policy naming forty crawlers should not cost forty visits.
+ */
+const MAX_UA_TESTS = 12;
 
 /**
  * The scheme and host spellings that must all end up in the same place.

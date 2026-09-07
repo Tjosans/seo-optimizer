@@ -44,6 +44,7 @@
  */
 
 import { and, eq, inArray, lt, sql } from 'drizzle-orm';
+import { parseAiCrawlerPolicy } from '@seo/core';
 import type { CrawlOptions } from '@seo/crawler';
 import { audits, sites } from '@seo/db';
 import type { Database } from '@seo/db';
@@ -167,12 +168,22 @@ export class AuditScheduler {
    */
   async submit(request: AuditRequest): Promise<AuditHandle> {
     const [site] = await this.#db
-      .select({ id: sites.id, origin: sites.origin, flags: sites.flags })
+      .select({
+        id: sites.id,
+        origin: sites.origin,
+        flags: sites.flags,
+        aiPolicy: sites.aiPolicy,
+      })
       .from(sites)
       .where(eq(sites.id, request.siteId));
     if (site === undefined) throw new UnknownSiteError(request.siteId);
 
     const options = this.#optionsFor(site.origin, request);
+    // Parsed before the row exists, not after. A policy this engine cannot read
+    // is a bad request, and a bad request should leave nothing behind — an
+    // audit row written first would sit `pending` forever with no job to run
+    // it, waiting for the reconcile sweep to explain itself.
+    const aiPolicy = parseAiCrawlerPolicy(site.aiPolicy);
 
     const [audit] = await this.#db
       .insert(audits)
@@ -185,6 +196,7 @@ export class AuditScheduler {
       siteId: site.id,
       origin: site.origin,
       flags: site.flags,
+      aiPolicy,
       corpusVersion: request.corpusVersion,
       options,
     };

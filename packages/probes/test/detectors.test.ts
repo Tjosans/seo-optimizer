@@ -15,7 +15,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { extract } from '@seo/crawler';
+import { extract, parseRobots } from '@seo/crawler';
 import type { AuxiliaryFetch, CrawledPage, CrawlResult, FetchResult } from '@seo/crawler';
 import { probeById } from '@seo/probes';
 import type { Observation, PageProbe, SiteContext, SiteProbe } from '@seo/probes';
@@ -584,5 +584,116 @@ describe('favicon-site-name', () => {
     );
     expect(observation.outcome).toBe('warn');
     expect(observation.summary).toMatch(/dimensions could be read/);
+  });
+});
+
+
+// --- 2.9 ai-crawler-directive-verify ----------------------------------------
+
+const POLICY = {
+  agents: { GPTBot: 'disallow', 'Google-Extended': 'allow' },
+  approvedAt: '2026-09-01',
+  approvedBy: 'legal@example.com',
+} as const;
+
+/** The site as this detector sees it: robots.txt, a policy, and UA tests. */
+const aiSite = (
+  robotsTxt: string | null,
+  aiPolicy: unknown = POLICY,
+  tests: readonly AuxiliaryFetch[] = [],
+): SiteContext => ({
+  origin: ORIGIN,
+  flags: ['ai-policy'],
+  aiPolicy: aiPolicy as SiteContext['aiPolicy'],
+  crawl: {
+    seeds: [`${ORIGIN}/`],
+    pages: [page({ path: '/', depth: 0 })],
+    robots:
+      robotsTxt === null
+        ? { groups: [], sitemaps: [], absent: true }
+        : parseRobots(robotsTxt),
+    robotsTxt,
+    sitemapUrls: [],
+    blockedByRobots: [],
+    notReached: [],
+    auxiliary: tests,
+  } satisfies CrawlResult,
+});
+
+const uaTest = (agent: string, status: number): AuxiliaryFetch => ({
+  ...variant(`${ORIGIN}/`, { status }, 'user-agent-test'),
+  userAgent: agent,
+});
+
+/** robots.txt that matches POLICY: GPTBot out, everyone else in. */
+const MATCHING_ROBOTS = 'User-agent: GPTBot\nDisallow: /\n\nUser-agent: *\nAllow: /\n';
+
+const runAi = (context: SiteContext): Observation =>
+  siteProbe('ai-crawler-directive-verify').run(context);
+
+describe('ai-crawler-directive-verify', () => {
+  it('says nothing when nobody has recorded a policy', () => {
+    expect(runAi(aiSite(MATCHING_ROBOTS, null)).outcome).toBe('not-applicable');
+  });
+
+  it('says nothing when the policy names no crawlers', () => {
+    const empty = { ...POLICY, agents: {} };
+    expect(runAi(aiSite(MATCHING_ROBOTS, empty)).outcome).toBe('not-applicable');
+  });
+
+  it('fails a site with a policy and no robots.txt to express it', () => {
+    expect(runAi(aiSite(null)).outcome).toBe('fail');
+  });
+
+  it('fails when robots.txt turns away a crawler the policy welcomes', () => {
+    const robots = 'User-agent: *\nDisallow: /\n';
+    const observation = runAi(aiSite(robots));
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/contradicts the policy/);
+    expect(observation.data?.['disagreements']).toContainEqual({
+      agent: 'Google-Extended',
+      policy: 'allow',
+      robotsTxt: 'disallow',
+    });
+  });
+
+  it('fails when robots.txt admits a crawler the policy excluded', () => {
+    const robots = 'User-agent: *\nAllow: /\n';
+    const observation = runAi(aiSite(robots));
+    expect(observation.outcome).toBe('fail');
+    expect(observation.data?.['disagreements']).toContainEqual({
+      agent: 'GPTBot',
+      policy: 'disallow',
+      robotsTxt: 'allow',
+    });
+  });
+
+  it('fails when the edge blocks a crawler the policy welcomes', () => {
+    const observation = runAi(
+      aiSite(MATCHING_ROBOTS, POLICY, [uaTest('Google-Extended', 403)]),
+    );
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/turned away at the edge/);
+  });
+
+  it('does not mind a disallowed crawler still being served', () => {
+    // robots.txt asks; it does not fence. A 200 to GPTBot is the normal shape
+    // of robots-only enforcement, not a breach of the policy.
+    const observation = runAi(aiSite(MATCHING_ROBOTS, POLICY, [uaTest('GPTBot', 200)]));
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('passes when robots.txt and the edge both match the policy', () => {
+    const observation = runAi(
+      aiSite(MATCHING_ROBOTS, POLICY, [uaTest('GPTBot', 200), uaTest('Google-Extended', 200)]),
+    );
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data?.['approvedAt']).toBe('2026-09-01');
+  });
+
+  it('warns when robots.txt agrees but no user-agent test was run', () => {
+    const observation = runAi(aiSite(MATCHING_ROBOTS));
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toMatch(/edge behaviour is unverified/);
   });
 });

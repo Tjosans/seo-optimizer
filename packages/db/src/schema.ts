@@ -64,6 +64,18 @@ export const sites = pgTable('sites', {
   flags: text('flags').array().notNull().default(sql`'{}'::text[]`),
   /** Advisory effort scoping. Never a launch filter; see @seo/core. */
   profile: profileEnum('profile').notNull().default('core'),
+  /**
+   * The AI crawler policy this site's owners approved — `AiCrawlerPolicy` in
+   * @seo/core. Null when no decision has been recorded, which is most sites.
+   *
+   * jsonb rather than a table or an enum because the shape is a map from
+   * crawler name to stance, and crawler names change faster than anything
+   * needing a migration should. It is an input a person supplies, like `flags`
+   * beside it: nothing observable can stand in for it, because a site that
+   * wants to be in AI answers and one that wants to be out of them look
+   * identical from outside.
+   */
+  aiPolicy: jsonb('ai_policy'),
   createdAt: createdAt(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

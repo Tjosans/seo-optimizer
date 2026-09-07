@@ -12,6 +12,76 @@ import { fail, notApplicable, pass, warn } from '../types.js';
 const htmlPages = (pages: readonly CrawledPage[]): CrawledPage[] =>
   pages.filter((page) => page.extracted !== null && page.fetch.status === 200);
 
+interface IconSize {
+  readonly width: number;
+  readonly height: number;
+}
+
+/**
+ * An icon's dimensions, read from the bytes the crawl kept.
+ *
+ * Three formats cover essentially every real favicon, and each states its size
+ * in a fixed place near the front, so no image library is needed. Anything else
+ * returns null and is reported as unmeasured rather than guessed at.
+ */
+function iconSize(fetched: { bytes?: Uint8Array; contentType: string | null }): IconSize | null {
+  const bytes = fetched.bytes;
+  if (bytes === undefined) return null;
+
+  // PNG: 8-byte signature, then an IHDR whose width and height are big-endian
+  // 32-bit integers at offsets 16 and 20.
+  if (bytes.length >= 24 && bytes[0] === 0x89 && bytes[1] === 0x50) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    return { width: view.getUint32(16), height: view.getUint32(20) };
+  }
+
+  // ICO: a 6-byte header, then directory entries whose first two bytes are
+  // width and height, with 0 meaning 256 — the one size too big for a byte.
+  if (bytes.length >= 8 && bytes[0] === 0x00 && bytes[1] === 0x00 && bytes[2] === 0x01) {
+    const width = bytes[6] ?? 0;
+    const height = bytes[7] ?? 0;
+    return { width: width === 0 ? 256 : width, height: height === 0 ? 256 : height };
+  }
+
+  // SVG: text, so read the viewBox it scales from, or its declared size.
+  if ((fetched.contentType ?? '').includes('svg')) {
+    const text = new TextDecoder().decode(bytes);
+    const viewBox = /viewBox\s*=\s*["']\s*[-\d.]+[ ,]+[-\d.]+[ ,]+([\d.]+)[ ,]+([\d.]+)/i.exec(text);
+    if (viewBox) return { width: Number(viewBox[1]), height: Number(viewBox[2]) };
+    const width = /\bwidth\s*=\s*["']([\d.]+)/i.exec(text);
+    const height = /\bheight\s*=\s*["']([\d.]+)/i.exec(text);
+    if (width && height) return { width: Number(width[1]), height: Number(height[1]) };
+  }
+  return null;
+}
+
+/** The name a page claims for its site, from og:site_name or schema.org. */
+function siteNameOf(page: CrawledPage): string | null {
+  const extracted = page.extracted;
+  if (extracted === null) return null;
+
+  const og = extracted.openGraph['og:site_name'];
+  if (og !== undefined && og !== '') return og;
+
+  for (const block of extracted.jsonLd) {
+    const nodes = Array.isArray(block) ? block : [block];
+    for (const node of nodes) {
+      if (typeof node !== 'object' || node === null) continue;
+      const record = node as Record<string, unknown>;
+      const graph = Array.isArray(record['@graph']) ? (record['@graph'] as unknown[]) : [];
+      for (const candidate of [record, ...graph]) {
+        if (typeof candidate !== 'object' || candidate === null) continue;
+        const entry = candidate as Record<string, unknown>;
+        const types = [entry['@type']].flat();
+        if (!types.some((type) => type === 'WebSite' || type === 'Organization')) continue;
+        const name = entry['name'];
+        if (typeof name === 'string' && name !== '') return name;
+      }
+    }
+  }
+  return null;
+}
+
 /** BCP 47 as hreflang uses it: language, optional script, optional region. */
 const LANG_TAG = /^[a-z]{2,3}(-[A-Za-z]{4})?(-([A-Za-z]{2}|\d{3}))?$/i;
 
@@ -401,6 +471,188 @@ export const paginationCrawlPath: SiteProbe = {
   },
 };
 
+/**
+ * Every way of spelling the site's address ends up in the same place, once.
+ *
+ * Four URLs exist before anyone reaches a page: http and https, apex and www.
+ * A site that serves content on more than one of them is two sites to a search
+ * engine, splitting its own signals; a site that reaches the right one through
+ * two redirects spends a round trip on every cold visit and, over http, spends
+ * the first one in cleartext. The corpus asks for one HTTPS URL in one hop, and
+ * that is only answerable by asking all four — which the crawl does, because a
+ * probe may not make requests of its own.
+ *
+ * Silent on a host that has no variants. An IP address or a `localhost` seed
+ * has no www spelling, and reporting the absence as a defect would fail every
+ * audit of a staging environment for being a staging environment.
+ */
+export const hostRedirect: SiteProbe = {
+  id: 'host-redirect',
+  scope: 'site',
+  title: 'Every host and protocol variant reaches one HTTPS URL in one hop',
+  run({ crawl }) {
+    const variants = crawl.auxiliary.filter((entry) => entry.reason === 'host-variant');
+    if (variants.length === 0) {
+      return notApplicable('The seed host has no scheme or www variants to test.');
+    }
+
+    const unreachable = variants.filter(
+      (entry) => entry.fetch.error !== null || entry.fetch.status === null,
+    );
+    if (unreachable.length === variants.length) {
+      return notApplicable('No host variant answered; the host may not resolve publicly.');
+    }
+    const answered = variants.filter((entry) => !unreachable.includes(entry));
+
+    const broken = answered.filter((entry) => (entry.fetch.status ?? 0) >= 400);
+    if (broken.length > 0) {
+      return fail(`${broken.length} host variant(s) answered 4xx or 5xx.`, {
+        samples: broken.map((entry) => ({ url: entry.url, status: entry.fetch.status })),
+      });
+    }
+
+    const insecure = answered.filter((entry) => !entry.fetch.finalUrl.startsWith('https://'));
+    if (insecure.length > 0) {
+      return fail(`${insecure.length} host variant(s) end on http rather than https.`, {
+        samples: insecure.map((entry) => ({ url: entry.url, landsOn: entry.fetch.finalUrl })),
+      });
+    }
+
+    const destinations = new Set(answered.map((entry) => normalizeUrl(entry.fetch.finalUrl)));
+    if (destinations.size > 1) {
+      return fail(`Host variants land on ${destinations.size} different URLs, not one.`, {
+        landings: answered.map((entry) => ({ url: entry.url, landsOn: entry.fetch.finalUrl })),
+      });
+    }
+
+    // One hop is the budget: the variant itself, then the canonical URL.
+    const long = answered.filter((entry) => entry.fetch.redirectChain.length > 1);
+    if (long.length > 0) {
+      return fail(`${long.length} host variant(s) take more than one hop to arrive.`, {
+        samples: long.map((entry) => ({
+          url: entry.url,
+          hops: entry.fetch.redirectChain.map((hop) => hop.status),
+        })),
+      });
+    }
+
+    const detail = {
+      tested: answered.length,
+      landsOn: [...destinations][0],
+      ...(unreachable.length > 0
+        ? { notResolved: unreachable.map((entry) => entry.url) }
+        : {}),
+    };
+    return unreachable.length > 0
+      ? warn(
+          `${answered.length} host variant(s) reach one HTTPS URL in one hop; ` +
+            `${unreachable.length} did not resolve.`,
+          detail,
+        )
+      : pass(`All ${answered.length} host variants reach one HTTPS URL in one hop.`, detail);
+  },
+};
+
+/**
+ * The site says who it is, and the icon it says it with actually exists.
+ *
+ * These travel together because they are one thing to a searcher: the row in a
+ * result page carries a name and a small square image, and a site that leaves
+ * either to be guessed gets whatever the search engine infers. The icon has to
+ * be square because it will be displayed square — a wide one is cropped, which
+ * is how a logo becomes an unreadable smear at 16px.
+ *
+ * What "consistent with the approved brand baseline" means is a person's call,
+ * and the triage table read that wording as naming an input rather than an
+ * artifact. So what is settled here is the observable half: a name is declared,
+ * every page that declares one agrees, and the icon resolves to a square image.
+ */
+export const faviconSiteName: SiteProbe = {
+  id: 'favicon-site-name',
+  scope: 'site',
+  title: 'The site declares a stable name and a square, crawlable icon',
+  run({ crawl }) {
+    const pages = htmlPages(crawl.pages);
+    if (pages.length === 0) return notApplicable('No HTML pages were crawled.');
+
+    const root = [...pages].sort((a, b) => a.depth - b.depth)[0];
+    const declared = root?.extracted?.icons ?? [];
+    if (declared.length === 0) {
+      return fail('The root document declares no favicon or touch icon.');
+    }
+
+    const names = new Set<string>();
+    for (const page of pages) {
+      const name = siteNameOf(page);
+      if (name !== null) names.add(name);
+    }
+    if (names.size === 0) {
+      return fail('No page declares a site name via og:site_name or WebSite/Organization schema.');
+    }
+    if (names.size > 1) {
+      return fail(`Pages disagree about the site name: ${[...names].join(' / ')}.`, {
+        names: [...names],
+      });
+    }
+
+    const fetched = crawl.auxiliary.filter((entry) => entry.reason === 'icon');
+    if (fetched.length === 0) {
+      return warn(`Site name "${[...names][0]}" is declared, but no icon was fetched.`, {
+        declared: declared.map((icon) => icon.url),
+      });
+    }
+
+    const missing = fetched.filter(
+      (entry) => entry.fetch.error !== null || (entry.fetch.status ?? 0) !== 200,
+    );
+    if (missing.length > 0) {
+      return fail(`${missing.length} declared icon(s) do not resolve.`, {
+        samples: missing.map((entry) => ({
+          url: entry.url,
+          status: entry.fetch.status,
+          error: entry.fetch.error,
+        })),
+      });
+    }
+
+    const notImages = fetched.filter(
+      (entry) => !(entry.fetch.contentType ?? '').toLowerCase().startsWith('image/'),
+    );
+    if (notImages.length > 0) {
+      return fail(`${notImages.length} declared icon(s) are not served as an image.`, {
+        samples: notImages.map((entry) => ({
+          url: entry.url,
+          contentType: entry.fetch.contentType,
+        })),
+      });
+    }
+
+    const measured = fetched
+      .map((entry) => ({ url: entry.url, size: iconSize(entry.fetch) }))
+      .filter((item): item is { url: string; size: IconSize } => item.size !== null);
+    const oblong = measured.filter((item) => item.size.width !== item.size.height);
+    if (oblong.length > 0) {
+      return fail(`${oblong.length} icon(s) are not square and will be cropped.`, {
+        samples: oblong,
+      });
+    }
+
+    const name = [...names][0];
+    if (measured.length === 0) {
+      return warn(
+        `Site name "${name}" and ${fetched.length} icon(s) resolve, but no icon's ` +
+          'dimensions could be read.',
+        { formats: fetched.map((entry) => entry.fetch.contentType) },
+      );
+    }
+    return pass(
+      `Site name "${name}" is consistent across ${pages.length} page(s), and ` +
+        `${measured.length} icon(s) resolve as square images.`,
+      { name, icons: measured },
+    );
+  },
+};
+
 export const urlConvention: SiteProbe = {
   id: 'url-convention',
   scope: 'site',
@@ -510,4 +762,6 @@ export const siteProbes = [
   thirdPartyBudget,
   hreflangClusterQa,
   paginationCrawlPath,
+  hostRedirect,
+  faviconSiteName,
 ];

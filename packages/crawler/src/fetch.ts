@@ -28,6 +28,17 @@ export interface FetchResult {
   readonly ttfbMs: number | null;
   /** Time to the last byte of the body, in ms. */
   readonly totalMs: number | null;
+  /**
+   * The raw body of a small non-textual response.
+   *
+   * Textual bodies live in `body`; this is for the handful of assets an audit
+   * has to look inside rather than merely count — a favicon whose dimensions
+   * decide whether it is usable, today. Absent for textual responses, for
+   * anything larger than `maxAssetBytes`, and unless `keepBytes` asked for it,
+   * because holding megabytes of images in a crawl that already holds every
+   * page would trade a real memory budget for nothing.
+   */
+  readonly bytes?: Uint8Array;
   /** Set when no response was obtained at all. Never a verdict about the site. */
   readonly error: string | null;
 }
@@ -39,12 +50,18 @@ export interface FetchOptions {
   /** Stop reading a body past this size. Protects against tarpits. */
   readonly maxBytes?: number;
   readonly acceptLanguage?: string;
+  /** Keep the raw body of a non-textual response, up to `maxAssetBytes`. */
+  readonly keepBytes?: boolean;
+  /** Ceiling on a kept binary body. Defaults to 512 KB. */
+  readonly maxAssetBytes?: number;
 }
 
 const DEFAULTS = {
   timeoutMs: 15_000,
   maxRedirects: 10,
   maxBytes: 5_000_000,
+  /** A favicon is a few KB. Anything near this is not an icon. */
+  maxAssetBytes: 512_000,
 };
 
 const headersToObject = (headers: Headers): Record<string, string> => {
@@ -60,6 +77,7 @@ export async function fetchPage(url: string, options: FetchOptions): Promise<Fet
   const timeoutMs = options.timeoutMs ?? DEFAULTS.timeoutMs;
   const maxRedirects = options.maxRedirects ?? DEFAULTS.maxRedirects;
   const maxBytes = options.maxBytes ?? DEFAULTS.maxBytes;
+  const maxAssetBytes = options.maxAssetBytes ?? DEFAULTS.maxAssetBytes;
 
   const redirectChain: RedirectHop[] = [];
   const started = performance.now();
@@ -124,6 +142,7 @@ export async function fetchPage(url: string, options: FetchOptions): Promise<Fet
     const contentType = responseHeaders['content-type'] ?? null;
     let body = '';
     let byteLength = 0;
+    let bytes: Uint8Array | undefined;
     try {
       const buffer = await response.arrayBuffer();
       byteLength = buffer.byteLength;
@@ -131,6 +150,8 @@ export async function fetchPage(url: string, options: FetchOptions): Promise<Fet
         body = new TextDecoder().decode(
           byteLength > maxBytes ? buffer.slice(0, maxBytes) : buffer,
         );
+      } else if (options.keepBytes === true && byteLength <= maxAssetBytes) {
+        bytes = new Uint8Array(buffer);
       }
     } catch (cause) {
       clearTimeout(timer);
@@ -146,6 +167,7 @@ export async function fetchPage(url: string, options: FetchOptions): Promise<Fet
       redirectChain,
       body,
       byteLength,
+      ...(bytes === undefined ? {} : { bytes }),
       contentType,
       ttfbMs,
       totalMs: Math.round(performance.now() - started),

@@ -1,10 +1,12 @@
 /**
- * The detectors added for corpus checks 1.9, 1.13, 2.17 and 4.9.
+ * The detectors added for corpus checks 1.6, 1.9, 1.13, 2.13, 2.17 and 4.9.
  *
  * These run against hand-built pages rather than the fixture site, because each
  * one answers a question about a *shape* — a reciprocal hreflang cluster, a
- * paginated series, a breadcrumb whose ancestor 404s — and a fixture carrying
- * every shape at once would be a site nobody has ever built. The markup still
+ * paginated series, a breadcrumb whose ancestor 404s, four host spellings that
+ * must agree — and a fixture carrying every shape at once would be a site
+ * nobody has ever built. Several are shapes the fixture cannot have at all: it
+ * serves on an IP address, so it has no www spelling to test. The markup still
  * goes through the real `extract`, so what the probe reads is what a crawl
  * would have given it.
  *
@@ -14,7 +16,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { extract } from '@seo/crawler';
-import type { CrawledPage, CrawlResult } from '@seo/crawler';
+import type { AuxiliaryFetch, CrawledPage, CrawlResult, FetchResult } from '@seo/crawler';
 import { probeById } from '@seo/probes';
 import type { Observation, PageProbe, SiteContext, SiteProbe } from '@seo/probes';
 
@@ -50,7 +52,11 @@ const page = ({ path, html = '<html><body><p>page</p></body></html>', status = 2
   };
 };
 
-const siteOf = (pages: readonly CrawledPage[], flags: readonly string[] = []): SiteContext => ({
+const siteOf = (
+  pages: readonly CrawledPage[],
+  flags: readonly string[] = [],
+  auxiliary: readonly AuxiliaryFetch[] = [],
+): SiteContext => ({
   origin: ORIGIN,
   flags,
   crawl: {
@@ -61,14 +67,19 @@ const siteOf = (pages: readonly CrawledPage[], flags: readonly string[] = []): S
     sitemapUrls: [],
     blockedByRobots: [],
     notReached: [],
+    auxiliary,
   } satisfies CrawlResult,
 });
 
 const siteProbe = (id: string): SiteProbe => probeById(id) as SiteProbe;
 const pageProbe = (id: string): PageProbe => probeById(id) as PageProbe;
 
-const runSite = (id: string, pages: readonly CrawledPage[], flags?: readonly string[]): Observation =>
-  siteProbe(id).run(siteOf(pages, flags));
+const runSite = (
+  id: string,
+  pages: readonly CrawledPage[],
+  flags?: readonly string[],
+  auxiliary?: readonly AuxiliaryFetch[],
+): Observation => siteProbe(id).run(siteOf(pages, flags, auxiliary));
 
 const runPage = (
   id: string,
@@ -321,5 +332,257 @@ describe('breadcrumb-navigation', () => {
     const target = crumbed('/a/b', `<a href="${ORIGIN}/a">A</a>`);
     const observation = runPage('breadcrumb-navigation', target, [target], HIERARCHICAL);
     expect(observation.outcome).toBe('warn');
+  });
+});
+
+
+// --- 1.6 host-redirect ------------------------------------------------------
+
+/** One auxiliary result, as the crawl records it. */
+const variant = (
+  url: string,
+  over: Partial<FetchResult> = {},
+  reason: AuxiliaryFetch['reason'] = 'host-variant',
+): AuxiliaryFetch => ({
+  reason,
+  url,
+  fetch: {
+    requestedUrl: url,
+    finalUrl: over.finalUrl ?? url,
+    status: 200,
+    headers: {},
+    redirectChain: [],
+    body: '',
+    byteLength: 0,
+    contentType: 'text/html',
+    ttfbMs: 1,
+    totalMs: 2,
+    error: null,
+    ...over,
+  },
+});
+
+/** All four spellings, each arriving at the canonical URL in one hop. */
+const goodVariants = (): AuxiliaryFetch[] => {
+  const canonical = `${ORIGIN}/`;
+  const hop = (from: string) => ({
+    finalUrl: canonical,
+    redirectChain: from === canonical ? [] : [{ url: from, status: 301, location: canonical }],
+  });
+  return [
+    'http://example.com/',
+    'http://www.example.com/',
+    'https://www.example.com/',
+    canonical,
+  ].map((url) => variant(url, hop(url)));
+};
+
+describe('host-redirect', () => {
+  it('says nothing when the seed host has no variants to test', () => {
+    expect(runSite('host-redirect', [page({ path: '/' })]).outcome).toBe('not-applicable');
+  });
+
+  it('passes when every variant reaches one HTTPS URL in one hop', () => {
+    const observation = runSite('host-redirect', [page({ path: '/' })], [], goodVariants());
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data?.['landsOn']).toBe(`${ORIGIN}/`);
+  });
+
+  it('fails a variant that never leaves http', () => {
+    const variants = goodVariants();
+    variants[0] = variant('http://example.com/', { finalUrl: 'http://example.com/' });
+    const observation = runSite('host-redirect', [page({ path: '/' })], [], variants);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/end on http/);
+  });
+
+  it('fails when www and apex both serve, splitting the site in two', () => {
+    const variants = goodVariants();
+    variants[2] = variant('https://www.example.com/', {
+      finalUrl: 'https://www.example.com/',
+    });
+    const observation = runSite('host-redirect', [page({ path: '/' })], [], variants);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/different URLs/);
+  });
+
+  it('fails a variant that takes two hops to arrive', () => {
+    const variants = goodVariants();
+    variants[0] = variant('http://example.com/', {
+      finalUrl: `${ORIGIN}/`,
+      redirectChain: [
+        { url: 'http://example.com/', status: 301, location: 'https://www.example.com/' },
+        { url: 'https://www.example.com/', status: 301, location: `${ORIGIN}/` },
+      ],
+    });
+    const observation = runSite('host-redirect', [page({ path: '/' })], [], variants);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/more than one hop/);
+  });
+
+  it('fails a variant that answers 5xx', () => {
+    const variants = goodVariants();
+    variants[1] = variant('http://www.example.com/', { status: 503 });
+    expect(runSite('host-redirect', [page({ path: '/' })], [], variants).outcome).toBe('fail');
+  });
+
+  it('warns rather than fails when one spelling simply does not resolve', () => {
+    const variants = goodVariants();
+    variants[1] = variant('http://www.example.com/', { status: null, error: 'ENOTFOUND' });
+    const observation = runSite('host-redirect', [page({ path: '/' })], [], variants);
+    expect(observation.outcome).toBe('warn');
+    expect(observation.data?.['notResolved']).toEqual(['http://www.example.com/']);
+  });
+
+  it('says nothing when no variant answered at all', () => {
+    const dead = goodVariants().map((entry) =>
+      variant(entry.url, { status: null, error: 'ENOTFOUND' }),
+    );
+    expect(runSite('host-redirect', [page({ path: '/' })], [], dead).outcome).toBe(
+      'not-applicable',
+    );
+  });
+});
+
+// --- 2.13 favicon-site-name -------------------------------------------------
+
+const pngBytes = (width: number, height: number): Uint8Array => {
+  const bytes = new Uint8Array(24);
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+  bytes.set([0x49, 0x48, 0x44, 0x52], 12);
+  new DataView(bytes.buffer).setUint32(16, width);
+  new DataView(bytes.buffer).setUint32(20, height);
+  return bytes;
+};
+
+const icoBytes = (width: number, height: number): Uint8Array =>
+  new Uint8Array([0x00, 0x00, 0x01, 0x00, 0x01, 0x00, width, height]);
+
+const icon = (over: Partial<FetchResult> = {}): AuxiliaryFetch =>
+  variant(
+    `${ORIGIN}/favicon.png`,
+    { contentType: 'image/png', bytes: pngBytes(48, 48), ...over },
+    'icon',
+  );
+
+const branded = (path: string, extra = ''): CrawledPage =>
+  page({
+    path,
+    html:
+      '<html><head><meta property="og:site_name" content="Example Co">' +
+      `<link rel="icon" href="${ORIGIN}/favicon.png">${extra}` +
+      '</head><body><p>hi</p></body></html>',
+    depth: path === '/' ? 0 : 1,
+  });
+
+describe('favicon-site-name', () => {
+  it('fails a root document that declares no icon at all', () => {
+    const root = page({
+      path: '/',
+      html: '<html><head><meta property="og:site_name" content="Example Co"></head><body>x</body></html>',
+      depth: 0,
+    });
+    const observation = runSite('favicon-site-name', [root], [], [icon()]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/declares no favicon/);
+  });
+
+  it('fails when no page declares a site name', () => {
+    const root = page({
+      path: '/',
+      html: `<html><head><link rel="icon" href="${ORIGIN}/favicon.png"></head><body>x</body></html>`,
+      depth: 0,
+    });
+    expect(runSite('favicon-site-name', [root], [], [icon()]).outcome).toBe('fail');
+  });
+
+  it('reads a site name from WebSite schema as well as og:site_name', () => {
+    const root = page({
+      path: '/',
+      html:
+        `<html><head><link rel="icon" href="${ORIGIN}/favicon.png">` +
+        '<script type="application/ld+json">' +
+        '{"@context":"https://schema.org","@type":"WebSite","name":"Example Co"}' +
+        '</script></head><body>x</body></html>',
+      depth: 0,
+    });
+    const observation = runSite('favicon-site-name', [root], [], [icon()]);
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data?.['name']).toBe('Example Co');
+  });
+
+  it('fails when two pages claim different site names', () => {
+    const other = page({
+      path: '/about',
+      html: '<html><head><meta property="og:site_name" content="Example Corp"></head><body>x</body></html>',
+    });
+    const observation = runSite('favicon-site-name', [branded('/'), other], [], [icon()]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/disagree about the site name/);
+  });
+
+  it('fails a declared icon that 404s', () => {
+    const observation = runSite(
+      'favicon-site-name',
+      [branded('/')],
+      [],
+      [icon({ status: 404, bytes: undefined })],
+    );
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/do not resolve/);
+  });
+
+  it('fails an icon served as something other than an image', () => {
+    const observation = runSite(
+      'favicon-site-name',
+      [branded('/')],
+      [],
+      [icon({ contentType: 'text/html', bytes: undefined })],
+    );
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/not served as an image/);
+  });
+
+  it('fails an oblong icon, which a square slot will crop', () => {
+    const observation = runSite(
+      'favicon-site-name',
+      [branded('/')],
+      [],
+      [icon({ bytes: pngBytes(64, 32) })],
+    );
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/not square/);
+  });
+
+  it('measures an ICO as well as a PNG', () => {
+    const observation = runSite(
+      'favicon-site-name',
+      [branded('/')],
+      [],
+      [icon({ contentType: 'image/x-icon', bytes: icoBytes(32, 16) })],
+    );
+    expect(observation.outcome).toBe('fail');
+  });
+
+  it('measures an SVG from its viewBox', () => {
+    const svg = new TextEncoder().encode('<svg viewBox="0 0 64 64"></svg>');
+    const observation = runSite(
+      'favicon-site-name',
+      [branded('/')],
+      [],
+      [icon({ contentType: 'image/svg+xml', bytes: svg })],
+    );
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('warns rather than passing when an icon resolves but cannot be measured', () => {
+    const observation = runSite(
+      'favicon-site-name',
+      [branded('/')],
+      [],
+      [icon({ contentType: 'image/webp', bytes: new Uint8Array([1, 2, 3, 4]) })],
+    );
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toMatch(/dimensions could be read/);
   });
 });

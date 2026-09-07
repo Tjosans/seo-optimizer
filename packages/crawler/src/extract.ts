@@ -65,6 +65,23 @@ export interface ExtractedBreadcrumb {
   readonly labels: readonly string[];
 }
 
+/**
+ * A `<link rel="icon">` and friends, as declared.
+ *
+ * Only the declaration. Whether the file is there, and whether it is square,
+ * are facts about a response, and answering them means fetching it — which the
+ * crawler does, because nothing else in this system is allowed to make a
+ * request of its own.
+ */
+export interface ExtractedIcon {
+  /** The `rel` as authored: "icon", "apple-touch-icon", "shortcut icon". */
+  readonly rel: string;
+  readonly url: string;
+  /** The `sizes` attribute, unparsed. Absent on most real icons. */
+  readonly sizes: string | null;
+  readonly type: string | null;
+}
+
 export interface ExtractedHeading {
   readonly level: number;
   readonly text: string;
@@ -94,6 +111,8 @@ export interface Extracted {
   readonly twitter: Readonly<Record<string, string>>;
   /** Absolute URLs of external scripts, in document order. */
   readonly scripts: readonly string[];
+  /** Declared favicons and touch icons, for the favicon-site-name detector. */
+  readonly icons: readonly ExtractedIcon[];
   /** `<video>` and `<audio>` elements, for the media-alternatives detector. */
   readonly media: readonly ExtractedMedia[];
   /** Visible breadcrumb trails, in document order. Empty when none is present. */
@@ -157,6 +176,20 @@ export function extract(html: string, pageUrl: string): Extracted {
       height: attr($(element).attr('height')),
       loading: attr($(element).attr('loading')),
       hasSrcset: $(element).attr('srcset') !== undefined,
+    });
+  });
+
+  const icons: ExtractedIcon[] = [];
+  $('link[rel]').each((_, element) => {
+    const rel = $(element).attr('rel') ?? '';
+    if (!/(^|\s)(shortcut\s+)?icon(\s|$)|apple-touch-icon|mask-icon/i.test(rel)) return;
+    const url = resolveUrl($(element).attr('href') ?? '', base);
+    if (url === null) return;
+    icons.push({
+      rel: clean(rel),
+      url,
+      sizes: attr($(element).attr('sizes')),
+      type: attr($(element).attr('type')),
     });
   });
 
@@ -265,6 +298,7 @@ export function extract(html: string, pageUrl: string): Extracted {
     openGraph,
     twitter,
     scripts,
+    icons,
     media,
     breadcrumbs,
     landmarks: LANDMARKS.filter((tag) => $(tag).length > 0),

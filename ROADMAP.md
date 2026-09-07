@@ -49,7 +49,7 @@ Last updated: 2026-09-05
 - [x] Reconcile audits left `pending` with no job behind them (@seo/scheduler: `reconcile()` closes out rows nothing is going to run, bounded by the database clock at recovery)
 - [x] Give crawl() cooperative cancellation so a cancelled job stops mid-crawl rather than at the end (@seo/crawler: a `signal` checked between requests and inside the politeness delay; a cancelled crawl reads `cancelled`, not `failed`)
 - [x] Grade probe evidence into checkStates and freeze readiness on the audit (@seo/grader: verdicts, evidence trail, frozen readiness)
-- [ ] Implement more of the corpus's 128 detectors — 37 today (was 33), covering 14 of 43 automated checks and 11 launch gates. Most of the remainder need evidence a raw crawl does not hold: Search Console, Lighthouse, RDAP, a rendered DOM, or active probing of host variants
+- [ ] Implement more of the corpus's 128 detectors — 39 today (was 33), covering 16 of 43 automated checks and 12 launch gates. The remainder need evidence this engine does not yet gather: Search Console, Lighthouse/CrUX, RDAP, a rendered DOM (Phase 5), or a previous audit to compare against
 
 - [x] Prototype URL analyzer with snapshot comparison (npm run analyze / npm run compare) so engine changes can be measured against live sites
 
@@ -80,6 +80,11 @@ Last updated: 2026-09-05
 ## Blocked
 
 ## Decisions
+- 2026-09-07: put auxiliary requests in `crawl()` rather than letting a probe fetch for itself, because politeness is owed to a host and the crawl loop is the only thing that knows what was promised — the same delay and the same cancellation signal cover them, where a probe making its own requests would be a second, unmetered visitor to a site that agreed to one
+- 2026-09-07: skipped host variants for a seed whose host cannot have them — an IP literal, `localhost`, any single-label name — because `www.127.0.0.1` is not a spelling of anything, and reporting its DNS failure would fail every audit of a staging environment for being a staging environment
+- 2026-09-07: gave `FetchResult` an optional `bytes` for small non-textual responses behind a `keepBytes` flag, rather than keeping every asset, because exactly one question today needs to look inside a file (is the favicon square) and holding megabytes of images in a crawl that already holds every page would spend a real memory budget on nothing
+- 2026-09-07: read icon dimensions from PNG, ICO and SVG headers directly instead of taking an image-decoding dependency — each states its size in a fixed place near the front, and any other format returns null and is reported as unmeasured rather than guessed at
+- 2026-09-07: left `ai-crawler-directive-verify` (2.9) unimplemented although it looked like a one-detector win: its "Done when" asks that robots.txt, CDN behaviour and a dated user-agent test agree with *the policy*, and the policy is a document a person approved that this engine has never seen. Checking robots.txt alone and calling it agreement would put a pass on a check nobody verified
 - 2026-09-07: picked the first detector batch by what a raw crawl can honestly answer rather than by how many checks it would unblock — 24 automated checks are one detector short, but most of those detectors need Search Console, Lighthouse, RDAP, a rendered DOM or extra HTTP requests the crawler does not make, and shipping a probe that guesses at those would put a `pass` on a check nobody verified
 - 2026-09-07: kept `media-alternatives` to whether a caption track or text alternative exists, not whether it is accurate, because the corpus asks for both and only the first is a markup fact; 1.9 still needs its other detectors before the check clears, which is the mechanism that stops a partial answer reading as a whole one
 - 2026-09-07: made `hreflang-cluster-qa` treat a cross-domain locale as unverified rather than broken — a crawl scoped to one origin cannot see the other side of the cluster, and multi-domain international setups are a normal shape, so counting them as defects would train people to ignore the detector

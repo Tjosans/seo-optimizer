@@ -50,10 +50,46 @@ export interface CrawlOptions {
    * site being crawled.
    */
   readonly signal?: AbortSignal;
+  /**
+   * Test the seed's other scheme and host spellings, and fetch the root
+   * document's declared icons. Defaults to true.
+   *
+   * Host variants are skipped for a seed whose host cannot have them — an IP
+   * address, `localhost`, any single-label name — because `www.127.0.0.1` is
+   * not a spelling of anything and the only thing testing it produces is a DNS
+   * error in the report.
+   */
+  readonly auxiliary?: boolean;
   /** Injection seam for tests and for replaying a stored crawl. */
   readonly fetchImpl?: typeof fetchPage;
   /** Called as each page completes, so a long crawl can stream to storage. */
   readonly onPage?: (page: CrawledPage) => void | Promise<void>;
+}
+
+/**
+ * A request made outside the breadth-first walk.
+ *
+ * Some questions cannot be answered by pages a crawl happens to reach. "Does
+ * http://example.com end up at one canonical HTTPS URL in one hop" is about
+ * URLs that are deliberately *not* in the crawl — the whole point is what
+ * happens before you arrive. "Is the favicon actually there" is about a file no
+ * page links to as a page.
+ *
+ * Those requests are made here rather than by the probes that need them,
+ * because politeness is owed to a host and the crawl loop is the only thing
+ * that knows what has been promised: the same delay applies between these and
+ * every other request, and they stop for the same cancellation signal. A probe
+ * that could fetch on its own would be a second, unmetered visitor to a site
+ * that agreed to one.
+ */
+export interface AuxiliaryFetch {
+  /**
+   * `host-variant` — a scheme/host spelling of the seed, tested once.
+   * `icon` — an icon the root document declared.
+   */
+  readonly reason: 'host-variant' | 'icon';
+  readonly url: string;
+  readonly fetch: FetchResult;
 }
 
 export interface CrawlResult {
@@ -67,6 +103,8 @@ export interface CrawlResult {
   readonly blockedByRobots: readonly string[];
   /** In-scope URLs discovered but not fetched, because a budget ran out. */
   readonly notReached: readonly string[];
+  /** Requests made outside the walk, for questions the walk cannot answer. */
+  readonly auxiliary: readonly AuxiliaryFetch[];
 }
 
 interface QueueEntry {
@@ -213,8 +251,35 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
   for (const seed of options.seeds) enqueue(seed, 0, null);
   for (const url of sitemapUrls) enqueue(url, 0, null);
 
+  const auxiliary: AuxiliaryFetch[] = [];
   const pages: CrawledPage[] = [];
   let first = true;
+
+  /** One extra request, paced and cancellable like every other. */
+  const aside = async (
+    reason: AuxiliaryFetch['reason'],
+    target: string,
+    extra: { readonly keepBytes?: boolean } = {},
+  ): Promise<void> => {
+    if (!first) await sleep(delayMs, options.signal);
+    first = false;
+    auxiliary.push({
+      reason,
+      url: target,
+      fetch: await request(target, {
+        userAgent: options.userAgent,
+        ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+        ...extra,
+      }),
+    });
+  };
+
+  if (options.auxiliary !== false) {
+    for (const variant of hostVariants(firstSeed)) {
+      stopIfCancelled(options.signal);
+      await aside('host-variant', variant);
+    }
+  }
 
   while (queue.length > 0 && pages.length < options.maxPages) {
     // Checked here and again inside the delay, so the longest a cancelled
@@ -257,6 +322,17 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
     }
   }
 
+  // After the walk, because the icons a site declares are found by reading its
+  // root document, and reading it is what the walk just did.
+  if (options.auxiliary !== false) {
+    const root = [...pages].sort((a, b) => a.depth - b.depth)[0];
+    const icons = [...new Set((root?.extracted?.icons ?? []).map((icon) => icon.url))];
+    for (const icon of icons.slice(0, MAX_ICON_FETCHES)) {
+      stopIfCancelled(options.signal);
+      await aside('icon', icon, { keepBytes: true });
+    }
+  }
+
   return {
     seeds: options.seeds,
     pages,
@@ -265,5 +341,45 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
     sitemapUrls,
     blockedByRobots,
     notReached: queue.map((entry) => entry.normalizedUrl),
+    auxiliary,
   };
+}
+
+/** At most three: a favicon, a touch icon, and one more. Beyond that is noise. */
+const MAX_ICON_FETCHES = 3;
+
+/**
+ * The scheme and host spellings that must all end up in the same place.
+ *
+ * Four URLs for a real domain: http and https, apex and www. Empty for a host
+ * that cannot have them — an IP literal, `localhost`, any name without a dot —
+ * because those variants do not exist and testing them reports DNS failures as
+ * if they were the site's fault.
+ */
+export function hostVariants(seed: string): string[] {
+  let url: URL;
+  try {
+    url = new URL(seed);
+  } catch {
+    return [];
+  }
+
+  const host = url.hostname;
+  const isIpv4 = /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
+  if (isIpv4 || host.startsWith('[') || !host.includes('.')) return [];
+
+  const apex = host.replace(/^www\./i, '');
+  const variants = new Set<string>();
+  for (const hostname of [apex, `www.${apex}`]) {
+    for (const protocol of ['http:', 'https:']) {
+      const variant = new URL(url.toString());
+      variant.protocol = protocol;
+      variant.hostname = hostname;
+      variant.pathname = '/';
+      variant.search = '';
+      variant.hash = '';
+      variants.add(variant.toString());
+    }
+  }
+  return [...variants];
 }

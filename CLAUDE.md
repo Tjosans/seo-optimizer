@@ -10,7 +10,7 @@ seo-optimizer is an SEO launch-readiness auditor. It crawls a site, runs it agai
 
 - **@seo/core** — types for checks, check state, readiness scoring
 - **@seo/corpus** — loader for the v4.4 check corpus (YAML phases 0-7, source TSV)
-- **@seo/crawler** — site crawler respecting robots.txt, redirect chains, sitemaps; stops between requests on a caller's signal
+- **@seo/crawler** — site crawler respecting robots.txt, redirect chains, sitemaps; stops between requests on a caller's signal; makes the auxiliary requests probes are not allowed to make themselves
 - **@seo/probes** — 6 detector categories (delivery, indexability, markup, media, metadata, site)
 - **@seo/persistence** — sink that streams crawls and probe runs into Postgres
 - **@seo/queue** — in-process job queue: bounded concurrency, one crawl at a time per origin, retries on a caller's policy, outstanding work written to an optional durable store
@@ -59,7 +59,7 @@ Key scripts:
 
 ## How it works
 
-1. **Crawl** (`@seo/crawler`) — breadth-first from seeds, respects robots.txt, extracts links and metadata, paced politeness delay, bounded by page/depth budget.
+1. **Crawl** (`@seo/crawler`) — breadth-first from seeds, respects robots.txt, extracts links and metadata, paced politeness delay, bounded by page/depth budget. It also makes the *auxiliary* requests that sit outside the walk — the four scheme/host spellings of the seed, and the root document's declared icons — and records them on `CrawlResult.auxiliary`. Probes never fetch: politeness is owed to a host, and the crawl loop is the only thing that knows what was promised. Host variants are skipped for a seed that cannot have them (an IP, `localhost`, any single-label host), which is why they never fire against the fixture site.
 2. **Extract** — parse each page's HTML; record head tags, links, hierarchy, structure.
 3. **Probe** (`@seo/probes`) — detectors observe the crawl result and emit evidence.
 4. **Persist** (`@seo/persistence`) — stream pages and probes into Postgres.
@@ -108,7 +108,7 @@ Key scripts:
 - A machine may **fail** a check; only an `automated` check may be **passed** by one. `assisted` means the engine proposes and a person confirms.
 - A detector that is unimplemented, errored, or observed nothing leaves the check `not-started` / `unknown`. Missing evidence is never good news, and never bad news either.
 - Scope comes from `sites.flags`: an empty profile leaves conditional checks at `review`; a filled-in one narrows non-matching checks to `no` with a written rationale.
-- Only 37 of the corpus's 128 detectors exist, so today 14 of 43 automated checks can be graded end to end and most audits come back mostly ungraded. That is the honest answer, not a bug. `npm run probes:matrix` prints the current figure; do not quote one from memory.
+- Only 39 of the corpus's 128 detectors exist, so today 16 of 43 automated checks can be graded end to end and most audits come back mostly ungraded. That is the honest answer, not a bug. `npm run probes:matrix` prints the current figure; do not quote one from memory.
 - A row a human attested is never overwritten by a re-grade, and it counts in the frozen readiness.
 
 ### Guarantees the sink relies on
@@ -185,4 +185,4 @@ scripts/{compile-corpus,probe-matrix,triage}.ts
 
 ## What to pick up next
 
-`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; what remains is lease expiry so a second worker can share a queue, and detector coverage — 91 of the corpus's 128 detectors are unimplemented, which is the single thing most limiting what an audit can say. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.
+`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; what remains is lease expiry so a second worker can share a queue, and detector coverage — 89 of the corpus's 128 detectors are unimplemented, which is the single thing most limiting what an audit can say. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.

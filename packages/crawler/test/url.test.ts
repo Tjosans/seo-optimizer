@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isSameSite, normalizeUrl, pathDepth, resolveUrl } from '@seo/crawler';
+import { hostVariants, isSameSite, normalizeUrl, pathDepth, resolveUrl } from '@seo/crawler';
 
 describe('normalizeUrl', () => {
   it('collapses only differences the URL standard calls equivalent', () => {
@@ -54,5 +54,30 @@ describe('scope helpers', () => {
   it('counts path segments', () => {
     expect(pathDepth('https://example.com/')).toBe(0);
     expect(pathDepth('https://example.com/a/b/')).toBe(2);
+  });
+});
+
+describe('hostVariants', () => {
+  it('offers both schemes and both host spellings of a real domain', () => {
+    expect(hostVariants('https://example.com/some/page').sort()).toEqual([
+      'http://example.com/',
+      'http://www.example.com/',
+      'https://example.com/',
+      'https://www.example.com/',
+    ]);
+  });
+
+  it('reaches the same four from a www seed', () => {
+    expect(hostVariants('http://www.example.com/').sort()).toEqual(
+      hostVariants('https://example.com/').sort(),
+    );
+  });
+
+  it('offers none for a host that cannot have them', () => {
+    // A staging environment is not a misconfigured site, and reporting
+    // www.127.0.0.1 as unreachable would say it was.
+    expect(hostVariants('http://127.0.0.1:8080/')).toEqual([]);
+    expect(hostVariants('http://localhost:3000/')).toEqual([]);
+    expect(hostVariants('not a url')).toEqual([]);
   });
 });

@@ -128,13 +128,15 @@ Corpus tests assert 97 checks with unique ids, the phase distribution (9, 19, 17
 
 `.github/workflows/ci.yml` runs on push to main/master and all PRs: spins up Postgres 17 as a service, then `npm ci`, `db:migrate`, `build`, `typecheck`, `test`. Integration tests do execute in CI because `DATABASE_URL` is set there.
 
-`.githooks/pre-push` gates pushes to `master` (not feature branches) on typecheck and test. It is opt-in per clone:
+`master` is gated server-side by the repository ruleset "Require CI on master": a pull request is required, `test` and `roadmap` must pass, the branch must be up to date, and force-push and deletion are refused. Approvals are zero because GitHub forbids approving your own PR, so the checks are the gate. `roadmap` comes from `.github/workflows/roadmap-check.yml`, which asserts ROADMAP.md exists and still holds checkbox items.
+
+`.githooks/pre-push` runs the same typecheck and test before a push to `master` (not feature branches), so a failure surfaces locally in seconds rather than in CI minutes later. Opt-in per clone:
 
 ```bash
 git config core.hooksPath .githooks
 ```
 
-It is bypassable with `--no-verify` — a local safety net standing in for server-side protection, not a real gate.
+It is bypassable with `--no-verify` and is a convenience, not the gate — the ruleset is.
 
 ## Layout
 
@@ -163,7 +165,7 @@ scripts/{compile-corpus,probe-matrix,triage}.ts
 1. **drizzle-kit is strict.** Changing `schema.ts` without `npm run db:generate` makes migrations fail. Always diff first.
 2. **`npm run corpus:compile` is destructive.** It overwrites the v4.4 YAML from the source TSV, discarding manual edits.
 3. **Integration tests skip silently** when `DATABASE_URL` is unset. Run `npm run stack:up` before trusting a green test run.
-4. **The pre-push hook is opt-in** and must be enabled in each clone.
+4. **The pre-push hook is opt-in** and must be enabled in each clone. It is a local convenience; the real gate is the server-side ruleset on `master`.
 5. **Response bodies are external by design.** The schema stores hashes and keys only; the content-addressing store does not exist yet (see Phase 6).
 
 ## What to pick up next

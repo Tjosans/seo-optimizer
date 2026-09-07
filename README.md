@@ -59,24 +59,35 @@ npm run typecheck   # tsc --build --force, project-referenced
 npm run test:watch  # vitest in watch mode
 ```
 
-## Enabling the pre-push hook
+## How `master` is protected
 
-`.githooks/pre-push` runs `typecheck` and `test` before any push to `master`,
-refusing the push if either fails. It is opt-in per clone:
+The gate is server-side, in the repository ruleset "Require CI on master".
+Reaching `master` requires a pull request whose `test` and `roadmap` checks
+have passed, on a branch that is up to date with the base. Force-pushes and
+deletion of the branch are refused. Approvals are set to zero, because GitHub
+will not let you approve your own pull request and any higher count would
+deadlock a single-maintainer repository — the checks are what actually gate
+the merge.
+
+The two required checks come from `.github/workflows/`: `test` runs `db:migrate`,
+`build`, `typecheck` and the full suite against a real Postgres service, and
+`roadmap` asserts that `ROADMAP.md` exists and still holds checkbox items,
+warning when it has not changed in thirty days.
+
+### The optional local hook
+
+`.githooks/pre-push` runs `typecheck` and `test` before a push to `master`, so
+a failure shows up in seconds locally instead of minutes later in CI. It is
+opt-in per clone:
 
 ```bash
 git config core.hooksPath .githooks
 ```
 
-This is a stand-in for server-side branch protection, not an equivalent: GitHub
-Free offers neither protected branches nor rulesets on private repositories, so
-the merge gate cannot live on the server. Being client-side, the hook is
-bypassable with `git push --no-verify` and only applies to clones that ran the
-command above. CI remains the real signal — it runs on every push and PR
-regardless.
-
-Only pushes to `master` are gated, so feature-branch pushes stay fast; the
-PR's own CI run covers those.
+It is a convenience, not the gate. Being client-side it is bypassable with
+`git push --no-verify` and applies only to clones that ran the command above;
+the ruleset is what cannot be bypassed. Only pushes to `master` are gated, so
+feature-branch pushes stay fast.
 
 ## Working with the database
 
@@ -97,6 +108,22 @@ npm run corpus:compile   # compile corpus/source/*.tsv into corpus/v4.4/*.yaml
 npm run corpus:validate  # run the corpus package's own test suite
 npm run probes:matrix    # build + report which corpus detectors have a probe behind them
 ```
+
+`corpus:compile` is destructive: it overwrites `corpus/v4.4/*.yaml` from the
+TSV, discarding hand edits. The TSV is the source of record.
+
+## Measuring the engine against real sites
+
+```bash
+npm run analyze -- https://example.com          # crawl, probe and grade a live URL
+npm run compare -- <older.json> <newer.json>    # diff two snapshots
+```
+
+`analyze` runs the whole pipeline in memory with no database, prints a report
+and saves a snapshot under `benchmarks/runs/`. `compare` diffs two snapshots
+and says whether coverage and verdicts moved, and which way — which is how an
+engine change is shown to have improved what an audit can say, rather than
+merely having passed its tests.
 
 ## Shutting down
 

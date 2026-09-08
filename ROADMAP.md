@@ -49,7 +49,7 @@ Last updated: 2026-09-08
 - [x] Reconcile audits left `pending` with no job behind them (@seo/scheduler: `reconcile()` closes out rows nothing is going to run, bounded by the database clock at recovery)
 - [x] Give crawl() cooperative cancellation so a cancelled job stops mid-crawl rather than at the end (@seo/crawler: a `signal` checked between requests and inside the politeness delay; a cancelled crawl reads `cancelled`, not `failed`)
 - [x] Grade probe evidence into checkStates and freeze readiness on the audit (@seo/grader: verdicts, evidence trail, frozen readiness)
-- [ ] Implement more of the corpus's 128 detectors — 42 today (was 40), covering 18 of 43 automated checks and 13 launch gates. The remainder need evidence this engine does not yet gather: Search Console, Lighthouse/CrUX, RDAP, a rendered DOM (Phase 5), or a previous audit to compare against
+- [ ] Implement more of the corpus's 128 detectors — 43 today (was 42), covering 18 of 43 automated checks and 13 launch gates. 1.15 is now one detector short: `product-lifecycle-state` is what it still waits on. The remainder need evidence this engine does not yet gather: Search Console, Lighthouse/CrUX, RDAP, a rendered DOM (Phase 5), or a previous audit to compare against
 
 - [x] Prototype URL analyzer with snapshot comparison (npm run analyze / npm run compare) so engine changes can be measured against live sites
 
@@ -80,6 +80,11 @@ Last updated: 2026-09-08
 ## Blocked
 
 ## Decisions
+- 2026-09-08: had `product-variant-canonical` judge the *consistency* of a catalogue's canonical rule rather than the rule itself, because both usual rules are defensible — consolidate every spelling onto the product, or let each variant be its own indexable page — and only the site knows which it chose. The third state, where the template decides case by case, is the one a machine can see and the one 1.15 exists to prevent
+- 2026-09-08: made a family "pages sharing a route", i.e. the same path with different query strings, rather than trying to name which parameters select a variant; whatever `?color=red` or `?sessionid=` means, the site is serving one product at two addresses, and that is the whole subject
+- 2026-09-08: identified a product page only from what it declares — Product structured data or `og:type` — because guessing from URL shape would pull category listings and search results into product families, and their duplicates are other checks' business
+- 2026-09-08: reported a catalogue whose products were each crawled at exactly one address as not-applicable rather than a pass, because a controlled catalogue and a crawl that never reached a variant URL are indistinguishable from here
+- 2026-09-08: treated identical titles across self-canonical variants as the failure under that rule, since "each variant is its own page" is only true while the pages differ; a shared title is the uncontrolled duplicate the corpus names
 - 2026-09-08: split 1.14 between `hreflang-implementation` and `hreflang-cluster-qa` by the question each answers rather than by scope — the cluster check asks whether the pages agree with each other, and the implementation check asks whether what they agree on names anything. The two come apart completely: a cluster can be flawlessly reciprocal and entirely inert because every page in it reciprocates `en-UK`, which is well-formed and names no country
 - 2026-09-08: shipped the ISO 639-1 and ISO 3166-1 lists rather than a regex, because "supported language-region codes" is the corpus's wording and a regex can only answer the different question 4.9 already asks; the value of the detector is precisely that `en-UK` passes every syntax test there is
 - 2026-09-08: named the replacement in the message wherever one exists — `GB` for `UK`, `he` for the withdrawn `iw` — because the tags this catches are typed from memory, and a report that says only "unsupported" sends someone to look up what they already thought they knew

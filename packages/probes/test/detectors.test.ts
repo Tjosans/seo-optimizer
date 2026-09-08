@@ -1,5 +1,6 @@
 /**
- * The detectors added for corpus checks 1.6, 1.9, 1.13, 1.14, 2.13, 2.17 and 4.9.
+ * The detectors added for corpus checks 1.6, 1.9, 1.13, 1.14, 1.15, 2.13, 2.17
+ * and 4.9.
  *
  * These run against hand-built pages rather than the fixture site, because each
  * one answers a question about a *shape* — a reciprocal hreflang cluster, a
@@ -874,5 +875,166 @@ describe('ai-crawler-directive-verify', () => {
     const observation = runAi(aiSite(MATCHING_ROBOTS));
     expect(observation.outcome).toBe('warn');
     expect(observation.summary).toMatch(/edge behaviour is unverified/);
+  });
+});
+
+// --- 1.15 product-variant-canonical -----------------------------------------
+
+interface ProductSpec {
+  /** Absent means no rel=canonical at all. */
+  readonly canonical?: string | null;
+  readonly title?: string;
+  readonly noindex?: boolean;
+  /** How the page says it is a product: schema.org, og:type, or not at all. */
+  readonly declares?: 'json-ld' | 'og' | 'none';
+  readonly status?: number;
+}
+
+const product = (
+  path: string,
+  { canonical, title = 'Blue shirt', noindex = false, declares = 'json-ld', status = 200 }: ProductSpec = {},
+): CrawledPage =>
+  page({
+    path,
+    status,
+    html:
+      '<html><head>' +
+      `<title>${title}</title>` +
+      (canonical === undefined || canonical === null
+        ? ''
+        : `<link rel="canonical" href="${ORIGIN}${canonical}">`) +
+      (noindex ? '<meta name="robots" content="noindex">' : '') +
+      (declares === 'json-ld'
+        ? '<script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"Shirt"}</script>'
+        : '') +
+      (declares === 'og' ? '<meta property="og:type" content="product">' : '') +
+      '</head><body><p>shirt</p></body></html>',
+  });
+
+const runVariants = (pages: readonly CrawledPage[]): Observation =>
+  runSite('product-variant-canonical', pages, ['ecommerce']);
+
+describe('product-variant-canonical', () => {
+  it('says nothing about a site whose profile claims no catalogue', () => {
+    const observation = runSite('product-variant-canonical', [
+      product('/p/shirt', { canonical: '/p/shirt' }),
+      product('/p/shirt?color=red', { canonical: '/p/shirt' }),
+    ]);
+    expect(observation.outcome).toBe('not-applicable');
+  });
+
+  // Guessing a product from its URL shape would drag category and search pages
+  // into families whose duplicates are a different check's business.
+  it('says nothing when no page declares itself a product', () => {
+    const observation = runVariants([
+      page({ path: '/search?q=shirt' }),
+      page({ path: '/search?q=shirt&sort=price' }),
+    ]);
+    expect(observation.outcome).toBe('not-applicable');
+    expect(observation.summary).toMatch(/declares itself a product/);
+  });
+
+  // A crawl that reached one address per product and a catalogue that only has
+  // one address per product look identical from here.
+  it('reports nothing observed when no product was crawled twice', () => {
+    const observation = runVariants([product('/p/shirt', { canonical: '/p/shirt' })]);
+    expect(observation.outcome).toBe('not-applicable');
+    expect(observation.summary).toMatch(/not observable in this crawl/);
+  });
+
+  it('passes a catalogue that consolidates every variant onto the product', () => {
+    const observation = runVariants([
+      product('/p/shirt', { canonical: '/p/shirt' }),
+      product('/p/shirt?color=red', { canonical: '/p/shirt' }),
+      product('/p/shirt?color=blue', { canonical: '/p/shirt' }),
+    ]);
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data?.['familiesWithVariants']).toBe(1);
+  });
+
+  // The other defensible rule: each variant is its own page, and says so.
+  it('passes self-canonical variants that are told apart', () => {
+    const observation = runVariants([
+      product('/p/shirt?color=red', { canonical: '/p/shirt?color=red', title: 'Red shirt' }),
+      product('/p/shirt?color=blue', { canonical: '/p/shirt?color=blue', title: 'Blue shirt' }),
+    ]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('fails self-canonical variants that share one title', () => {
+    const observation = runVariants([
+      product('/p/shirt?color=red', { canonical: '/p/shirt?color=red' }),
+      product('/p/shirt?color=blue', { canonical: '/p/shirt?color=blue' }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/1 of 1 product/);
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /compete with each other/,
+    );
+  });
+
+  // The state the check exists to prevent: no rule, decided per template path.
+  it('fails a product whose addresses declare different canonicals', () => {
+    const observation = runVariants([
+      product('/p/shirt', { canonical: '/p/shirt' }),
+      product('/p/shirt?color=red', { canonical: '/p/shirt-red' }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /2 different canonicals/,
+    );
+  });
+
+  it('fails a variant address that declares no canonical', () => {
+    const observation = runVariants([
+      product('/p/shirt', { canonical: '/p/shirt' }),
+      product('/p/shirt?color=red'),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /no rel=canonical/,
+    );
+  });
+
+  // noindex is a rule too: the extra spellings are out of the index either way.
+  it('accepts variants excluded by noindex rather than by canonical', () => {
+    const observation = runVariants([
+      product('/p/shirt', { canonical: '/p/shirt' }),
+      product('/p/shirt?color=red', { noindex: true }),
+      product('/p/shirt?color=blue', { noindex: true }),
+    ]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('fails a family that consolidates onto a page marked noindex', () => {
+    const observation = runVariants([
+      product('/p/shirt', { canonical: '/p/shirt', noindex: true }),
+      product('/p/shirt?color=red', { canonical: '/p/shirt' }),
+      product('/p/shirt?color=blue', { canonical: '/p/shirt' }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /no indexable URL/,
+    );
+  });
+
+  it('reads og:type as a product declaration where there is no JSON-LD', () => {
+    const observation = runVariants([
+      product('/p/shirt?color=red', { canonical: '/p/shirt?color=red', declares: 'og' }),
+      product('/p/shirt?color=blue', { canonical: '/p/shirt?color=blue', declares: 'og' }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+  });
+
+  // A facet URL on a listing route is a duplicate of a listing, not a product.
+  it('leaves routes no product declares out of the families it judges', () => {
+    const observation = runVariants([
+      product('/p/shirt', { canonical: '/p/shirt' }),
+      product('/p/shirt?color=red', { canonical: '/p/shirt' }),
+      page({ path: '/c/shirts' }),
+      page({ path: '/c/shirts?sort=price' }),
+    ]);
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data?.['familiesWithVariants']).toBe(1);
   });
 });

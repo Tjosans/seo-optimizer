@@ -13,7 +13,7 @@ seo-optimizer is an SEO launch-readiness auditor. It crawls a site, runs it agai
 - **@seo/crawler** — site crawler respecting robots.txt, redirect chains, sitemaps; stops between requests on a caller's signal; makes the auxiliary requests probes are not allowed to make themselves
 - **@seo/probes** — 6 detector categories (delivery, indexability, markup, media, metadata, site)
 - **@seo/persistence** — sink that streams crawls and probe runs into Postgres
-- **@seo/queue** — in-process job queue: bounded concurrency, one crawl at a time per origin, retries on a caller's policy, outstanding work written to an optional durable store
+- **@seo/queue** — in-process job queue: bounded concurrency, one crawl at a time per origin, retries on a caller's policy, outstanding work written to an optional durable store and held on a lease it renews
 - **@seo/job-store** — the Postgres `JobStore` behind that queue, so a restart resumes what was queued
 - **@seo/scheduler** — the front door: submit an audit, get an id back, crawl and probes run on the queue, failures a repeat could fix are retried, and `recover()` resumes what a previous process left queued
 - **@seo/grader** — reads probe evidence against the corpus, writes checkStates, freezes readiness
@@ -75,7 +75,18 @@ Key scripts:
 - Settled jobs are deleted from `jobs`. What became of an audit is already on `audits`.
 - Delivery is at-least-once: a process that dies between a handler returning and the removal landing runs that job again. Handlers must tolerate a repeat, which an audit already does.
 - Recovery only finds work the store knows about. `scheduler.reconcile()` is the sweep for the rest: a row from before this process started, with no job behind it, is closed out as `failed` with `ORPHANED_AUDIT_ERROR` rather than left pending forever. Call it after `recover()`; it refuses to run before, and refuses without a store, because either way every pending audit would look abandoned.
-- One process per `queue` namespace. `owner` and `leased_at` are stamped for diagnostics and to leave the claim in the right shape, but nothing enforces single ownership yet.
+- One process per `queue` namespace, unless the store leases. Without `leaseMs` the store claims everything under the name and `owner` is a diagnostic; nothing stops a second process, and nothing would divide the work sensibly if there were one.
+
+### What a lease is for
+
+- A second worker can share a namespace once the store hands out claims that expire. `new PostgresJobStore({ …, owner: 'worker-1', leaseMs: 30_000 })` and `heartbeatMs` on the scheduler or queue are the whole of the wiring.
+- `load` then takes only what is free — never claimed, already this owner's, or held by a claim older than the lease — so two workers starting at once divide the backlog instead of both running it.
+- `renew` is how a live worker keeps saying "still mine", and how it finds out when the answer has become no. A claim that is not renewed ages out and the job becomes anybody's; that is the only thing that makes a dead worker's work recoverable, and the only thing that makes a live worker's work safe.
+- Expiry is measured by the database clock, for the same reason `reconcile`'s cutoff is.
+- Set `heartbeatMs` well under `leaseMs` — a third is the usual shape. A claim that expires while the crawl is still running hands that site to a second crawler, which is precisely the politeness the lane rules exist to keep.
+- Give each worker an `owner` that survives a restart (a pod name, a slot number). The default is host and pid, which is fine for diagnostics and wrong for recovery: a process back under a new name cannot reclaim its own rows and has to wait out its own lease.
+- Losing a lease is not a failure of the work. The queue aborts the job's signal, settles it `failed` with `JobLeaseLostError`, does not retry it, and writes nothing further to the store — the row is the new owner's. `runAudit` leaves the `audits` row alone for the same reason: the audit is still running, just not here.
+- `reconcile` asks the store what is outstanding for *anyone* before it writes a row off, so a second worker's audits are never closed out from under it.
 
 ### What cancelling does
 
@@ -129,7 +140,7 @@ Together these let the sink resolve `discoveredFromId` from an in-memory map. Br
 
 ## Testing
 
-Unit tests (no database needed): `packages/corpus/test/{corpus,provenance,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,robots,url}.test.ts`, `packages/probes/test/{probes,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store}.test.ts`, `packages/grader/test/grade.test.ts`, `packages/scheduler/test/retry.test.ts`.
+Unit tests (no database needed): `packages/corpus/test/{corpus,provenance,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,robots,url}.test.ts`, `packages/probes/test/{probes,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store,lease}.test.ts`, `packages/grader/test/grade.test.ts`, `packages/scheduler/test/retry.test.ts`.
 
 Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/{scheduler,recovery,cancel,flags,ai-policy}.test.ts`, `packages/job-store/test/postgres.test.ts`, `packages/grader/test/record.test.ts`.
 
@@ -187,4 +198,4 @@ scripts/{compile-corpus,probe-matrix,triage}.ts
 
 ## What to pick up next
 
-`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; what remains is lease expiry so a second worker can share a queue, and detector coverage — 88 of the corpus's 128 detectors are unimplemented, which is the single thing most limiting what an audit can say. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.
+`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; lease expiry (@seo/job-store, @seo/queue) is in, so a second worker can share a queue namespace; what remains is detector coverage — 88 of the corpus's 128 detectors are unimplemented, which is the single thing most limiting what an audit can say. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.

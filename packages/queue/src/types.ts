@@ -76,7 +76,8 @@ export type JobEvent<TPayload> =
       readonly cause: unknown;
       readonly delayMs: number;
     }
-  | { readonly type: 'cancelled'; readonly job: Job<TPayload> };
+  | { readonly type: 'cancelled'; readonly job: Job<TPayload> }
+  | { readonly type: 'lease-lost'; readonly job: Job<TPayload> };
 
 /** Rejection reason for a job cancelled before or during its run. */
 export class JobCancelledError extends Error {
@@ -85,6 +86,31 @@ export class JobCancelledError extends Error {
   constructor(jobId: string) {
     super(`job ${jobId} was cancelled`);
     this.name = 'JobCancelledError';
+    this.jobId = jobId;
+  }
+}
+
+/**
+ * Rejection reason for a job this process no longer holds the lease on.
+ *
+ * A queue sharing a namespace with another worker holds each of its jobs on a
+ * lease that has to be renewed. Losing one means the row has been claimed
+ * elsewhere and the work is now somebody else's: another process is running
+ * this job, or is about to. So this is not a failure of the work — it is this
+ * process finding out it is no longer the one doing it.
+ *
+ * Two consequences follow, and both are the queue's to enforce. The job is not
+ * retried here, because a repeat would be a second worker running what the new
+ * owner already has. And nothing more is written to the store for it, because
+ * that row belongs to the new owner and a stale `save` or `remove` would be
+ * this process editing their job.
+ */
+export class JobLeaseLostError extends Error {
+  readonly jobId: string;
+
+  constructor(jobId: string) {
+    super(`job ${jobId} lost its lease and is now held by another worker`);
+    this.name = 'JobLeaseLostError';
     this.jobId = jobId;
   }
 }

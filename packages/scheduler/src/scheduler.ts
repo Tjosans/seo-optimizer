@@ -41,6 +41,14 @@
  * store that refused the write — would otherwise stay pending forever, waited
  * on by whoever holds its id. `reconcile` is the sweep that closes those out,
  * so every audit row eventually reaches a state that is true.
+ *
+ * More than one scheduler may share a store, if the store leases its jobs and
+ * `heartbeatMs` is set. Then each audit is held by exactly one of them, a
+ * scheduler that stops holding one gives it up to whichever picks it up next,
+ * and the sweep asks the store what is outstanding *anywhere* before it writes
+ * an audit off — the row it must never close is the one another worker is
+ * quietly getting on with. See `@seo/job-store` for what a lease costs and what
+ * a worker has to be named for one to survive a restart.
  */
 
 import { and, eq, inArray, lt, sql } from 'drizzle-orm';
@@ -95,6 +103,16 @@ export interface AuditSchedulerOptions {
    * again after a restart.
    */
   readonly store?: JobStore<AuditJob>;
+  /**
+   * How often to renew this scheduler's claim on the audits it is running.
+   *
+   * Set it, with a store that leases, to share one queue namespace with a
+   * second scheduler; leave it out and the namespace has a single owner, which
+   * is what it has always had. It must be comfortably shorter than the store's
+   * lease — a third of it is the usual shape — because a claim that expires
+   * while the crawl is still going hands that site to a second crawler.
+   */
+  readonly heartbeatMs?: number;
   /** Told when the store refuses a write for an audit already under way. */
   readonly onStoreError?: (error: unknown, job: Job<AuditJob>) => void;
   readonly onEvent?: (event: JobEvent<AuditJob>) => void;
@@ -112,6 +130,11 @@ export class AuditScheduler {
   readonly #corpus: CorpusSource;
   readonly #queue: JobQueue<AuditJob, AuditOutcome>;
   /**
+   * Kept as well as handed to the queue, because `reconcile` asks it a question
+   * the queue cannot answer: what is outstanding for *anyone*, not just here.
+   */
+  readonly #store: JobStore<AuditJob> | undefined;
+  /**
    * When this process took the queue over, read from the database clock.
    *
    * `reconcile` looks no later than this, so an audit submitted while the sweep
@@ -128,6 +151,8 @@ export class AuditScheduler {
     this.#crawl = options.crawl;
     this.#corpus = options.corpus;
 
+    this.#store = options.store;
+
     const policy = options.retry === false ? undefined : (options.retry ?? auditRetryPolicy());
     this.#queue = new JobQueue<AuditJob, AuditOutcome>({
       concurrency: options.concurrency ?? 2,
@@ -136,6 +161,7 @@ export class AuditScheduler {
         ? {}
         : { retry: (attempt: RetryAttempt<AuditJob>) => this.#decideRetry(policy, attempt) }),
       ...(options.store === undefined ? {} : { store: options.store }),
+      ...(options.heartbeatMs === undefined ? {} : { heartbeatMs: options.heartbeatMs }),
       ...(options.onStoreError === undefined ? {} : { onStoreError: options.onStoreError }),
       ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
       ...(options.paused === undefined ? {} : { paused: options.paused }),
@@ -271,10 +297,11 @@ export class AuditScheduler {
    * either case every pending audit would look abandoned and the sweep would
    * fail the whole backlog.
    *
-   * The sweep is database-wide by default, which is right when one scheduler
-   * owns the database — the same single owner the store already assumes. Pass
-   * `siteIds` to narrow it when that is not true, and a second scheduler's live
-   * audits are left alone instead of being closed out from under it.
+   * With a store that can say what is outstanding, an audit another worker
+   * holds is not orphaned and is left alone — that is what makes the sweep safe
+   * to run in a process sharing its namespace. Where the store cannot say, the
+   * sweep is database-wide, which is right when one scheduler owns the
+   * database. Pass `siteIds` to narrow it when neither is true.
    *
    * Returns how many rows it closed.
    */
@@ -289,6 +316,11 @@ export class AuditScheduler {
     for (const state of ['queued', 'running'] as const) {
       for (const job of this.#queue.list(state)) live.add(job.payload.auditId);
     }
+    // The store's answer covers workers this process knows nothing about, and
+    // it is read before the rows are, so an audit queued by another scheduler
+    // between the two reads shows up as outstanding rather than as abandoned.
+    // The job id is the audit id, which is what makes this comparable at all.
+    for (const id of (await this.#store?.outstanding?.()) ?? []) live.add(id);
 
     const open = await this.#db
       .select({ id: audits.id })

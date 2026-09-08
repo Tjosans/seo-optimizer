@@ -9,13 +9,20 @@
  * Each test namespaces its rows under its own `queue` name, because the point
  * of that column is that two queues cannot see each other's work, and sharing
  * one name across tests would quietly prove the opposite.
+ *
+ * The lease tests are the exception that proves it: there, two stores *do*
+ * share a name, because that is what a second worker is. A lease is aged by
+ * writing `leased_at` into the past rather than by waiting, so the tests assert
+ * on the expiry rule rather than on how long a test machine takes to run them —
+ * and the comparison is still Postgres's `now()`, which is the clock the store
+ * itself uses.
  */
 
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { createDatabase, jobs } from '@seo/db';
 import { PostgresJobStore } from '@seo/job-store';
-import { JobQueue } from '@seo/queue';
+import { JobLeaseLostError, JobQueue } from '@seo/queue';
 import type { StoredJob } from '@seo/queue';
 
 interface Payload {
@@ -186,5 +193,176 @@ describe.skipIf(!url)('a queue backed by Postgres', () => {
     expect(await store.size()).toBe(0);
     const rows = await db.select().from(jobs).where(eq(jobs.id, 'done'));
     expect(rows).toEqual([]);
+  });
+});
+
+describe.skipIf(!url)('two workers sharing a namespace', () => {
+  const handle = createDatabase(url ?? '', { max: 4 });
+  const { db } = handle;
+  const LEASE_MS = 30_000;
+  const namespaces: string[] = [];
+
+  afterAll(async () => {
+    for (const queue of namespaces) await db.delete(jobs).where(eq(jobs.queue, queue));
+    await handle.close();
+  });
+
+  /** Two stores on one namespace: the same table, two owners. */
+  const pair = () => {
+    const queue = `test-lease-${crypto.randomUUID()}`;
+    namespaces.push(queue);
+    const worker = (owner: string) =>
+      new PostgresJobStore<Payload>({ db, queue, owner, leaseMs: LEASE_MS });
+    return { queue, a: worker('worker-a'), b: worker('worker-b') };
+  };
+
+  /** Age a claim past its lease, by the database's clock rather than by waiting. */
+  const expire = async (queue: string, id: string) => {
+    await db
+      .update(jobs)
+      .set({ leasedAt: sql`now() - make_interval(secs => ${LEASE_MS / 1000 + 1})` })
+      .where(and(eq(jobs.queue, queue), eq(jobs.id, id)));
+  };
+
+  const ownerOf = async (queue: string, id: string) => {
+    const [row] = await db
+      .select({ owner: jobs.owner })
+      .from(jobs)
+      .where(and(eq(jobs.queue, queue), eq(jobs.id, id)));
+    return row?.owner;
+  };
+
+  it('leaves a job alone while the worker holding it is still saying so', async () => {
+    const { queue, a, b } = pair();
+    await a.save(job('a1'));
+
+    expect(await b.load()).toEqual([]);
+    // The holder takes its own work back without waiting out its own lease,
+    // which is what a restart under a stable name depends on.
+    expect((await a.load()).map((row) => row.id)).toEqual(['a1']);
+    expect(await ownerOf(queue, 'a1')).toBe('worker-a');
+  });
+
+  it('hands the job on once nobody has renewed the claim', async () => {
+    const { queue, a, b } = pair();
+    await a.save(job('a1'));
+    await expire(queue, 'a1');
+
+    expect((await b.load()).map((row) => row.id)).toEqual(['a1']);
+    expect(await ownerOf(queue, 'a1')).toBe('worker-b');
+    // And the worker that lost it is told, rather than left crawling a site
+    // another worker has already started on.
+    expect(await a.renew(['a1'])).toEqual(['a1']);
+  });
+
+  it('renews a claim it still holds, expired or not', async () => {
+    const { queue, a, b } = pair();
+    await a.save(job('a1'));
+    await expire(queue, 'a1');
+
+    // Nobody took it, so it is still worker A's — a lease is an invitation to
+    // take over, not a punishment for being late.
+    expect(await a.renew(['a1'])).toEqual([]);
+    expect(await b.load()).toEqual([]);
+  });
+
+  it('divides the backlog rather than handing it to both', async () => {
+    const { queue, a, b } = pair();
+    await a.save(job('a1'));
+    await a.save(job('a2'));
+    await expire(queue, 'a1');
+
+    // Only the abandoned one moves; the claim still standing is not up for
+    // grabs however much work the second worker is looking for.
+    expect((await b.load()).map((row) => row.id)).toEqual(['a1']);
+    expect(await ownerOf(queue, 'a2')).toBe('worker-a');
+  });
+
+  it('refuses to write over a row that has moved on, and says which', async () => {
+    const { queue, a, b } = pair();
+    await a.save(job('a1'));
+    await expire(queue, 'a1');
+    await b.load();
+
+    await expect(a.save(job('a1', { state: 'running', attempt: 9 }))).rejects.toBeInstanceOf(
+      JobLeaseLostError,
+    );
+
+    const [row] = await db
+      .select()
+      .from(jobs)
+      .where(and(eq(jobs.queue, queue), eq(jobs.id, 'a1')));
+    expect(row?.owner).toBe('worker-b');
+    expect(row?.state).toBe('queued');
+    expect(row?.attempt).toBe(0);
+  });
+
+  it('does not delete a job it has lost', async () => {
+    const { queue, a, b } = pair();
+    await a.save(job('a1'));
+    await expire(queue, 'a1');
+    await b.load();
+
+    // Worker A finishing the run it was already making must not cancel the
+    // work worker B has taken over.
+    await a.remove('a1');
+    expect((await b.renew(['a1'])).length).toBe(0);
+    expect(await b.size()).toBe(1);
+  });
+
+  it('lists what is outstanding whoever holds it', async () => {
+    const { a, b } = pair();
+    await a.save(job('a1'));
+    await b.save(job('b1'));
+
+    expect([...(await a.outstanding())].sort()).toEqual(['a1', 'b1']);
+    // Which is a different question from what this worker may run: b1 is
+    // worker B's, and worker A leaves it alone.
+    expect((await a.load()).map((row) => row.id)).toEqual(['a1']);
+  });
+
+  it('claims everything when the namespace has no leases', async () => {
+    const queue = `test-lease-off-${crypto.randomUUID()}`;
+    namespaces.push(queue);
+    const single = new PostgresJobStore<Payload>({ db, queue, owner: 'worker-a' });
+    const next = new PostgresJobStore<Payload>({ db, queue, owner: 'worker-b' });
+    await single.save(job('a1'));
+
+    // The single-owner arrangement, unchanged: a process coming back under a
+    // new name reclaims what the last one left rather than stranding it.
+    expect((await next.load()).map((row) => row.id)).toEqual(['a1']);
+  });
+
+  it('runs a job the previous worker abandoned mid-flight', async () => {
+    const { queue, a, b } = pair();
+    // What a worker that died leaves: its own claim, and a job marked running
+    // that nothing is running.
+    await a.save(job('a1', { state: 'running', attempt: 1 }));
+    await expire(queue, 'a1');
+
+    const ran: string[] = [];
+    const queued = new JobQueue<Payload, string>({
+      concurrency: 1,
+      store: b,
+      // Paused so the attempt count can be read as it came back, before the
+      // run that is about to spend the next one.
+      paused: true,
+      handler: (payload) => {
+        ran.push(payload.auditId);
+        return payload.auditId;
+      },
+    });
+
+    expect((await queued.recover()).map((row) => row.attempt)).toEqual([1]);
+    queued.resume();
+    await queued.drain();
+    expect(ran).toEqual(['a1']);
+    // Settled by its new owner, and gone from the table.
+    const rows = await db
+      .select({ id: jobs.id })
+      .from(jobs)
+      .where(and(eq(jobs.queue, queue), inArray(jobs.id, ['a1'])));
+    expect(rows).toEqual([]);
+    await queued.close();
   });
 });

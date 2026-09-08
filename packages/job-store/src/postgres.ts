@@ -11,22 +11,46 @@
  * that package is schema and connection only. This is the join between them,
  * and it is the only file that needs both.
  *
- * ## What one owner means
+ * ## Who owns a job
  *
- * A `queue` name is a namespace, and the design assumes exactly one process
- * runs a given name at a time. `load` therefore claims *everything* under that
- * name, not merely rows it left behind itself: a restart comes back with a new
- * pid, and a store that only reclaimed its own owner string would strand every
- * job the previous process had started. Ownership is recorded rather than
- * enforced — two processes sharing a name today would divide the outstanding
- * jobs between them and both run, and nothing here would stop it.
+ * A `queue` name is a namespace, and how many processes may run one depends on
+ * a single option.
  *
- * The claim is still written as `SELECT … FOR UPDATE SKIP LOCKED` followed by a
- * stamp, which is the shape a multi-worker claim has to be. What is missing for
- * that is a lease that expires and a heartbeat to renew it; when those arrive,
- * the change is the `where` clause in `load` and nothing else — no migration,
- * because `owner` and `leased_at` are already columns, and no change to the
- * `JobStore` interface, because claiming is what `load` already means.
+ * **Without `leaseMs`** the namespace has exactly one owner, which is what it
+ * had before leases existed. `load` claims *everything* under the name, not
+ * merely rows it left behind itself: a restart comes back with a new pid, and a
+ * store that only reclaimed its own owner string would strand every job the
+ * previous process had started. Ownership is recorded rather than enforced —
+ * two processes sharing a name here would divide the outstanding jobs between
+ * them and both run, and nothing would stop it.
+ *
+ * **With `leaseMs`** a claim is a statement with an expiry on it. `load` takes
+ * only what is free — never claimed, already this owner's, or held by a claim
+ * older than the lease — and leaves the rest alone. `renew` is how a live
+ * worker keeps saying "still mine", and how it finds out when the answer has
+ * become no. `save` and `remove` refuse to touch a row another worker holds, so
+ * a process that has been superseded and does not know it yet cannot overwrite
+ * or delete the new owner's work. That is the whole of what a second worker
+ * needs, and it costs no migration: `owner` and `leased_at` were already
+ * columns, and claiming is what `load` already meant.
+ *
+ * Two things a caller has to get right for leases to hold.
+ *
+ *   **The lease must outlast a beat, and the beat must outrun the lease.** The
+ *   queue's `heartbeatMs` should be well under `leaseMs` — a third is the usual
+ *   shape — so a slow database or a busy event loop costs a renewal, not the
+ *   job.
+ *
+ *   **`owner` should be stable across a restart.** The default is host and pid,
+ *   which is fine for diagnostics and wrong for recovery: a process that comes
+ *   back under a new name cannot reclaim its own rows and has to wait out its
+ *   own lease. Give each worker a name it keeps — a pod name, a slot number —
+ *   and a restart picks up where it left off.
+ *
+ * Expiry is measured by the database clock, not this process's. Every
+ * timestamp being compared was written by Postgres, and a claim whose
+ * correctness depended on two machines agreeing about the time would eventually
+ * hand one worker's job to another for no reason but a skewed clock.
  *
  * ## Payloads
  *
@@ -36,9 +60,11 @@
  * `revive` when a payload needs rebuilding from what JSON kept.
  */
 
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { jobs } from '@seo/db';
 import type { Database } from '@seo/db';
+import { JobLeaseLostError } from '@seo/queue';
 import type { JobStore, StoredJob } from '@seo/queue';
 import { hostname } from 'node:os';
 
@@ -55,10 +81,24 @@ export interface PostgresJobStoreOptions<TPayload> {
    */
   readonly queue: string;
   /**
-   * Recorded on every row this process claims, for diagnostics. Defaults to
-   * host and pid. Nothing keys off it yet — see the note above.
+   * Which worker this store speaks for. Defaults to host and pid.
+   *
+   * With `leaseMs` set this is load-bearing rather than diagnostic: it decides
+   * which rows are this worker's to run, renew, update and delete. Give it a
+   * name that survives a restart — see the note above.
    */
   readonly owner?: string;
+  /**
+   * How long a claim stands without being renewed.
+   *
+   * Omit for a namespace with one owner, which claims everything it finds and
+   * never expires. Set it to share the namespace: a claim older than this is
+   * treated as abandoned and may be taken by another worker, so it has to be
+   * comfortably longer than the queue's `heartbeatMs` and longer than the
+   * worst pause — a long GC, a database failover — that should not cost a job.
+   * Tens of seconds, not tens of milliseconds.
+   */
+  readonly leaseMs?: number;
   /**
    * Rebuild a payload from the JSON that came back.
    *
@@ -72,12 +112,14 @@ export class PostgresJobStore<TPayload> implements JobStore<TPayload> {
   readonly #db: Database;
   readonly #queue: string;
   readonly #owner: string;
+  readonly #leaseMs: number | undefined;
   readonly #revive: (raw: unknown) => TPayload;
 
   constructor(options: PostgresJobStoreOptions<TPayload>) {
     this.#db = options.db;
     this.#queue = options.queue;
     this.#owner = options.owner ?? `${hostname()}#${process.pid}`;
+    this.#leaseMs = options.leaseMs;
     this.#revive = options.revive ?? ((raw) => raw as TPayload);
   }
 
@@ -86,19 +128,53 @@ export class PostgresJobStore<TPayload> implements JobStore<TPayload> {
     return this.#owner;
   }
 
+  /** How long a claim stands, or undefined when this namespace has one owner. */
+  get leaseMs(): number | undefined {
+    return this.#leaseMs;
+  }
+
   /**
-   * Claim and return every outstanding job in this namespace, oldest first.
+   * Rows this owner may take: nobody's, already ours, or held by a claim the
+   * database's own clock says has aged out.
+   *
+   * Undefined without a lease, where every row in the namespace is ours.
+   */
+  #claimable(): SQL | undefined {
+    if (this.#leaseMs === undefined) return undefined;
+    return or(
+      isNull(jobs.owner),
+      eq(jobs.owner, this.#owner),
+      isNull(jobs.leasedAt),
+      lt(jobs.leasedAt, sql`now() - make_interval(secs => ${this.#leaseMs / 1000})`),
+    );
+  }
+
+  /**
+   * Claim and return the outstanding jobs in this namespace that are free to
+   * take, oldest first.
+   *
+   * "Free to take" is everything, without a lease. With one it is what no live
+   * worker is holding, so two workers starting at once divide the backlog
+   * instead of both running it.
    *
    * One transaction: the rows are locked, stamped with this owner, and handed
    * back together, so a reader that dies halfway leaves the table as it found
-   * it rather than a half-claimed set.
+   * it rather than a half-claimed set. `SKIP LOCKED` is what keeps two workers
+   * loading at the same instant from queueing behind each other.
    */
   async load(): Promise<readonly StoredJob<TPayload>[]> {
     return this.#db.transaction(async (tx) => {
+      const claimable = this.#claimable();
       const rows = await tx
         .select()
         .from(jobs)
-        .where(and(eq(jobs.queue, this.#queue), inArray(jobs.state, [...OUTSTANDING])))
+        .where(
+          and(
+            eq(jobs.queue, this.#queue),
+            inArray(jobs.state, [...OUTSTANDING]),
+            ...(claimable === undefined ? [] : [claimable]),
+          ),
+        )
         .orderBy(asc(jobs.enqueuedAt))
         .for('update', { skipLocked: true });
 
@@ -106,7 +182,7 @@ export class PostgresJobStore<TPayload> implements JobStore<TPayload> {
 
       await tx
         .update(jobs)
-        .set({ owner: this.#owner, leasedAt: new Date(), updatedAt: new Date() })
+        .set({ owner: this.#owner, leasedAt: sql`now()`, updatedAt: sql`now()` })
         .where(
           and(
             eq(jobs.queue, this.#queue),
@@ -140,6 +216,7 @@ export class PostgresJobStore<TPayload> implements JobStore<TPayload> {
    * about the queue's state.
    */
   async save(job: StoredJob<TPayload>): Promise<void> {
+    const claimable = this.#claimable();
     const row = {
       id: job.id,
       queue: this.#queue,
@@ -152,11 +229,11 @@ export class PostgresJobStore<TPayload> implements JobStore<TPayload> {
       nextAttemptAt: job.nextAttemptAt,
       error: job.error,
       owner: this.#owner,
-      leasedAt: new Date(),
-      updatedAt: new Date(),
+      leasedAt: sql`now()`,
+      updatedAt: sql`now()`,
     };
 
-    await this.#db
+    const written = await this.#db
       .insert(jobs)
       .values(row)
       .onConflictDoUpdate({
@@ -173,20 +250,87 @@ export class PostgresJobStore<TPayload> implements JobStore<TPayload> {
           leasedAt: row.leasedAt,
           updatedAt: row.updatedAt,
         },
-      });
+        // The write lands only on a row this worker may hold. A process whose
+        // claim has been taken must not put its version of the job back: the
+        // new owner is running it, and the state it is writing is the true one.
+        ...(claimable === undefined ? {} : { setWhere: claimable }),
+      })
+      .returning({ id: jobs.id });
+
+    // Nothing came back, so the conflict target matched and the guard did not:
+    // this row is somebody else's. Said out loud rather than swallowed, because
+    // a caller who thinks a job is written down when it is not is exactly the
+    // situation a durable store exists to prevent.
+    if (written.length === 0) throw new JobLeaseLostError(job.id);
   }
 
-  /** Forget a settled job. What became of it is recorded by its own domain. */
+  /**
+   * Forget a settled job. What became of it is recorded by its own domain.
+   *
+   * Scoped to rows this worker may hold, and silent when it holds none: a job
+   * whose lease has moved on has been taken over, and deleting it here would
+   * cancel the new owner's work rather than clean up after this one's.
+   */
   async remove(id: string): Promise<void> {
-    await this.#db.delete(jobs).where(and(eq(jobs.id, id), eq(jobs.queue, this.#queue)));
+    const claimable = this.#claimable();
+    await this.#db
+      .delete(jobs)
+      .where(
+        and(
+          eq(jobs.id, id),
+          eq(jobs.queue, this.#queue),
+          ...(claimable === undefined ? [] : [claimable]),
+        ),
+      );
   }
 
-  /** How many jobs are outstanding in this namespace. For tests and health checks. */
-  async size(): Promise<number> {
+  /**
+   * Say "still mine" about the jobs this worker is running, and report the ones
+   * that are not.
+   *
+   * One statement: the rows this owner still holds have their claim pushed
+   * forward, and whatever did not come back is lost — taken by another worker,
+   * or already gone from the table. A claim of this owner's that has expired
+   * with nobody taking it renews normally, because a lease is an invitation to
+   * take over, not a punishment for being late.
+   */
+  async renew(ids: readonly string[]): Promise<readonly string[]> {
+    if (ids.length === 0) return [];
+
+    const held = await this.#db
+      .update(jobs)
+      .set({ leasedAt: sql`now()`, updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(jobs.queue, this.#queue),
+          inArray(jobs.id, [...ids]),
+          eq(jobs.owner, this.#owner),
+        ),
+      )
+      .returning({ id: jobs.id });
+
+    const renewed = new Set(held.map((row) => row.id));
+    return ids.filter((id) => !renewed.has(id));
+  }
+
+  /**
+   * Every outstanding job in this namespace, whoever holds it.
+   *
+   * Not a claim and not filtered by owner: this answers "is anything going to
+   * run this?", which is a different question from "is it mine to run?" and the
+   * one a reconciliation sweep has to ask before it writes an audit off.
+   */
+  async outstanding(): Promise<readonly string[]> {
     const rows = await this.#db
       .select({ id: jobs.id })
       .from(jobs)
       .where(and(eq(jobs.queue, this.#queue), inArray(jobs.state, [...OUTSTANDING])));
-    return rows.length;
+    return rows.map((row) => row.id);
+  }
+
+  /** How many jobs are outstanding in this namespace. For tests and health checks. */
+  async size(): Promise<number> {
+    const ids = await this.outstanding();
+    return ids.length;
   }
 }

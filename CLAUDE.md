@@ -121,7 +121,7 @@ Key scripts:
 - A machine may **fail** a check; only an `automated` check may be **passed** by one. `assisted` means the engine proposes and a person confirms.
 - A detector that is unimplemented, errored, or observed nothing leaves the check `not-started` / `unknown`. Missing evidence is never good news, and never bad news either.
 - Scope comes from `sites.flags`: an empty profile leaves conditional checks at `review`; a filled-in one narrows non-matching checks to `no` with a written rationale.
-- Only 43 of the corpus's 128 detectors exist, so today 18 of 43 automated checks can be graded end to end and most audits come back mostly ungraded. That is the honest answer, not a bug. `npm run probes:matrix` prints the current figure; do not quote one from memory.
+- Only 44 of the corpus's 128 detectors exist, so today 19 of 43 automated checks can be graded end to end and most audits come back mostly ungraded. That is the honest answer, not a bug. `npm run probes:matrix` prints the current figure; do not quote one from memory.
 - A row a human attested is never overwritten by a re-grade, and it counts in the frozen readiness.
 
 ### Guarantees the sink relies on
@@ -141,6 +141,8 @@ Together these let the sink resolve `discoveredFromId` from an in-memory map. Br
 ### Two detectors can share a subject without sharing a question
 
 International is the worked example, and the pattern generalises. `hreflang-cluster-qa` (4.9) reads the crawl as a whole and asks whether the pages agree with each other — reciprocity, self-references, targets the crawl reached. `hreflang-implementation` (1.14) asks whether what they agree on names anything: ISO 639-1 for the language, ISO 3166-1 alpha-2 for the region, one URL per locale, absolute hrefs. A cluster can be flawlessly reciprocal and completely inert because every page in it reciprocates `en-UK`, so folding the two together would let each hide the other's finding. `locale-canonical` (1.14) is the third: whether a page the cluster names is allowed to be indexed as itself, which is the one instruction that outranks every annotation on the site. It fails a non-self canonical where the general `canonicalization` detector only warns, because pointing elsewhere is legitimate for a known duplicate and never legitimate for a locale.
+
+Commerce is the second worked example. `product-variant-canonical` (1.15) asks whether one rule governs which of a product's addresses is the product's; `product-lifecycle-state` (1.15) asks what becomes of that address once the product stops being for sale. A catalogue can hold a flawless canonical rule and still delete every out-of-stock page, or keep every retired product alive at three addresses nobody chose. The two are kept from reporting one fact twice by the route test: a canonical onto a different route is lifecycle consolidation, a canonical onto the same route is variant consolidation.
 
 ## Testing
 
@@ -202,4 +204,4 @@ scripts/{compile-corpus,probe-matrix,triage}.ts
 
 ## What to pick up next
 
-`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; lease expiry (@seo/job-store, @seo/queue) is in, so a second worker can share a queue namespace; what remains is detector coverage — 86 of the corpus's 128 detectors are unimplemented, which is the single thing most limiting what an audit can say. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.
+`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; lease expiry (@seo/job-store, @seo/queue) is in, so a second worker can share a queue namespace; what remains is detector coverage — 84 of the corpus's 128 detectors are unimplemented, which is the single thing most limiting what an audit can say. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.

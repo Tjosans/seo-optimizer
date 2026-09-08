@@ -149,11 +149,14 @@ describe('writing a job down', () => {
     const handle = queue.enqueue('slow');
     await running.promise;
     // The write is issued before the handler is called but is not awaited, so
-    // give the microtask that lands it a turn.
-    await sleep(5);
-
-    const [stored] = store.snapshot();
-    expect(stored).toMatchObject({ id: handle.id, state: 'running', attempt: 1 });
+    // wait for it to land rather than assume a fixed moment is long enough.
+    await vi.waitFor(() => {
+      expect(store.snapshot()[0]).toMatchObject({
+        id: handle.id,
+        state: 'running',
+        attempt: 1,
+      });
+    });
 
     finish.resolve();
     await queue.drain();

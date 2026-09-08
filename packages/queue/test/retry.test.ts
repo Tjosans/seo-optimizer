@@ -11,8 +11,6 @@ import { describe, expect, it, vi } from 'vitest';
 import { exponentialBackoff, JobCancelledError, JobQueue } from '@seo/queue';
 import type { JobEvent } from '@seo/queue';
 
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-
 const deferred = () => {
   let resolve!: () => void;
   const promise = new Promise<void>((res) => {
@@ -185,10 +183,16 @@ describe('retrying a failed job', () => {
 
 describe('cancelling across a retry', () => {
   it('stops a job that is waiting out its delay', async () => {
+    const waiting = deferred();
     let runs = 0;
     const queue = new JobQueue<null, void>({
       concurrency: 1,
-      retry: () => 50,
+      // Long enough that no timer of the queue's can come due while the test
+      // runs: this wait is ended by the cancellation or not at all.
+      retry: () => 60_000,
+      onEvent: (event) => {
+        if (event.type === 'retrying') waiting.resolve();
+      },
       handler: () => {
         runs += 1;
         throw new Error('boom');
@@ -196,14 +200,22 @@ describe('cancelling across a retry', () => {
     });
 
     const handle = queue.enqueue(null);
-    await vi.waitFor(() => expect(handle.snapshot().state).toBe('queued'));
+    // The event rather than the state: a job reads as 'queued' both before its
+    // first run and while it waits out a backoff, so waiting on the state can
+    // cancel a job that never ran and prove nothing about retries.
+    await waiting.promise;
+    expect(handle.snapshot().nextAttemptAt).toBeInstanceOf(Date);
 
     expect(queue.cancel(handle.id)).toBe(true);
     await expect(handle.done).rejects.toBeInstanceOf(JobCancelledError);
 
-    await sleep(60);
+    // Not "it had not run again by the time we looked": the job is out of the
+    // queue and the queue has nothing left to do, so no later moment can run
+    // it — which is what waiting out the delay was trying to establish.
     expect(runs).toBe(1);
     expect(handle.snapshot().state).toBe('cancelled');
+    expect(queue.queued).toBe(0);
+    expect(queue.idle).toBe(true);
   });
 
   it('wins over a policy that was still deciding', async () => {
@@ -232,20 +244,30 @@ describe('cancelling across a retry', () => {
   });
 
   it('does not retry once the queue is closing', async () => {
+    const running = deferred();
+    const finish = deferred();
     let runs = 0;
     const queue = new JobQueue<null, void>({
       concurrency: 1,
       retry: () => 1,
       handler: async () => {
         runs += 1;
-        await sleep(5);
+        running.resolve();
+        await finish.promise;
         throw new Error('boom');
       },
     });
 
     const handle = queue.enqueue(null);
-    await vi.waitFor(() => expect(runs).toBe(1));
-    await queue.close();
+    await running.promise;
+
+    // The handler is held open until the close has been asked for, so the
+    // failure — and with it the retry the close has to refuse — cannot happen
+    // before the queue is closing. That ordering is the test; racing a
+    // sleeping handler for it is not.
+    const closing = queue.close();
+    finish.resolve();
+    await closing;
 
     expect(runs).toBe(1);
     expect(handle.snapshot().state).toBe('cancelled');

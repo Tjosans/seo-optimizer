@@ -1,0 +1,982 @@
+{
+  "schema": 1,
+  "label": "video-euronews-fixed",
+  "startedAt": "2026-09-08T20:44:02.324Z",
+  "durationMs": 26300,
+  "corpusVersion": "4.4",
+  "detectorsImplemented": 48,
+  "settings": {
+    "maxPages": 15,
+    "maxDepth": 2,
+    "requestDelayMs": 1000,
+    "timeoutMs": 15000,
+    "flags": [
+      "video"
+    ]
+  },
+  "sites": [
+    {
+      "url": "https://www.euronews.com",
+      "origin": "https://www.euronews.com",
+      "ok": true,
+      "error": null,
+      "crawl": {
+        "pages": 15,
+        "htmlPages": 15,
+        "nonOkPages": 0,
+        "transportFailures": 0,
+        "blockedByRobots": 1,
+        "notReached": 55087,
+        "sitemapUrls": 54931,
+        "robotsTxt": true,
+        "medianTtfbMs": 30,
+        "durationMs": 26298
+      },
+      "observations": {
+        "total": 426,
+        "pass": 245,
+        "fail": 22,
+        "warn": 85,
+        "notApplicable": 74,
+        "error": 0,
+        "detectorsFiring": 48
+      },
+      "checks": {
+        "total": 97,
+        "inScope": 59,
+        "graded": 12,
+        "passed": 7,
+        "failed": 2,
+        "inProgress": 3,
+        "notStarted": 85,
+        "byBasis": {
+          "detectors-missing": 41,
+          "attested-only": 6,
+          "out-of-scope": 38,
+          "held-by-warning": 3,
+          "verified-pass": 7,
+          "verified-fail": 2
+        }
+      },
+      "readiness": {
+        "decision": "HOLD",
+        "gatesOutstanding": 29,
+        "gatesFailed": 1,
+        "applicabilityDecisionsOutstanding": 0,
+        "violations": []
+      },
+      "verdicts": [
+        {
+          "checkId": "0.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (competitor-serp-baseline)"
+        },
+        {
+          "checkId": "0.2",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (keyword-intent-map)"
+        },
+        {
+          "checkId": "0.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (url-inventory-builder)"
+        },
+        {
+          "checkId": "0.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": true,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "0.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (brand-entity-consistency)"
+        },
+        {
+          "checkId": "0.6",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": false,
+          "summary": "out of scope: the check applies to sites flagged ai-policy; this site's profile declares video"
+        },
+        {
+          "checkId": "0.7",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": true,
+          "summary": "out of scope: the check applies to sites flagged multilingual; this site's profile declares video"
+        },
+        {
+          "checkId": "0.8",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": true,
+          "summary": "out of scope: the check applies to sites flagged migration; this site's profile declares video"
+        },
+        {
+          "checkId": "0.9",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": true,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "1.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 2 of 2 detectors are not implemented (raw-rendered-parity, rendering-strategy-classifier)"
+        },
+        {
+          "checkId": "1.2",
+          "status": "in-progress",
+          "coverage": "unknown",
+          "basis": "held-by-warning",
+          "launchGate": true,
+          "summary": "held: 17 of 45 observations warned — short of a defect, but not something a machine will clear"
+        },
+        {
+          "checkId": "1.3",
+          "status": "in-progress",
+          "coverage": "unknown",
+          "basis": "held-by-warning",
+          "launchGate": true,
+          "summary": "held: 1 of 17 observations warned — short of a defect, but not something a machine will clear"
+        },
+        {
+          "checkId": "1.4",
+          "status": "passed",
+          "coverage": "verified",
+          "basis": "verified-pass",
+          "launchGate": true,
+          "summary": "verified: 45 of 46 observations passed, 1 found no subject"
+        },
+        {
+          "checkId": "1.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 2 of 2 detectors are not implemented (lab-perf-budget, lcp-element-strategy)"
+        },
+        {
+          "checkId": "1.6",
+          "status": "passed",
+          "coverage": "verified",
+          "basis": "verified-pass",
+          "launchGate": true,
+          "summary": "verified: 31 of 31 observations passed"
+        },
+        {
+          "checkId": "1.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 4 detectors are not implemented (http-version)"
+        },
+        {
+          "checkId": "1.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (staging-protection)"
+        },
+        {
+          "checkId": "1.9",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": true,
+          "summary": "out of scope: the check applies to sites flagged media; this site's profile declares video"
+        },
+        {
+          "checkId": "1.10",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (ci-seo-guards)"
+        },
+        {
+          "checkId": "1.11",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (ci-extended-checks)"
+        },
+        {
+          "checkId": "1.12",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": true,
+          "summary": "out of scope: the check applies to sites flagged faceted-nav; this site's profile declares video"
+        },
+        {
+          "checkId": "1.13",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": true,
+          "summary": "out of scope: the check applies to sites flagged pagination; this site's profile declares video"
+        },
+        {
+          "checkId": "1.14",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": true,
+          "summary": "out of scope: the check applies to sites flagged multilingual; this site's profile declares video"
+        },
+        {
+          "checkId": "1.15",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": true,
+          "summary": "out of scope: the check applies to sites flagged ecommerce; this site's profile declares video"
+        },
+        {
+          "checkId": "1.16",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": true,
+          "summary": "out of scope: the check applies to sites flagged non-html-files; this site's profile declares video"
+        },
+        {
+          "checkId": "1.17",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": true,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "1.18",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (domain-expiry-rdap)"
+        },
+        {
+          "checkId": "1.19",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": false,
+          "summary": "out of scope: the check applies to sites flagged experiments; this site's profile declares video"
+        },
+        {
+          "checkId": "2.1",
+          "status": "passed",
+          "coverage": "verified",
+          "basis": "verified-pass",
+          "launchGate": true,
+          "summary": "verified: 4 of 4 observations passed"
+        },
+        {
+          "checkId": "2.2",
+          "status": "passed",
+          "coverage": "verified",
+          "basis": "verified-pass",
+          "launchGate": true,
+          "summary": "verified: 15 of 15 observations passed"
+        },
+        {
+          "checkId": "2.3",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": false,
+          "summary": "out of scope: the check applies to sites flagged image-search; this site's profile declares video"
+        },
+        {
+          "checkId": "2.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (gsc-property-ownership)"
+        },
+        {
+          "checkId": "2.5",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": true,
+          "summary": "out of scope: the check applies to sites flagged analytics; this site's profile declares video"
+        },
+        {
+          "checkId": "2.6",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": true,
+          "summary": "out of scope: the check applies to sites flagged consent; this site's profile declares video"
+        },
+        {
+          "checkId": "2.7",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": false,
+          "summary": "out of scope: the check applies to sites flagged structured-data; this site's profile declares video"
+        },
+        {
+          "checkId": "2.8",
+          "status": "passed",
+          "coverage": "verified",
+          "basis": "verified-pass",
+          "launchGate": false,
+          "summary": "verified: 15 of 15 observations passed"
+        },
+        {
+          "checkId": "2.9",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": false,
+          "summary": "out of scope: the check applies to sites flagged ai-policy; this site's profile declares video"
+        },
+        {
+          "checkId": "2.10",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": false,
+          "summary": "out of scope: the check applies to sites flagged indexnow; this site's profile declares video"
+        },
+        {
+          "checkId": "2.11",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": true,
+          "summary": "out of scope: the check applies to sites flagged ecommerce; this site's profile declares video"
+        },
+        {
+          "checkId": "2.12",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": false,
+          "summary": "out of scope: the check applies to sites flagged local-business; this site's profile declares video"
+        },
+        {
+          "checkId": "2.13",
+          "status": "passed",
+          "coverage": "verified",
+          "basis": "verified-pass",
+          "launchGate": false,
+          "summary": "verified: 1 of 1 observations passed"
+        },
+        {
+          "checkId": "2.14",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": false,
+          "summary": "failed: 7 of 31 observations failed (videoobject-schema)"
+        },
+        {
+          "checkId": "2.15",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": false,
+          "summary": "out of scope: the check applies to sites flagged paywall; this site's profile declares video"
+        },
+        {
+          "checkId": "2.16",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": false,
+          "summary": "out of scope: the check applies to sites flagged publisher; this site's profile declares video"
+        },
+        {
+          "checkId": "2.17",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": false,
+          "summary": "out of scope: the check applies to sites flagged hierarchical; this site's profile declares video"
+        },
+        {
+          "checkId": "3.1",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 1 of 30 observations failed (primary-heading)"
+        },
+        {
+          "checkId": "3.2",
+          "status": "in-progress",
+          "coverage": "unknown",
+          "basis": "held-by-warning",
+          "launchGate": false,
+          "summary": "held: 11 of 15 observations warned — short of a defect, but not something a machine will clear"
+        },
+        {
+          "checkId": "3.3",
+          "status": "passed",
+          "coverage": "verified",
+          "basis": "verified-pass",
+          "launchGate": true,
+          "summary": "verified: 3 of 3 observations passed"
+        },
+        {
+          "checkId": "3.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (trust-pages-presence)"
+        },
+        {
+          "checkId": "3.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (content-helpfulness)"
+        },
+        {
+          "checkId": "3.6",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": true,
+          "summary": "out of scope: the check applies to sites flagged ymyl; this site's profile declares video"
+        },
+        {
+          "checkId": "3.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (launch-content-completeness)"
+        },
+        {
+          "checkId": "3.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": false,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "3.9",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 2 of 2 detectors are not implemented (answer-first-structure, author-date-signals)"
+        },
+        {
+          "checkId": "3.10",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (cannibalization)"
+        },
+        {
+          "checkId": "3.11",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (content-accessibility)"
+        },
+        {
+          "checkId": "3.12",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": true,
+          "summary": "out of scope: the check applies to sites flagged multilingual; this site's profile declares video"
+        },
+        {
+          "checkId": "3.13",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": true,
+          "summary": "out of scope: the check applies to sites flagged ugc; this site's profile declares video"
+        },
+        {
+          "checkId": "4.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 3 of 3 detectors are not implemented (raw-rendered-crawl-diff, broken-links, metadata-completeness)"
+        },
+        {
+          "checkId": "4.2",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (indexability-matrix-reconciliation)"
+        },
+        {
+          "checkId": "4.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (mobile-journey-qa)"
+        },
+        {
+          "checkId": "4.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 2 of 2 detectors are not implemented (axe-accessibility, manual-a11y-evaluation)"
+        },
+        {
+          "checkId": "4.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (template-lab-perf)"
+        },
+        {
+          "checkId": "4.6",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": true,
+          "summary": "out of scope: the check applies to sites flagged structured-data; this site's profile declares video"
+        },
+        {
+          "checkId": "4.7",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": true,
+          "summary": "out of scope: the check applies to sites flagged analytics, consent; this site's profile declares video"
+        },
+        {
+          "checkId": "4.8",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": true,
+          "summary": "out of scope: the check applies to sites flagged migration; this site's profile declares video"
+        },
+        {
+          "checkId": "4.9",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": true,
+          "summary": "out of scope: the check applies to sites flagged multilingual; this site's profile declares video"
+        },
+        {
+          "checkId": "4.10",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": true,
+          "summary": "out of scope: the check applies to sites flagged ecommerce; this site's profile declares video"
+        },
+        {
+          "checkId": "4.11",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (prelaunch-baseline-snapshot)"
+        },
+        {
+          "checkId": "4.12",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": true,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "5.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (production-smoke-test)"
+        },
+        {
+          "checkId": "5.2",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": true,
+          "summary": "out of scope: the check applies to sites flagged migration; this site's profile declares video"
+        },
+        {
+          "checkId": "5.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (production-crawl-verify)"
+        },
+        {
+          "checkId": "5.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 2 of 2 detectors are not implemented (sitemap-submit, url-inspection)"
+        },
+        {
+          "checkId": "5.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 2 of 2 detectors are not implemented (availability-canary, indexability-canary)"
+        },
+        {
+          "checkId": "5.6",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": true,
+          "summary": "out of scope: the check applies to sites flagged analytics; this site's profile declares video"
+        },
+        {
+          "checkId": "5.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": true,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "5.8",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": false,
+          "summary": "out of scope: the check applies to sites flagged bing; this site's profile declares video"
+        },
+        {
+          "checkId": "6.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (indexation-review)"
+        },
+        {
+          "checkId": "6.2",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (field-cwv-monitor)"
+        },
+        {
+          "checkId": "6.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (reporting-anomaly-thresholds)"
+        },
+        {
+          "checkId": "6.4",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": false,
+          "summary": "out of scope: the check applies to sites flagged ai-reporting; this site's profile declares video"
+        },
+        {
+          "checkId": "6.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (security-manual-actions)"
+        },
+        {
+          "checkId": "6.6",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": false,
+          "summary": "out of scope: the check applies to sites flagged migration; this site's profile declares video"
+        },
+        {
+          "checkId": "6.7",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": false,
+          "summary": "out of scope: the check applies to sites flagged analytics; this site's profile declares video"
+        },
+        {
+          "checkId": "6.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (backlink-monitor)"
+        },
+        {
+          "checkId": "6.9",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": false,
+          "summary": "out of scope: the check applies to sites flagged ecommerce, multilingual; this site's profile declares video"
+        },
+        {
+          "checkId": "7.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (monitoring-incident-sla)"
+        },
+        {
+          "checkId": "7.2",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (content-decay)"
+        },
+        {
+          "checkId": "7.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (quarterly-regression-crawl)"
+        },
+        {
+          "checkId": "7.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (release-regression-review)"
+        },
+        {
+          "checkId": "7.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (digital-pr-tracking)"
+        },
+        {
+          "checkId": "7.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (offpage-reputation-governance)"
+        },
+        {
+          "checkId": "7.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (a11y-regression-sampling)"
+        },
+        {
+          "checkId": "7.8",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": false,
+          "summary": "out of scope: the check applies to sites flagged large-site, js-heavy, marketplace; this site's profile declares video"
+        },
+        {
+          "checkId": "7.9",
+          "status": "not-started",
+          "coverage": "not-applicable",
+          "basis": "out-of-scope",
+          "launchGate": false,
+          "summary": "out of scope: the check applies to sites flagged structured-data, multilingual, merchant-feed; this site's profile declares video"
+        },
+        {
+          "checkId": "7.10",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (security-dependency-maintenance)"
+        }
+      ],
+      "probeFailures": [
+        {
+          "probeId": "primary-heading",
+          "pageUrl": "https://www.euronews.com/",
+          "summary": "The <h1> is empty or near-empty.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.euronews.com/",
+          "summary": "9 of 194 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.euronews.com/video/2026/09/08/sumatran-tiger-cubs-receive-first-health-checks-at-greek-zoo",
+          "summary": "6 of 106 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.euronews.com/next/2026/09/08/laundry-backflips-and-panda-suits-humanoid-robots-take-over-ifa-2026",
+          "summary": "3 of 98 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.euronews.com/culture/2026/09/08/vivian-wilson-hits-out-at-ai-and-estranged-father-elon-musk-in-new-desigual-fashion-campai",
+          "summary": "2 of 96 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.euronews.com/2026/09/08/qatar-and-uae-say-gulf-cannot-rely-on-us-alone-for-regions-security",
+          "summary": "2 of 94 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.euronews.com/business/2026/09/08/dubai-launches-agentic-ai-training-drive-for-14000-businesses",
+          "summary": "3 of 50 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "media-alternatives",
+          "pageUrl": "https://www.euronews.com/2026/09/08/pressure-mounts-on-israeli-pm-netanyahu-after-report-uae-warned-of-hamas-7-october-attack",
+          "summary": "1 of 1 media element(s) offer no captions and no text alternative.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "media-alternatives",
+          "pageUrl": "https://www.euronews.com/video/2026/09/08/sumatran-tiger-cubs-receive-first-health-checks-at-greek-zoo",
+          "summary": "1 of 1 media element(s) offer no captions and no text alternative.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "media-alternatives",
+          "pageUrl": "https://www.euronews.com/next/2026/09/08/laundry-backflips-and-panda-suits-humanoid-robots-take-over-ifa-2026",
+          "summary": "1 of 1 media element(s) offer no captions and no text alternative.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "media-alternatives",
+          "pageUrl": "https://www.euronews.com/2026/09/08/12-nations-announce-trade-sanctions-on-israeli-settlements-in-the-west-bank",
+          "summary": "1 of 1 media element(s) offer no captions and no text alternative.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "media-alternatives",
+          "pageUrl": "https://www.euronews.com/my-europe/2026/09/08/global-trade-accounted-for-35-of-the-eus-carbon-footprint-in-2023-study-finds",
+          "summary": "1 of 1 media element(s) offer no captions and no text alternative.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "media-alternatives",
+          "pageUrl": "https://www.euronews.com/2026/09/08/qatar-and-uae-say-gulf-cannot-rely-on-us-alone-for-regions-security",
+          "summary": "1 of 1 media element(s) offer no captions and no text alternative.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "media-alternatives",
+          "pageUrl": "https://www.euronews.com/business/2026/09/08/made-in-uzbekistan-local-brands-look-to-new-markets",
+          "summary": "1 of 1 media element(s) offer no captions and no text alternative.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "media-alternatives",
+          "pageUrl": "https://www.euronews.com/2026/09/08/from-corals-to-saiga-inside-the-recovery-of-threatened-wildlife",
+          "summary": "1 of 1 media element(s) offer no captions and no text alternative.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "videoobject-schema",
+          "pageUrl": "https://www.euronews.com/2026/09/08/pressure-mounts-on-israeli-pm-netanyahu-after-report-uae-warned-of-hamas-7-october-attack",
+          "summary": "1 video(s) play on this page and none is described by VideoObject structured data.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "videoobject-schema",
+          "pageUrl": "https://www.euronews.com/next/2026/09/08/laundry-backflips-and-panda-suits-humanoid-robots-take-over-ifa-2026",
+          "summary": "1 video(s) play on this page and none is described by VideoObject structured data.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "videoobject-schema",
+          "pageUrl": "https://www.euronews.com/2026/09/08/12-nations-announce-trade-sanctions-on-israeli-settlements-in-the-west-bank",
+          "summary": "1 video(s) play on this page and none is described by VideoObject structured data.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "videoobject-schema",
+          "pageUrl": "https://www.euronews.com/my-europe/2026/09/08/global-trade-accounted-for-35-of-the-eus-carbon-footprint-in-2023-study-finds",
+          "summary": "1 video(s) play on this page and none is described by VideoObject structured data.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "videoobject-schema",
+          "pageUrl": "https://www.euronews.com/2026/09/08/qatar-and-uae-say-gulf-cannot-rely-on-us-alone-for-regions-security",
+          "summary": "1 video(s) play on this page and none is described by VideoObject structured data.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "videoobject-schema",
+          "pageUrl": "https://www.euronews.com/business/2026/09/08/made-in-uzbekistan-local-brands-look-to-new-markets",
+          "summary": "1 video(s) play on this page and none is described by VideoObject structured data.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "videoobject-schema",
+          "pageUrl": "https://www.euronews.com/2026/09/08/from-corals-to-saiga-inside-the-recovery-of-threatened-wildlife",
+          "summary": "1 video(s) play on this page and none is described by VideoObject structured data.",
+          "outcome": "fail"
+        }
+      ]
+    }
+  ]
+}

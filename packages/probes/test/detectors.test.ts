@@ -1731,3 +1731,43 @@ describe('a truncated sitemap', () => {
     expect(observation.summary).toMatch(/too large to read in full/);
   });
 });
+
+// --- a player whose source arrives in script --------------------------------
+
+/**
+ * The shape euronews serves: `<video class="js-native-video">` with no `src`,
+ * the media assigned after load. Counting players by URL made eight such pages
+ * read as carrying no video at all, and all three detectors stayed silent.
+ */
+describe('a <video> with no src attribute', () => {
+  const sourceless = '<video class="js-native-video" poster="/t.jpg"></video>';
+
+  it('is a video on the page, not an absence of one', () => {
+    const target = watchPage({ player: sourceless });
+    const observation = runVideoPage('video-watch-page', target, videoSite([target]));
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data?.['players']).toBe(1);
+  });
+
+  it('is a video nothing describes, which is the finding', () => {
+    const target = watchPage({ player: sourceless });
+    const observation = runVideoPage('videoobject-schema', target, videoSite([target]));
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/1 video\(s\) play on this page and none is described/);
+  });
+
+  // Nothing states which video it is, so there is no id to disagree about —
+  // the markup is the only evidence, and it is judged on its own completeness.
+  it('is not compared against the markup, having named no media', () => {
+    const target = watchPage({ player: sourceless, schema: VIDEO_SCHEMA });
+    const observation = runVideoPage('videoobject-schema', target, videoSite([target]));
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('counts toward a page playing more videos than it describes', () => {
+    const target = watchPage({ player: `${sourceless}${sourceless}`, schema: VIDEO_SCHEMA });
+    const observation = runVideoPage('videoobject-schema', target, videoSite([target]));
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toMatch(/2 video\(s\) play here and 1 are described/);
+  });
+});

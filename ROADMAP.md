@@ -49,7 +49,7 @@ Last updated: 2026-09-08
 - [x] Reconcile audits left `pending` with no job behind them (@seo/scheduler: `reconcile()` closes out rows nothing is going to run, bounded by the database clock at recovery)
 - [x] Give crawl() cooperative cancellation so a cancelled job stops mid-crawl rather than at the end (@seo/crawler: a `signal` checked between requests and inside the politeness delay; a cancelled crawl reads `cancelled`, not `failed`)
 - [x] Grade probe evidence into checkStates and freeze readiness on the audit (@seo/grader: verdicts, evidence trail, frozen readiness)
-- [ ] Implement more of the corpus's 128 detectors — 44 today (was 43), covering 19 of 43 automated checks and 14 launch gates. 1.15 is complete: both `product-variant-canonical` and `product-lifecycle-state` are in. The remainder need evidence this engine does not yet gather: Search Console, Lighthouse/CrUX, RDAP, a rendered DOM (Phase 5), or a previous audit to compare against
+- [ ] Implement more of the corpus's 128 detectors — 45 today (was 44), covering 20 of 43 automated checks and 14 launch gates. 1.15 and 2.7 are complete: `product-variant-canonical`, `product-lifecycle-state` and `schema-eligibility-matrix` are in. The remainder need evidence this engine does not yet gather: Search Console, Lighthouse/CrUX, RDAP, a rendered DOM (Phase 5), or a previous audit to compare against
 
 - [x] Prototype URL analyzer with snapshot comparison (npm run analyze / npm run compare) so engine changes can be measured against live sites
 
@@ -80,6 +80,12 @@ Last updated: 2026-09-08
 ## Blocked
 
 ## Decisions
+- 2026-09-08: made `schema-eligibility-matrix` (2.7) site-scoped rather than page-scoped, because the failure the check most wants caught is a site that declares templates eligible for structured data and marks none of them up — a fact no single page can observe about itself. Per-page defects travel in `samples`
+- 2026-09-08: answered only the third of 2.7 that a crawl can answer. The matrix's owner and source columns are paperwork; what the paperwork exists to protect is whether the markup names types it may name, carries what those types require, and describes something the page shows, and that is what the detector judges
+- 2026-09-08: held only *subject* properties to the visible-content test — an `Article` headline, a `Product` name — and never an `Organization` or `WebSite` name, which belong to the site rather than the page and commonly appear only in a logo; testing those would have failed almost every correctly marked-up site
+- 2026-09-08: left an unrecognised `@type` alone instead of reporting it as ineligible, because schema.org is vast and Google is not its only consumer: "this engine holds no requirements for Dataset" is a fact about the engine, not a finding about the site
+- 2026-09-08: made FAQPage and HowTo a `warn` rather than a `fail`, following the corpus's own wording — FAQ rich results ended 7 May 2026 and HowTo before it, but accurate existing markup may stay, so the finding is about what to build next
+- 2026-09-08: reported defects before absence, so a page whose only JSON-LD block fails to parse is described as having broken markup rather than none — the second is true of what a consumer sees and useless as an instruction
 - 2026-09-08: split 1.15's two detectors by the freedom the corpus gives the site: `product-variant-canonical` judges the consistency of a rule the methodology leaves open, while `product-lifecycle-state` judges an out-of-stock URL against a rule the methodology states outright — "keep useful out-of-stock URLs available" — and only falls back to consistency for the discontinued case, where the corpus asks for a defined handling rather than a particular one
 - 2026-09-08: read a product's lifecycle from schema.org `availability` and nothing else, because a page that 404s has no extracted markup to read and a URL shape says nothing about stock; a catalogue declaring no availability is reported as unobservable rather than as handled well
 - 2026-09-08: let any purchasable offer settle a product as for sale, and any out-of-stock offer outrank a discontinued one, so a `ProductGroup` with one variant retired and another in stock is a product you can still buy — treating its URL as gone is the mistake the check exists to catch

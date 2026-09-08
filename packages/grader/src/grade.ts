@@ -18,7 +18,7 @@
  * engine has not implemented, one that errored, and one that observed nothing
  * all leave the check ungraded at `not-started` with `unknown` coverage — never
  * passed, and never failed either, because "we did not look" is not a finding
- * about the site. Eighty-eight of the corpus's 128 detectors are unimplemented
+ * about the site. Eighty-three of the corpus's 128 detectors are unimplemented
  * today, so this is the common case rather than the corner one, and a report
  * that hid it would be claiming coverage the engine does not have.
  */

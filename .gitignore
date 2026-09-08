@@ -12,3 +12,9 @@ coverage/
 
 # Personal Claude Code settings; not part of the repo.
 .claude/settings.local.json
+
+# Cross-project notes on enforcing roadmaps everywhere — personal tooling
+# documentation that happens to sit in this directory, not a document about
+# this project. The one part of it that belongs here is already here:
+# .github/workflows/roadmap-check.yml.
+roadmap-convention.md

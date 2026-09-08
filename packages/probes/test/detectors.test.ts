@@ -57,6 +57,7 @@ const siteOf = (
   pages: readonly CrawledPage[],
   flags: readonly string[] = [],
   auxiliary: readonly AuxiliaryFetch[] = [],
+  sitemapUrls: readonly string[] = [],
 ): SiteContext => ({
   origin: ORIGIN,
   flags,
@@ -65,7 +66,7 @@ const siteOf = (
     pages,
     robots: { groups: [], sitemaps: [], absent: true },
     robotsTxt: null,
-    sitemapUrls: [],
+    sitemapUrls,
     blockedByRobots: [],
     notReached: [],
     auxiliary,
@@ -1036,5 +1037,163 @@ describe('product-variant-canonical', () => {
     ]);
     expect(observation.outcome).toBe('pass');
     expect(observation.data?.['familiesWithVariants']).toBe(1);
+  });
+});
+
+// --- 1.15 product-lifecycle-state -------------------------------------------
+
+interface LifecycleSpec {
+  /** One or more schema.org availability values; absent means no offer at all. */
+  readonly availability?: string | readonly string[];
+  readonly canonical?: string;
+  readonly noindex?: boolean;
+}
+
+const stocked = (
+  path: string,
+  { availability, canonical, noindex = false }: LifecycleSpec = {},
+): CrawledPage => {
+  const offers = [availability ?? []]
+    .flat()
+    .map((value) => `{"@type":"Offer","price":"10","availability":"${value}"}`)
+    .join(',');
+  return page({
+    path,
+    html:
+      '<html><head><title>Shirt</title>' +
+      (canonical === undefined ? '' : `<link rel="canonical" href="${ORIGIN}${canonical}">`) +
+      (noindex ? '<meta name="robots" content="noindex">' : '') +
+      '<script type="application/ld+json">' +
+      `{"@context":"https://schema.org","@type":"Product","name":"Shirt","offers":[${offers}]}` +
+      '</script></head><body><p>shirt</p></body></html>',
+  });
+};
+
+const IN_STOCK = 'https://schema.org/InStock';
+const OUT_OF_STOCK = 'https://schema.org/OutOfStock';
+const DISCONTINUED = 'https://schema.org/Discontinued';
+
+const runLifecycle = (
+  pages: readonly CrawledPage[],
+  sitemapUrls: readonly string[] = [],
+): Observation =>
+  siteProbe('product-lifecycle-state').run(siteOf(pages, ['ecommerce'], [], sitemapUrls));
+
+describe('product-lifecycle-state', () => {
+  it('says nothing about a site whose profile claims no catalogue', () => {
+    const observation = siteProbe('product-lifecycle-state').run(
+      siteOf([stocked('/p/shirt', { availability: OUT_OF_STOCK, noindex: true })]),
+    );
+    expect(observation.outcome).toBe('not-applicable');
+  });
+
+  it('says nothing when no page declares itself a product', () => {
+    const observation = runLifecycle([page({ path: '/c/shirts' })]);
+    expect(observation.outcome).toBe('not-applicable');
+    expect(observation.summary).toMatch(/declares itself a product/);
+  });
+
+  // Availability is how a product states its lifecycle to a machine. Without
+  // it there is nothing here to be right or wrong about.
+  it('reports nothing observed when products declare no availability', () => {
+    const observation = runLifecycle([stocked('/p/shirt', { canonical: '/p/shirt' })]);
+    expect(observation.outcome).toBe('not-applicable');
+    expect(observation.summary).toMatch(/declare an availability state/);
+  });
+
+  // A catalogue with nothing retired in it and a crawl that reached none of
+  // what is are indistinguishable from here.
+  it('reports nothing observed when every product crawled is still for sale', () => {
+    const observation = runLifecycle([
+      stocked('/p/shirt', { availability: IN_STOCK }),
+      stocked('/p/hat', { availability: 'InStock' }),
+    ]);
+    expect(observation.outcome).toBe('not-applicable');
+    expect(observation.summary).toMatch(/still for sale/);
+  });
+
+  it('passes an out-of-stock product kept indexable at its own URL', () => {
+    const observation = runLifecycle([
+      stocked('/p/shirt', { availability: OUT_OF_STOCK, canonical: '/p/shirt' }),
+      stocked('/p/hat', { availability: IN_STOCK }),
+    ]);
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data?.['withdrawn']).toBe(1);
+    expect(observation.data?.['treatments']).toEqual({ kept: 1, excluded: 0, consolidated: 0 });
+  });
+
+  // The mistake the corpus names: out of stock is not gone, and the URL has
+  // links and history that excluding it throws away.
+  it('fails an out-of-stock product excluded from the index', () => {
+    const observation = runLifecycle([
+      stocked('/p/shirt', { availability: OUT_OF_STOCK, noindex: true }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /out of stock and is marked noindex/,
+    );
+  });
+
+  it('fails an out-of-stock product canonicalized onto its category', () => {
+    const observation = runLifecycle([
+      stocked('/p/shirt', { availability: 'SoldOut', canonical: '/c/shirts' }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /canonicalized onto another route/,
+    );
+  });
+
+  // A canonical to another query on the same route is variant consolidation,
+  // which product-variant-canonical judges. Two detectors, one fact, would be
+  // the same finding reported twice under different names.
+  it('leaves a canonical within the same route to the variant detector', () => {
+    const observation = runLifecycle([
+      stocked('/p/shirt?color=red', { availability: OUT_OF_STOCK, canonical: '/p/shirt' }),
+    ]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('passes discontinued products retired from the index under one rule', () => {
+    const observation = runLifecycle([
+      stocked('/p/shirt', { availability: DISCONTINUED, noindex: true }),
+      stocked('/p/hat', { availability: DISCONTINUED, noindex: true }),
+    ]);
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data?.['retired']).toBe(2);
+  });
+
+  // The corpus asks for a defined handling of a discontinued product, not for
+  // a particular one — so what a machine can see is whether there is one.
+  it('fails a catalogue that handles discontinued products two ways', () => {
+    const observation = runLifecycle([
+      stocked('/p/shirt', { availability: DISCONTINUED, noindex: true }),
+      stocked('/p/hat', { availability: DISCONTINUED, canonical: '/p/hat' }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /2 different ways/,
+    );
+  });
+
+  it('fails a retired product that is noindex and still in the sitemap', () => {
+    const observation = runLifecycle(
+      [stocked('/p/shirt', { availability: DISCONTINUED, noindex: true })],
+      [`${ORIGIN}/p/shirt`],
+    );
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /still listed in the sitemap/,
+    );
+  });
+
+  // A group with one variant gone and another in stock is a product you can
+  // still buy, and treating its URL as gone would be the mistake.
+  it('reads a product as for sale while any of its offers is', () => {
+    const observation = runLifecycle([
+      stocked('/p/shirt', { availability: [DISCONTINUED, IN_STOCK], noindex: true }),
+    ]);
+    expect(observation.outcome).toBe('not-applicable');
+    expect(observation.summary).toMatch(/still for sale/);
   });
 });

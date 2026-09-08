@@ -49,7 +49,7 @@ Last updated: 2026-09-08
 - [x] Reconcile audits left `pending` with no job behind them (@seo/scheduler: `reconcile()` closes out rows nothing is going to run, bounded by the database clock at recovery)
 - [x] Give crawl() cooperative cancellation so a cancelled job stops mid-crawl rather than at the end (@seo/crawler: a `signal` checked between requests and inside the politeness delay; a cancelled crawl reads `cancelled`, not `failed`)
 - [x] Grade probe evidence into checkStates and freeze readiness on the audit (@seo/grader: verdicts, evidence trail, frozen readiness)
-- [ ] Implement more of the corpus's 128 detectors — 43 today (was 42), covering 18 of 43 automated checks and 13 launch gates. 1.15 is now one detector short: `product-lifecycle-state` is what it still waits on. The remainder need evidence this engine does not yet gather: Search Console, Lighthouse/CrUX, RDAP, a rendered DOM (Phase 5), or a previous audit to compare against
+- [ ] Implement more of the corpus's 128 detectors — 44 today (was 43), covering 19 of 43 automated checks and 14 launch gates. 1.15 is complete: both `product-variant-canonical` and `product-lifecycle-state` are in. The remainder need evidence this engine does not yet gather: Search Console, Lighthouse/CrUX, RDAP, a rendered DOM (Phase 5), or a previous audit to compare against
 
 - [x] Prototype URL analyzer with snapshot comparison (npm run analyze / npm run compare) so engine changes can be measured against live sites
 
@@ -80,6 +80,11 @@ Last updated: 2026-09-08
 ## Blocked
 
 ## Decisions
+- 2026-09-08: split 1.15's two detectors by the freedom the corpus gives the site: `product-variant-canonical` judges the consistency of a rule the methodology leaves open, while `product-lifecycle-state` judges an out-of-stock URL against a rule the methodology states outright — "keep useful out-of-stock URLs available" — and only falls back to consistency for the discontinued case, where the corpus asks for a defined handling rather than a particular one
+- 2026-09-08: read a product's lifecycle from schema.org `availability` and nothing else, because a page that 404s has no extracted markup to read and a URL shape says nothing about stock; a catalogue declaring no availability is reported as unobservable rather than as handled well
+- 2026-09-08: let any purchasable offer settle a product as for sale, and any out-of-stock offer outrank a discontinued one, so a `ProductGroup` with one variant retired and another in stock is a product you can still buy — treating its URL as gone is the mistake the check exists to catch
+- 2026-09-08: counted a canonical onto a *different route* as lifecycle consolidation and one onto the same route as variant consolidation, so `product-lifecycle-state` and `product-variant-canonical` cannot report the same fact twice under different names
+- 2026-09-08: made noindex plus a live sitemap entry the lifecycle detector's structural finding, since `sitemap-canonical-agreement` already covers a listed URL canonicalizing away and `index-bloat` covers the reverse — a sitemap asks for indexing and noindex refuses it, and nothing else was catching a retired product issuing both
 - 2026-09-08: had `product-variant-canonical` judge the *consistency* of a catalogue's canonical rule rather than the rule itself, because both usual rules are defensible — consolidate every spelling onto the product, or let each variant be its own indexable page — and only the site knows which it chose. The third state, where the template decides case by case, is the one a machine can see and the one 1.15 exists to prevent
 - 2026-09-08: made a family "pages sharing a route", i.e. the same path with different query strings, rather than trying to name which parameters select a variant; whatever `?color=red` or `?sessionid=` means, the site is serving one product at two addresses, and that is the whole subject
 - 2026-09-08: identified a product page only from what it declares — Product structured data or `og:type` — because guessing from URL shape would pull category listings and search results into product families, and their duplicates are other checks' business

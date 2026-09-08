@@ -1,5 +1,5 @@
 /**
- * The detectors added for corpus checks 1.6, 1.9, 1.13, 2.13, 2.17 and 4.9.
+ * The detectors added for corpus checks 1.6, 1.9, 1.13, 1.14, 2.13, 2.17 and 4.9.
  *
  * These run against hand-built pages rather than the fixture site, because each
  * one answers a question about a *shape* — a reciprocal hreflang cluster, a
@@ -11,7 +11,7 @@
  * would have given it.
  *
  * `probes.test.ts` remains the test that the whole registry behaves against one
- * coherent site; this is the test that each of these four is right.
+ * coherent site; this is the test that each of these is right.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -169,6 +169,185 @@ describe('hreflang-cluster-qa', () => {
     const observation = runSite('hreflang-cluster-qa', [page({ path: '/en/', html })]);
     expect(observation.outcome).toBe('pass');
     expect(observation.data?.['offSiteTargetsNotVerified']).toBeDefined();
+  });
+});
+
+// --- 1.14 hreflang-implementation and locale-canonical ----------------------
+
+/** A page whose hreflang hrefs are written out verbatim, relative ones included. */
+const withRawHreflang = (path: string, entries: readonly [string, string][]): CrawledPage =>
+  page({
+    path,
+    html:
+      '<html><head>' +
+      entries
+        .map(([lang, href]) => `<link rel="alternate" hreflang="${lang}" href="${href}">`)
+        .join('') +
+      '</head><body><p>hello</p></body></html>',
+  });
+
+/** A locale variant that also states an address, which is what 1.14 is about. */
+const localePage = (
+  path: string,
+  entries: readonly [string, string][],
+  canonical: string | null,
+): CrawledPage =>
+  page({
+    path,
+    html:
+      '<html><head>' +
+      entries
+        .map(([lang, href]) => `<link rel="alternate" hreflang="${lang}" href="${ORIGIN}${href}">`)
+        .join('') +
+      (canonical === null ? '' : `<link rel="canonical" href="${ORIGIN}${canonical}">`) +
+      '</head><body><p>hello</p></body></html>',
+  });
+
+describe('hreflang-implementation', () => {
+  it('says nothing about a site that never claimed to be multilingual', () => {
+    expect(runSite('hreflang-implementation', [page({ path: '/' })]).outcome).toBe('not-applicable');
+  });
+
+  it('fails a site whose profile says multilingual and whose pages say nothing', () => {
+    const observation = runSite('hreflang-implementation', [page({ path: '/' })], ['multilingual']);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/no crawled page carries an hreflang annotation/i);
+  });
+
+  it('passes locales that exist, on distinct URLs', () => {
+    const observation = runSite('hreflang-implementation', [
+      withHreflang('/en/', [['en', '/en/'], ['de-AT', '/de/'], ['x-default', '/en/']]),
+      withHreflang('/de/', [['en', '/en/'], ['de-AT', '/de/'], ['x-default', '/en/']]),
+    ]);
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data?.['locales']).toEqual(['de-at', 'en']);
+  });
+
+  // The failure the cluster check cannot see: perfectly reciprocal, entirely
+  // ignored, because no country is called UK.
+  it('fails a well-formed tag whose region is not a country, and names the one that is', () => {
+    const observation = runSite('hreflang-implementation', [
+      withHreflang('/en/', [['en', '/en/'], ['en-UK', '/uk/']]),
+      withHreflang('/uk/', [['en', '/en/'], ['en-UK', '/uk/']]),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('"GB"');
+  });
+
+  it('fails a country code used where a language belongs', () => {
+    const observation = runSite('hreflang-implementation', [
+      withHreflang('/en/', [['en', '/en/'], ['gb', '/gb/']]),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/not an ISO 639-1 code/);
+  });
+
+  it('fails the withdrawn code by naming its replacement', () => {
+    const observation = runSite('hreflang-implementation', [
+      withHreflang('/en/', [['en', '/en/'], ['iw', '/he/']]),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('"he"');
+  });
+
+  it('fails a relative href, which is dropped rather than resolved', () => {
+    const observation = runSite('hreflang-implementation', [
+      withRawHreflang('/en/', [['en', '/en/'], ['de', '/de/']]),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/relative href/);
+  });
+
+  it('fails one locale declared twice at two addresses', () => {
+    const observation = runSite('hreflang-implementation', [
+      withHreflang('/en/', [['en', '/en/'], ['en', '/en-gb/']]),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/declared twice/);
+  });
+
+  it('fails two locales served from one URL', () => {
+    const observation = runSite('hreflang-implementation', [
+      withHreflang('/en/', [['en', '/en/'], ['en-IE', '/en/']]),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/not on distinct URLs/);
+  });
+
+  it('fails two x-defaults, because a fallback has to be one place', () => {
+    const observation = runSite('hreflang-implementation', [
+      withHreflang('/en/', [
+        ['en', '/en/'],
+        ['de', '/de/'],
+        ['x-default', '/en/'],
+        ['x-default', '/de/'],
+      ]),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/x-default more than once/);
+  });
+
+  it('warns about a region search engines do not document support for', () => {
+    const observation = runSite('hreflang-implementation', [
+      withHreflang('/en/', [['en', '/en/'], ['es-419', '/es/']]),
+      withHreflang('/es/', [['en', '/en/'], ['es-419', '/es/']]),
+    ]);
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toMatch(/do not document support for/);
+  });
+
+  it('warns about x-default beside a single locale', () => {
+    const observation = runSite('hreflang-implementation', [
+      withHreflang('/en/', [['en', '/en/'], ['x-default', '/en/']]),
+    ]);
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toMatch(/nothing to fall back from/);
+  });
+});
+
+describe('locale-canonical', () => {
+  it('says nothing about a page no locale cluster names', () => {
+    const plain = page({ path: '/' });
+    expect(runPage('locale-canonical', plain, [plain]).outcome).toBe('not-applicable');
+  });
+
+  it('passes a locale variant that states its own address', () => {
+    const en = localePage('/en/', [['en', '/en/'], ['fr', '/fr/']], '/en/');
+    const fr = localePage('/fr/', [['en', '/en/'], ['fr', '/fr/']], '/fr/');
+    expect(runPage('locale-canonical', fr, [en, fr]).outcome).toBe('pass');
+  });
+
+  // The template that ships with the default locale's canonical hard-coded.
+  it('fails a variant that canonicalizes to another locale, and names it', () => {
+    const en = localePage('/en/', [['en', '/en/'], ['fr', '/fr/']], '/en/');
+    const fr = localePage('/fr/', [['en', '/en/'], ['fr', '/fr/']], '/en/');
+    const observation = runPage('locale-canonical', fr, [en, fr]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('"en"');
+    expect(observation.data?.['locale']).toBe('en');
+  });
+
+  // The cluster is what makes this page a variant; the page itself is silent.
+  it('fails a page that carries no annotation but is named as a locale', () => {
+    const en = localePage('/en/', [['en', '/en/'], ['fr', '/fr/']], '/en/');
+    const fr = localePage('/fr/', [], '/en/');
+    expect(runPage('locale-canonical', fr, [en, fr]).outcome).toBe('fail');
+  });
+
+  it('fails a locale variant that declares no canonical at all', () => {
+    const en = localePage('/en/', [['en', '/en/'], ['fr', '/fr/']], '/en/');
+    const fr = localePage('/fr/', [['en', '/en/'], ['fr', '/fr/']], null);
+    const observation = runPage('locale-canonical', fr, [en, fr]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/no rel=canonical/);
+  });
+
+  it('fails a canonical that leaves the cluster entirely', () => {
+    const en = localePage('/en/', [['en', '/en/'], ['fr', '/fr/']], '/en/');
+    const fr = localePage('/fr/', [['en', '/en/'], ['fr', '/fr/']], '/home');
+    const observation = runPage('locale-canonical', fr, [en, fr]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/canonical and hreflang disagree/);
   });
 });
 

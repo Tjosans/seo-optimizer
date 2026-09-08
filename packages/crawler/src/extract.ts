@@ -89,7 +89,14 @@ export interface ExtractedHeading {
 
 export interface Hreflang {
   readonly hreflang: string;
+  /** Absolute URL, resolved against the document's base. */
   readonly url: string;
+  /**
+   * The href exactly as authored. Kept because hreflang is one of the few
+   * places where a relative URL is not merely untidy but ignored outright, so
+   * a detector has to be able to see what was written, not what it resolved to.
+   */
+  readonly href: string;
 }
 
 export interface Extracted {
@@ -238,10 +245,10 @@ export function extract(html: string, pageUrl: string): Extracted {
 
   const hreflang: Hreflang[] = [];
   $('link[rel="alternate"][hreflang]').each((_, element) => {
-    const href = $(element).attr('href');
-    const url = href === undefined ? null : resolveUrl(href, base);
+    const href = $(element).attr('href') ?? '';
+    const url = resolveUrl(href, base);
     if (url === null) return;
-    hreflang.push({ hreflang: $(element).attr('hreflang') ?? '', url });
+    hreflang.push({ hreflang: $(element).attr('hreflang') ?? '', url, href });
   });
 
   const jsonLd: unknown[] = [];

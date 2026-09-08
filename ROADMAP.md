@@ -51,6 +51,7 @@ Last updated: 2026-09-08
 - [x] Grade probe evidence into checkStates and freeze readiness on the audit (@seo/grader: verdicts, evidence trail, frozen readiness)
 - [ ] Implement more of the corpus's 128 detectors — 48 today (was 45), covering 21 of 43 automated checks and 14 launch gates. 1.15, 2.7 and 2.14 are complete: `video-watch-page`, `videoobject-schema` and `video-sitemap` joined `product-variant-canonical`, `product-lifecycle-state` and `schema-eligibility-matrix`. The remainder need evidence this engine does not yet gather: Search Console, Lighthouse/CrUX, RDAP, a rendered DOM (Phase 5), or a previous audit to compare against
 
+- [x] Mark a response body the crawler had to cut, so a size limit of ours is never reported as a defect of theirs (@seo/crawler: `FetchResult.truncated` and `SitemapFetch.truncated`; @seo/probes: `video-sitemap` and `index-bloat` report `error`; `npm run analyze` counts fails and errors apart)
 - [x] Prototype URL analyzer with snapshot comparison (npm run analyze / npm run compare) so engine changes can be measured against live sites
 
 ## Phase 5 — Rendered Crawl
@@ -80,6 +81,10 @@ Last updated: 2026-09-08
 ## Blocked
 
 ## Decisions
+- 2026-09-08: made a truncated body a fact on `FetchResult` rather than raising the 5 MB limit, because raising it only moves the cliff: TED's video sitemap is 10 MB, the next site's is 40, and a body cut at any limit parses cleanly and ends in a severed entry that reads as a missing field. Found by `npm run analyze` reporting "1 of 3607 video sitemap entries unusable" against a sitemap whose 7632 entries are all complete
+- 2026-09-08: had the affected detectors report `error` rather than narrowing what they judge, because the grader already means the right thing by it — the check goes ungraded with basis `probe-error` — and "we could not read this" is exactly what happened. `index-bloat` is included: a partial sitemap made it pass 2.1 on TED, which is the same bug pointing the other way
+- 2026-09-08: kept a truncated sitemap's parsed URLs rather than discarding them, since the URLs read are real and useful for the crawl frontier; it is only the *completeness* claims — "absent from the sitemap", "this entry omits a field" — that the flag forbids
+- 2026-09-08: split `probe fails` from `probe errors` in the analyzer's report, because printing them as one list is how a limit of the engine's gets read as a fault of the site's
 - 2026-09-08: split 2.14 into a page a video sits on, the markup describing it, and the file listing it, because the three fail independently — a perfect watch page can carry no markup, complete markup can name a video that was replaced, and a video sitemap can 404 while every page on the site is fine
 - 2026-09-08: judged every page carrying a video as a candidate watch page, rather than trying to find the "important" videos the corpus names, because ranking a site's own library is a person's decision; what a crawl can answer is whether this video's page is fit to be found, and that question needs no ranking
 - 2026-09-08: taught the extractor about `<iframe>` and kept the list of which hosts are players in the probe, because an iframe is how nearly all web video arrives and almost none of it is video — maps, forms, adverts and consent widgets travel the same way — and naming the players is the only way to be sure the subject is a video. A player missing from the list makes the detector quiet rather than wrong

@@ -45,6 +45,7 @@ const page = ({ path, html = '<html><body><p>page</p></body></html>', status = 2
       redirectChain: [],
       body: html,
       byteLength: html.length,
+      truncated: false,
       contentType: 'text/html',
       ttfbMs: 1,
       totalMs: 2,
@@ -537,6 +538,7 @@ const variant = (
     redirectChain: [],
     body: '',
     byteLength: 0,
+    truncated: false,
     contentType: 'text/html',
     ttfbMs: 1,
     totalMs: 2,
@@ -1595,7 +1597,15 @@ describe('video-sitemap', () => {
   it('fails a video sitemap the site declares and the server does not serve', () => {
     const observation = runVideoSitemap(
       videoSite([watchPage({})], {
-        sitemaps: [{ url: `${ORIGIN}/video-sitemap.xml`, status: 404, urlCount: 0, videoCount: 0 }],
+        sitemaps: [
+          {
+            url: `${ORIGIN}/video-sitemap.xml`,
+            status: 404,
+            urlCount: 0,
+            videoCount: 0,
+            truncated: false,
+          },
+        ],
       }),
     );
     expect(observation.outcome).toBe('fail');
@@ -1658,5 +1668,66 @@ describe('video-sitemap', () => {
     );
     expect(observation.outcome).toBe('warn');
     expect(observation.summary).toMatch(/found no video on/);
+  });
+});
+
+// --- a sitemap the crawler had to cut ---------------------------------------
+
+/**
+ * The case TED found: a 10 MB video sitemap read to the 5 MB limit, ending in
+ * a severed entry that has a title and a thumbnail and no description. Judged
+ * naively, the engine's own budget is reported as the site's missing field.
+ */
+describe('a truncated sitemap', () => {
+  const severed = sitemapVideo(`${ORIGIN}/watch/last`, {
+    description: null,
+    contentUrl: null,
+    playerUrl: null,
+  });
+
+  const cutSitemap = (videoCount: number): CrawlResult['sitemaps'][number] => ({
+    url: `${ORIGIN}/video-sitemap.xml`,
+    status: 200,
+    urlCount: 3608,
+    videoCount,
+    truncated: true,
+  });
+
+  it('stops video-sitemap judging the entries it managed to read', () => {
+    const target = watchPage({});
+    const observation = siteProbe('video-sitemap').run(
+      videoSite([target], {
+        sitemaps: [cutSitemap(3608)],
+        sitemapVideos: [sitemapVideo(target.normalizedUrl), severed],
+      }),
+    );
+    expect(observation.outcome).toBe('error');
+    expect(observation.summary).toMatch(/too large to read in full/);
+  });
+
+  // Without the flag this is a fail: an entry with no description and no way
+  // to play it is exactly what the detector exists to catch.
+  it('is the difference between an error and a defect', () => {
+    const target = watchPage({});
+    const observation = siteProbe('video-sitemap').run(
+      videoSite([target], {
+        sitemaps: [{ ...cutSitemap(2), truncated: false }],
+        sitemapVideos: [sitemapVideo(target.normalizedUrl), severed],
+      }),
+    );
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/unusable/);
+  });
+
+  it('stops index-bloat calling a page missing from a list it never finished reading', () => {
+    const target = watchPage({ path: '/watch/one' });
+    const observation = siteProbe('index-bloat').run(
+      videoSite([target], {
+        sitemaps: [cutSitemap(0)],
+        sitemapVideos: [sitemapVideo(`${ORIGIN}/watch/other`)],
+      }),
+    );
+    expect(observation.outcome).toBe('error');
+    expect(observation.summary).toMatch(/too large to read in full/);
   });
 });

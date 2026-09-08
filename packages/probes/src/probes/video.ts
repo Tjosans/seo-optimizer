@@ -33,7 +33,7 @@
 import { isAllowed, isSameSite } from '@seo/crawler';
 import type { CrawledPage, Robots } from '@seo/crawler';
 import type { PageProbe, SiteProbe } from '../types.js';
-import { fail, notApplicable, pass, warn } from '../types.js';
+import { errored, fail, notApplicable, pass, warn } from '../types.js';
 
 const NO_HTML = 'No HTML was parsed for this response.';
 
@@ -419,6 +419,19 @@ export const videoSitemap: SiteProbe = {
       return fail(
         `${unfetchable.length} declared video sitemap(s) could not be fetched.`,
         { samples: unfetchable.slice(0, 5) },
+      );
+    }
+
+    // A sitemap the crawler cut at its body limit ends in a severed entry that
+    // reads exactly like a site that forgot a field. Judging it would report
+    // the engine's own limit as the site's defect, so the probe says instead
+    // that it could not look — which leaves 2.14 ungraded rather than failed.
+    const cut = crawl.sitemaps.filter((document) => document.truncated && document.videoCount > 0);
+    if (cut.length > 0) {
+      return errored(
+        `${cut.length} sitemap(s) carrying video entries were too large to read in full, so ` +
+          'the entries cannot be judged.',
+        { samples: cut.slice(0, 5) },
       );
     }
 

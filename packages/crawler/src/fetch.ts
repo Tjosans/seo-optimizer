@@ -23,6 +23,17 @@ export interface FetchResult {
   readonly redirectChain: readonly RedirectHop[];
   readonly body: string;
   readonly byteLength: number;
+  /**
+   * Whether `body` is the start of the response rather than all of it.
+   *
+   * A body cut at `maxBytes` parses cleanly and is wrong in a way nothing
+   * downstream can see: the last element is severed mid-attribute, and a
+   * detector reading it finds a page or a sitemap entry missing what it
+   * needs. That is the engine's cut, not the site's defect, so it has to be
+   * visible — a probe reading a truncated body must say it could not observe,
+   * never that the site is broken.
+   */
+  readonly truncated: boolean;
   readonly contentType: string | null;
   /** Time to the response head, in ms. */
   readonly ttfbMs: number | null;
@@ -98,6 +109,7 @@ export async function fetchPage(url: string, options: FetchOptions): Promise<Fet
     redirectChain,
     body: '',
     byteLength: 0,
+    truncated: false,
     contentType: null,
     ttfbMs: null,
     totalMs: null,
@@ -142,14 +154,14 @@ export async function fetchPage(url: string, options: FetchOptions): Promise<Fet
     const contentType = responseHeaders['content-type'] ?? null;
     let body = '';
     let byteLength = 0;
+    let truncated = false;
     let bytes: Uint8Array | undefined;
     try {
       const buffer = await response.arrayBuffer();
       byteLength = buffer.byteLength;
       if (contentType === null || TEXTUAL.test(contentType)) {
-        body = new TextDecoder().decode(
-          byteLength > maxBytes ? buffer.slice(0, maxBytes) : buffer,
-        );
+        truncated = byteLength > maxBytes;
+        body = new TextDecoder().decode(truncated ? buffer.slice(0, maxBytes) : buffer);
       } else if (options.keepBytes === true && byteLength <= maxAssetBytes) {
         bytes = new Uint8Array(buffer);
       }
@@ -167,6 +179,7 @@ export async function fetchPage(url: string, options: FetchOptions): Promise<Fet
       redirectChain,
       body,
       byteLength,
+      truncated,
       ...(bytes === undefined ? {} : { bytes }),
       contentType,
       ttfbMs,

@@ -10,7 +10,7 @@ seo-optimizer is an SEO launch-readiness auditor. It crawls a site, runs it agai
 
 - **@seo/core** — types for checks, check state, readiness scoring, and the site inputs a person supplies (AI crawler policy)
 - **@seo/corpus** — loader for the v4.4 check corpus (YAML phases 0-7, source TSV)
-- **@seo/crawler** — site crawler respecting robots.txt, redirect chains, sitemaps (and the video entries they declare); stops between requests on a caller's signal; makes the auxiliary requests probes are not allowed to make themselves
+- **@seo/crawler** — site crawler respecting robots.txt, redirect chains, sitemaps (and the video entries they declare), flagging any response body it had to cut; stops between requests on a caller's signal; makes the auxiliary requests probes are not allowed to make themselves
 - **@seo/probes** — 8 detector categories (commerce, delivery, indexability, markup, media, metadata, site, video)
 - **@seo/persistence** — sink that streams crawls and probe runs into Postgres
 - **@seo/queue** — in-process job queue: bounded concurrency, one crawl at a time per origin, retries on a caller's policy, outstanding work written to an optional durable store and held on a lease it renews
@@ -203,6 +203,7 @@ scripts/{compile-corpus,probe-matrix,triage}.ts
 3. **Integration tests skip silently** when `DATABASE_URL` is unset. Run `npm run stack:up` before trusting a green test run.
 4. **The pre-push hook is opt-in** and must be enabled in each clone. It is a local convenience; the real gate is the server-side ruleset on `master`.
 5. **Response bodies are external by design.** The schema stores hashes and keys only; the content-addressing store does not exist yet (see Phase 6).
+6. **A body over 5 MB is cut, and says so.** `fetchPage` truncates a textual body at `maxBytes` and sets `FetchResult.truncated`; `CrawlResult.sitemaps` carries the same flag per document. A cut sitemap parses cleanly and ends in a severed entry that reads exactly like a site that forgot a field — TED's video sitemap is 10 MB and produced precisely that false defect — so any detector reading a large document must check the flag and report `error`, never `fail`.
 
 ## What to pick up next
 

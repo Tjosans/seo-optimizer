@@ -87,6 +87,13 @@ export interface ProbeFailure {
   readonly probeId: string;
   readonly pageUrl: string | null;
   readonly summary: string;
+  /**
+   * Which of the two this was. An `error` is the engine saying it could not
+   * look — a body it had to cut, a detector that threw — and printing it
+   * beside the site's defects is how a limit of ours gets read as a fault of
+   * theirs.
+   */
+  readonly outcome: 'fail' | 'error';
 }
 
 export interface SiteReport {
@@ -325,6 +332,7 @@ async function analyze(url: string, settings: Settings, corpus: Corpus): Promise
         probeId: run.probeId,
         pageUrl: run.pageUrl ?? null,
         summary: run.observation.summary,
+        outcome: run.observation.outcome === 'error' ? ('error' as const) : ('fail' as const),
       })),
   };
 }
@@ -385,18 +393,26 @@ function printSite(site: SiteReport): void {
     }
   }
 
-  const byProbe = new Map<string, number>();
-  for (const failure of site.probeFailures) {
-    byProbe.set(failure.probeId, (byProbe.get(failure.probeId) ?? 0) + 1);
-  }
-  if (byProbe.size > 0) {
-    const top = [...byProbe.entries()]
+  // Defects and non-observations are counted apart. An older snapshot has no
+  // `outcome`, and everything in it was printed as a failure, so that is what
+  // it keeps meaning here.
+  const tally = (outcome: 'fail' | 'error'): string => {
+    const byProbe = new Map<string, number>();
+    for (const failure of site.probeFailures) {
+      if ((failure.outcome ?? 'fail') !== outcome) continue;
+      byProbe.set(failure.probeId, (byProbe.get(failure.probeId) ?? 0) + 1);
+    }
+    return [...byProbe.entries()]
       .sort((a, b) => b[1] - a[1])
       .slice(0, 8)
       .map(([id, count]) => `${id} x${count}`)
       .join(', ');
-    console.log(`probe fails ${top}`);
-  }
+  };
+
+  const fails = tally('fail');
+  if (fails !== '') console.log(`probe fails ${fails}`);
+  const errors = tally('error');
+  if (errors !== '') console.log(`probe errors ${errors} (could not observe, never a defect)`);
 }
 
 function printTotals(snapshot: Snapshot): void {

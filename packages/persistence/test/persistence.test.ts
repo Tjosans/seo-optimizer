@@ -60,6 +60,7 @@ const synthetic = (html: string, url = 'https://example.test/a'): CrawledPage =>
     redirectChain: [],
     body: html,
     byteLength: Buffer.byteLength(html),
+    truncated: false,
     contentType: 'text/html',
     ttfbMs: 1,
     totalMs: 2,
@@ -98,6 +99,7 @@ describe('mapping a crawled page to rows', () => {
         error: 'timeout after 15000ms',
         headers: {},
         byteLength: 0,
+        truncated: false,
       },
       extracted: null,
     };

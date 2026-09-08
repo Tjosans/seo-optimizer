@@ -123,6 +123,15 @@ export interface SitemapFetch {
   readonly status: number | null;
   /** `<url>` entries the document declared. */
   readonly urlCount: number;
+  /**
+   * Whether the document was cut at the body limit before it was parsed.
+   *
+   * A sitemap is one of the few responses large enough for this to happen —
+   * TED's video sitemap is 10 MB — and a cut one parses without complaint,
+   * ending in a severed entry that looks exactly like a site that forgot a
+   * field. Every detector reading these entries has to know.
+   */
+  readonly truncated: boolean;
   /** Of those, how many carried a `<video:video>` extension. */
   readonly videoCount: number;
 }
@@ -257,7 +266,13 @@ async function loadSitemaps(
       ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
     });
     if (result.status !== 200 || result.body === '') {
-      documents.push({ url: next, status: result.status, urlCount: 0, videoCount: 0 });
+      documents.push({
+        url: next,
+        status: result.status,
+        urlCount: 0,
+        videoCount: 0,
+        truncated: result.truncated,
+      });
       continue;
     }
 
@@ -275,6 +290,7 @@ async function loadSitemaps(
       status: result.status,
       urlCount: parsed.urls.length,
       videoCount: parsed.videos.length,
+      truncated: result.truncated,
     });
     for (const sitemap of parsed.sitemaps) queue.push(sitemap);
   }

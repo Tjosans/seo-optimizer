@@ -7,6 +7,7 @@
  * place in a report, and the matrix in `matrix.ts` refuses to lose track of one.
  */
 
+import type { AiCrawlerPolicy } from '@seo/core';
 import type { CrawlResult, CrawledPage } from '@seo/crawler';
 
 export type ProbeScope = 'site' | 'page';
@@ -29,6 +30,11 @@ export interface SiteContext {
   readonly crawl: CrawlResult;
   /** Site-profile flags, as held on the site record. */
   readonly flags: readonly string[];
+  /**
+   * The AI crawler policy the site's owners approved, or null when none is
+   * recorded. An input a person supplied, not something the crawl observed.
+   */
+  readonly aiPolicy?: AiCrawlerPolicy | null;
 }
 
 export interface PageContext {

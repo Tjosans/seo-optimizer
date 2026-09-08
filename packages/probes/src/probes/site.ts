@@ -4,13 +4,89 @@
  * the URL space is shaped.
  */
 
-import { isSameSite, normalizeUrl, pathDepth } from '@seo/crawler';
+import { isAllowed, isSameSite, normalizeUrl, pathDepth } from '@seo/crawler';
 import type { CrawledPage } from '@seo/crawler';
 import type { SiteProbe } from '../types.js';
 import { fail, notApplicable, pass, warn } from '../types.js';
 
 const htmlPages = (pages: readonly CrawledPage[]): CrawledPage[] =>
   pages.filter((page) => page.extracted !== null && page.fetch.status === 200);
+
+interface IconSize {
+  readonly width: number;
+  readonly height: number;
+}
+
+/**
+ * An icon's dimensions, read from the bytes the crawl kept.
+ *
+ * Three formats cover essentially every real favicon, and each states its size
+ * in a fixed place near the front, so no image library is needed. Anything else
+ * returns null and is reported as unmeasured rather than guessed at.
+ */
+function iconSize(fetched: { bytes?: Uint8Array; contentType: string | null }): IconSize | null {
+  const bytes = fetched.bytes;
+  if (bytes === undefined) return null;
+
+  // PNG: 8-byte signature, then an IHDR whose width and height are big-endian
+  // 32-bit integers at offsets 16 and 20.
+  if (bytes.length >= 24 && bytes[0] === 0x89 && bytes[1] === 0x50) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    return { width: view.getUint32(16), height: view.getUint32(20) };
+  }
+
+  // ICO: a 6-byte header, then directory entries whose first two bytes are
+  // width and height, with 0 meaning 256 — the one size too big for a byte.
+  if (bytes.length >= 8 && bytes[0] === 0x00 && bytes[1] === 0x00 && bytes[2] === 0x01) {
+    const width = bytes[6] ?? 0;
+    const height = bytes[7] ?? 0;
+    return { width: width === 0 ? 256 : width, height: height === 0 ? 256 : height };
+  }
+
+  // SVG: text, so read the viewBox it scales from, or its declared size.
+  if ((fetched.contentType ?? '').includes('svg')) {
+    const text = new TextDecoder().decode(bytes);
+    const viewBox = /viewBox\s*=\s*["']\s*[-\d.]+[ ,]+[-\d.]+[ ,]+([\d.]+)[ ,]+([\d.]+)/i.exec(text);
+    if (viewBox) return { width: Number(viewBox[1]), height: Number(viewBox[2]) };
+    const width = /\bwidth\s*=\s*["']([\d.]+)/i.exec(text);
+    const height = /\bheight\s*=\s*["']([\d.]+)/i.exec(text);
+    if (width && height) return { width: Number(width[1]), height: Number(height[1]) };
+  }
+  return null;
+}
+
+/** The name a page claims for its site, from og:site_name or schema.org. */
+function siteNameOf(page: CrawledPage): string | null {
+  const extracted = page.extracted;
+  if (extracted === null) return null;
+
+  const og = extracted.openGraph['og:site_name'];
+  if (og !== undefined && og !== '') return og;
+
+  for (const block of extracted.jsonLd) {
+    const nodes = Array.isArray(block) ? block : [block];
+    for (const node of nodes) {
+      if (typeof node !== 'object' || node === null) continue;
+      const record = node as Record<string, unknown>;
+      const graph = Array.isArray(record['@graph']) ? (record['@graph'] as unknown[]) : [];
+      for (const candidate of [record, ...graph]) {
+        if (typeof candidate !== 'object' || candidate === null) continue;
+        const entry = candidate as Record<string, unknown>;
+        const types = [entry['@type']].flat();
+        if (!types.some((type) => type === 'WebSite' || type === 'Organization')) continue;
+        const name = entry['name'];
+        if (typeof name === 'string' && name !== '') return name;
+      }
+    }
+  }
+  return null;
+}
+
+/** BCP 47 as hreflang uses it: language, optional script, optional region. */
+const LANG_TAG = /^[a-z]{2,3}(-[A-Za-z]{4})?(-([A-Za-z]{2}|\d{3}))?$/i;
+
+/** URL shapes a paginated series takes: ?page=2, /page/2, /p/2, ?p=2. */
+const PAGED_URL = /([?&](page|p)=\d+|\/(page|p)\/\d+)/i;
 
 export const robotsTxt: SiteProbe = {
   id: 'robots-txt',
@@ -202,6 +278,483 @@ export const internalLinking: SiteProbe = {
   },
 };
 
+/**
+ * Hreflang, read across the whole crawl rather than one page at a time.
+ *
+ * A single page's hreflang block is almost never wrong on its own terms — it
+ * lists locales and points at URLs, and nothing about it looks broken. The
+ * defect lives between pages: A names B, B does not name A, and the cluster
+ * silently stops working. Google discards a non-reciprocal annotation, so a
+ * one-sided cluster is not a partial win, it is nothing.
+ *
+ * What this can see is what the crawl fetched. A target on another host is out
+ * of scope for the crawl and cannot be checked for reciprocity here, so it is
+ * reported as unverified rather than counted as a defect — a multi-domain
+ * international setup is a normal shape, not a mistake.
+ */
+export const hreflangClusterQa: SiteProbe = {
+  id: 'hreflang-cluster-qa',
+  scope: 'site',
+  title: 'Hreflang clusters are complete, reciprocal and indexable',
+  run({ crawl, origin }) {
+    const pages = htmlPages(crawl.pages);
+    const annotated = pages.filter((page) => (page.extracted?.hreflang.length ?? 0) > 0);
+    if (annotated.length === 0) {
+      return notApplicable('No crawled page carries an hreflang annotation.');
+    }
+
+    const byUrl = new Map(pages.map((page) => [page.normalizedUrl, page]));
+    /** What each page claims, normalized: page -> the URLs it names. */
+    const claims = new Map<string, Set<string>>();
+    const selfMissing: string[] = [];
+    const badCodes: { page: string; hreflang: string }[] = [];
+    const offSite = new Set<string>();
+
+    for (const page of annotated) {
+      const named = new Set<string>();
+      let namesSelf = false;
+      for (const entry of page.extracted?.hreflang ?? []) {
+        if (!LANG_TAG.test(entry.hreflang) && entry.hreflang.toLowerCase() !== 'x-default') {
+          badCodes.push({ page: page.normalizedUrl, hreflang: entry.hreflang });
+        }
+        const target = normalizeUrl(entry.url);
+        if (target === null) continue;
+        if (target === page.normalizedUrl) namesSelf = true;
+        if (!isSameSite(target, origin)) {
+          offSite.add(target);
+          continue;
+        }
+        named.add(target);
+      }
+      claims.set(page.normalizedUrl, named);
+      // Every page in a cluster must name itself, or the set each page
+      // declares is a different set and none of them agree.
+      if (!namesSelf) selfMissing.push(page.normalizedUrl);
+    }
+
+    const oneWay: { from: string; to: string }[] = [];
+    const unreachable: { from: string; to: string }[] = [];
+    for (const [from, targets] of claims) {
+      for (const to of targets) {
+        if (to === from) continue;
+        const target = byUrl.get(to);
+        if (target === undefined) {
+          // Named but never fetched: blocked, out of budget, or simply gone.
+          unreachable.push({ from, to });
+          continue;
+        }
+        if (!(claims.get(to)?.has(from) ?? false)) oneWay.push({ from, to });
+      }
+    }
+
+    const noindex = annotated.filter((page) => /\bnoindex\b/i.test(page.extracted?.metaRobots ?? ''));
+
+    // Ordered worst first: a broken cluster beats a cosmetic complaint.
+    if (oneWay.length > 0) {
+      return fail(`${oneWay.length} hreflang annotation(s) are not reciprocated.`, {
+        samples: oneWay.slice(0, 10),
+      });
+    }
+    if (selfMissing.length > 0) {
+      return fail(`${selfMissing.length} page(s) omit their own self-referential hreflang.`, {
+        samples: selfMissing.slice(0, 10),
+      });
+    }
+    if (noindex.length > 0) {
+      return fail(`${noindex.length} page(s) in an hreflang cluster are noindex.`, {
+        samples: noindex.slice(0, 10).map((page) => page.normalizedUrl),
+      });
+    }
+    if (unreachable.length > 0) {
+      return fail(`${unreachable.length} hreflang target(s) were never reached by the crawl.`, {
+        samples: unreachable.slice(0, 10),
+      });
+    }
+    if (badCodes.length > 0) {
+      return fail(`${badCodes.length} hreflang value(s) are not a valid language tag.`, {
+        samples: badCodes.slice(0, 10),
+      });
+    }
+
+    const xDefault = annotated.some((page) =>
+      (page.extracted?.hreflang ?? []).some((entry) => entry.hreflang.toLowerCase() === 'x-default'),
+    );
+    const detail = {
+      annotatedPages: annotated.length,
+      ...(offSite.size > 0 ? { offSiteTargetsNotVerified: [...offSite].slice(0, 10) } : {}),
+    };
+    if (!xDefault) {
+      return warn(
+        `${annotated.length} page(s) form reciprocal clusters, but none declares x-default.`,
+        detail,
+      );
+    }
+    return pass(
+      `${annotated.length} annotated page(s) form complete, reciprocal clusters.`,
+      detail,
+    );
+  },
+};
+
+/**
+ * Can a crawler get past page one without running JavaScript?
+ *
+ * The failure this exists to catch is a listing whose "load more" is a button
+ * and nothing else: everything after the first screen is then invisible to a
+ * crawler, however many products are behind it. The corpus asks for page 2+ to
+ * be reachable "without interaction or JavaScript", so the question is whether
+ * a paginated URL appeared in the raw HTML — which is exactly what the crawl
+ * saw — and whether following it actually produced a page.
+ *
+ * A site with no pagination at all is not a defect. Silence here means the
+ * crawl found no paginated series, which is the normal shape of a small site.
+ */
+export const paginationCrawlPath: SiteProbe = {
+  id: 'pagination-crawl-path',
+  scope: 'site',
+  title: 'Paginated series are crawlable without JavaScript',
+  run({ crawl, origin }) {
+    const pages = htmlPages(crawl.pages);
+    if (pages.length === 0) return notApplicable('No HTML pages were crawled.');
+
+    const fetched = new Map(crawl.pages.map((page) => [page.normalizedUrl, page]));
+    const found: { from: string; to: string }[] = [];
+
+    for (const page of pages) {
+      for (const link of page.extracted?.links ?? []) {
+        if (!isSameSite(link.url, origin)) continue;
+        const isPagination =
+          (link.rel !== null && /\b(next|prev)\b/i.test(link.rel)) || PAGED_URL.test(link.url);
+        if (!isPagination) continue;
+        const target = normalizeUrl(link.url);
+        if (target === null || target === page.normalizedUrl) continue;
+        found.push({ from: page.normalizedUrl, to: target });
+      }
+    }
+
+    if (found.length === 0) {
+      return notApplicable('The crawl found no paginated series in the raw HTML.');
+    }
+
+    // A link in the markup is the claim; a fetched page is the proof.
+    const broken = found.filter(({ to }) => {
+      const page = fetched.get(to);
+      return page !== undefined && page.fetch.status !== null && page.fetch.status >= 400;
+    });
+    if (broken.length > 0) {
+      return fail(`${broken.length} paginated URL(s) answered 4xx or 5xx.`, {
+        samples: broken.slice(0, 10),
+      });
+    }
+
+    const reached = found.filter(({ to }) => fetched.has(to));
+    if (reached.length === 0) {
+      return warn(
+        `${found.length} paginated URL(s) were linked but none was reached within the crawl budget.`,
+        { samples: found.slice(0, 10) },
+      );
+    }
+
+    const noindex = reached.filter(({ to }) =>
+      /\bnoindex\b/i.test(fetched.get(to)?.extracted?.metaRobots ?? ''),
+    );
+    if (noindex.length > 0) {
+      return fail(`${noindex.length} paginated page(s) are noindex, hiding their items.`, {
+        samples: noindex.slice(0, 10),
+      });
+    }
+
+    return pass(
+      `${reached.length} paginated URL(s) were reachable from raw HTML and answered 200.`,
+      { samples: reached.slice(0, 10) },
+    );
+  },
+};
+
+/**
+ * Every way of spelling the site's address ends up in the same place, once.
+ *
+ * Four URLs exist before anyone reaches a page: http and https, apex and www.
+ * A site that serves content on more than one of them is two sites to a search
+ * engine, splitting its own signals; a site that reaches the right one through
+ * two redirects spends a round trip on every cold visit and, over http, spends
+ * the first one in cleartext. The corpus asks for one HTTPS URL in one hop, and
+ * that is only answerable by asking all four — which the crawl does, because a
+ * probe may not make requests of its own.
+ *
+ * Silent on a host that has no variants. An IP address or a `localhost` seed
+ * has no www spelling, and reporting the absence as a defect would fail every
+ * audit of a staging environment for being a staging environment.
+ */
+export const hostRedirect: SiteProbe = {
+  id: 'host-redirect',
+  scope: 'site',
+  title: 'Every host and protocol variant reaches one HTTPS URL in one hop',
+  run({ crawl }) {
+    const variants = crawl.auxiliary.filter((entry) => entry.reason === 'host-variant');
+    if (variants.length === 0) {
+      return notApplicable('The seed host has no scheme or www variants to test.');
+    }
+
+    const unreachable = variants.filter(
+      (entry) => entry.fetch.error !== null || entry.fetch.status === null,
+    );
+    if (unreachable.length === variants.length) {
+      return notApplicable('No host variant answered; the host may not resolve publicly.');
+    }
+    const answered = variants.filter((entry) => !unreachable.includes(entry));
+
+    const broken = answered.filter((entry) => (entry.fetch.status ?? 0) >= 400);
+    if (broken.length > 0) {
+      return fail(`${broken.length} host variant(s) answered 4xx or 5xx.`, {
+        samples: broken.map((entry) => ({ url: entry.url, status: entry.fetch.status })),
+      });
+    }
+
+    const insecure = answered.filter((entry) => !entry.fetch.finalUrl.startsWith('https://'));
+    if (insecure.length > 0) {
+      return fail(`${insecure.length} host variant(s) end on http rather than https.`, {
+        samples: insecure.map((entry) => ({ url: entry.url, landsOn: entry.fetch.finalUrl })),
+      });
+    }
+
+    const destinations = new Set(answered.map((entry) => normalizeUrl(entry.fetch.finalUrl)));
+    if (destinations.size > 1) {
+      return fail(`Host variants land on ${destinations.size} different URLs, not one.`, {
+        landings: answered.map((entry) => ({ url: entry.url, landsOn: entry.fetch.finalUrl })),
+      });
+    }
+
+    // One hop is the budget: the variant itself, then the canonical URL.
+    const long = answered.filter((entry) => entry.fetch.redirectChain.length > 1);
+    if (long.length > 0) {
+      return fail(`${long.length} host variant(s) take more than one hop to arrive.`, {
+        samples: long.map((entry) => ({
+          url: entry.url,
+          hops: entry.fetch.redirectChain.map((hop) => hop.status),
+        })),
+      });
+    }
+
+    const detail = {
+      tested: answered.length,
+      landsOn: [...destinations][0],
+      ...(unreachable.length > 0
+        ? { notResolved: unreachable.map((entry) => entry.url) }
+        : {}),
+    };
+    return unreachable.length > 0
+      ? warn(
+          `${answered.length} host variant(s) reach one HTTPS URL in one hop; ` +
+            `${unreachable.length} did not resolve.`,
+          detail,
+        )
+      : pass(`All ${answered.length} host variants reach one HTTPS URL in one hop.`, detail);
+  },
+};
+
+/**
+ * The site says who it is, and the icon it says it with actually exists.
+ *
+ * These travel together because they are one thing to a searcher: the row in a
+ * result page carries a name and a small square image, and a site that leaves
+ * either to be guessed gets whatever the search engine infers. The icon has to
+ * be square because it will be displayed square — a wide one is cropped, which
+ * is how a logo becomes an unreadable smear at 16px.
+ *
+ * What "consistent with the approved brand baseline" means is a person's call,
+ * and the triage table read that wording as naming an input rather than an
+ * artifact. So what is settled here is the observable half: a name is declared,
+ * every page that declares one agrees, and the icon resolves to a square image.
+ */
+export const faviconSiteName: SiteProbe = {
+  id: 'favicon-site-name',
+  scope: 'site',
+  title: 'The site declares a stable name and a square, crawlable icon',
+  run({ crawl }) {
+    const pages = htmlPages(crawl.pages);
+    if (pages.length === 0) return notApplicable('No HTML pages were crawled.');
+
+    const root = [...pages].sort((a, b) => a.depth - b.depth)[0];
+    const declared = root?.extracted?.icons ?? [];
+    if (declared.length === 0) {
+      return fail('The root document declares no favicon or touch icon.');
+    }
+
+    const names = new Set<string>();
+    for (const page of pages) {
+      const name = siteNameOf(page);
+      if (name !== null) names.add(name);
+    }
+    if (names.size === 0) {
+      return fail('No page declares a site name via og:site_name or WebSite/Organization schema.');
+    }
+    if (names.size > 1) {
+      return fail(`Pages disagree about the site name: ${[...names].join(' / ')}.`, {
+        names: [...names],
+      });
+    }
+
+    const fetched = crawl.auxiliary.filter((entry) => entry.reason === 'icon');
+    if (fetched.length === 0) {
+      return warn(`Site name "${[...names][0]}" is declared, but no icon was fetched.`, {
+        declared: declared.map((icon) => icon.url),
+      });
+    }
+
+    const missing = fetched.filter(
+      (entry) => entry.fetch.error !== null || (entry.fetch.status ?? 0) !== 200,
+    );
+    if (missing.length > 0) {
+      return fail(`${missing.length} declared icon(s) do not resolve.`, {
+        samples: missing.map((entry) => ({
+          url: entry.url,
+          status: entry.fetch.status,
+          error: entry.fetch.error,
+        })),
+      });
+    }
+
+    const notImages = fetched.filter(
+      (entry) => !(entry.fetch.contentType ?? '').toLowerCase().startsWith('image/'),
+    );
+    if (notImages.length > 0) {
+      return fail(`${notImages.length} declared icon(s) are not served as an image.`, {
+        samples: notImages.map((entry) => ({
+          url: entry.url,
+          contentType: entry.fetch.contentType,
+        })),
+      });
+    }
+
+    const measured = fetched
+      .map((entry) => ({ url: entry.url, size: iconSize(entry.fetch) }))
+      .filter((item): item is { url: string; size: IconSize } => item.size !== null);
+    const oblong = measured.filter((item) => item.size.width !== item.size.height);
+    if (oblong.length > 0) {
+      return fail(`${oblong.length} icon(s) are not square and will be cropped.`, {
+        samples: oblong,
+      });
+    }
+
+    const name = [...names][0];
+    if (measured.length === 0) {
+      return warn(
+        `Site name "${name}" and ${fetched.length} icon(s) resolve, but no icon's ` +
+          'dimensions could be read.',
+        { formats: fetched.map((entry) => entry.fetch.contentType) },
+      );
+    }
+    return pass(
+      `Site name "${name}" is consistent across ${pages.length} page(s), and ` +
+        `${measured.length} icon(s) resolve as square images.`,
+      { name, icons: measured },
+    );
+  },
+};
+
+/**
+ * Does what the site does to AI crawlers match what its owners decided?
+ *
+ * The corpus asks for robots.txt, CDN behaviour and a dated user-agent test to
+ * agree with the policy, and the policy is the part no crawl can supply — a
+ * site that wants to be in AI answers and one that wants to be out of them look
+ * identical from outside. So this is silent until somebody has written the
+ * decision down on the site record, and that is the honest answer rather than a
+ * gap: an unrecorded policy is not a policy the site is failing to keep.
+ *
+ * With a policy, three things are compared:
+ *
+ *   robots.txt against the stance, in both directions. A crawler the policy
+ *   welcomes but robots.txt turns away is as much a defect as the reverse, and
+ *   it is the direction people miss — a blanket disallow written years ago
+ *   quietly excludes the crawler someone has since decided to court.
+ *
+ *   The edge against the stance, for crawlers the policy allows. robots.txt is
+ *   a request; a CDN rule is a wall. A 403 to a welcomed crawler means the
+ *   policy is being enforced by infrastructure nobody told about it.
+ *
+ *   Not the reverse. A disallowed crawler that still gets a 200 is the normal
+ *   shape of robots-only enforcement, not a finding: robots.txt asks, and
+ *   well-behaved crawlers comply without needing to be blocked.
+ */
+export const aiCrawlerDirectiveVerify: SiteProbe = {
+  id: 'ai-crawler-directive-verify',
+  scope: 'site',
+  title: 'robots.txt and the edge agree with the approved AI crawler policy',
+  run({ crawl, aiPolicy, origin }) {
+    if (aiPolicy === null || aiPolicy === undefined) {
+      return notApplicable('No AI crawler policy is recorded on the site record.');
+    }
+    const agents = Object.entries(aiPolicy.agents);
+    if (agents.length === 0) {
+      return notApplicable('The recorded AI crawler policy names no crawlers.');
+    }
+    if (crawl.robots.absent || crawl.robotsTxt === null) {
+      return fail('The policy names AI crawlers, but the site serves no robots.txt.', {
+        agents: agents.map(([agent]) => agent),
+      });
+    }
+
+    const root = new URL('/', origin).toString();
+    const disagrees: { agent: string; policy: string; robotsTxt: string }[] = [];
+    for (const [agent, stance] of agents) {
+      const allowed = isAllowed(crawl.robots, agent, root);
+      if (allowed !== (stance === 'allow')) {
+        disagrees.push({
+          agent,
+          policy: stance,
+          robotsTxt: allowed ? 'allow' : 'disallow',
+        });
+      }
+    }
+    if (disagrees.length > 0) {
+      return fail(`robots.txt contradicts the policy for ${disagrees.length} crawler(s).`, {
+        approvedAt: aiPolicy.approvedAt,
+        disagreements: disagrees,
+      });
+    }
+
+    const tests = crawl.auxiliary.filter((entry) => entry.reason === 'user-agent-test');
+    const blocked = tests.filter((entry) => {
+      const stance = entry.userAgent === undefined ? undefined : aiPolicy.agents[entry.userAgent];
+      if (stance !== 'allow') return false;
+      const status = entry.fetch.status;
+      return status === 401 || status === 403 || status === 429;
+    });
+    if (blocked.length > 0) {
+      return fail(
+        `${blocked.length} crawler(s) the policy allows are turned away at the edge.`,
+        {
+          approvedAt: aiPolicy.approvedAt,
+          samples: blocked.map((entry) => ({
+            agent: entry.userAgent,
+            status: entry.fetch.status,
+          })),
+        },
+      );
+    }
+
+    const detail = {
+      approvedAt: aiPolicy.approvedAt,
+      approvedBy: aiPolicy.approvedBy,
+      agents: agents.length,
+      userAgentTests: tests.length,
+    };
+    if (tests.length === 0) {
+      return warn(
+        `robots.txt matches the policy for all ${agents.length} crawler(s), but no ` +
+          'user-agent test was run, so edge behaviour is unverified.',
+        detail,
+      );
+    }
+    return pass(
+      `robots.txt and the edge agree with the policy for all ${agents.length} crawler(s).`,
+      detail,
+    );
+  },
+};
+
 export const urlConvention: SiteProbe = {
   id: 'url-convention',
   scope: 'site',
@@ -309,4 +862,9 @@ export const siteProbes = [
   urlConvention,
   hostSlashPolicy,
   thirdPartyBudget,
+  hreflangClusterQa,
+  paginationCrawlPath,
+  hostRedirect,
+  faviconSiteName,
+  aiCrawlerDirectiveVerify,
 ];

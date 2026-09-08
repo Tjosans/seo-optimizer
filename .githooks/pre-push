@@ -2,11 +2,12 @@
 #
 # Runs the same checks CI runs, before a push to master is allowed.
 #
-# This is a stand-in for branch protection, not a replacement for it: GitHub
-# Free does not offer protected branches or rulesets on private repositories,
-# so the merge gate cannot live on the server. Being client-side, this hook is
+# A convenience, not the gate. `master` is protected server-side by the
+# repository ruleset "Require CI on master", which requires a pull request with
+# passing `test` and `roadmap` checks; this hook only moves the same failure
+# from minutes later in CI to seconds from now. Being client-side it is
 # bypassable with `git push --no-verify` and applies only to clones that have
-# opted in (see "Enabling the pre-push hook" in the README).
+# opted in (see "How `master` is protected" in the README).
 #
 # Only pushes to master are gated, so feature-branch pushes stay fast — the
 # PR's own CI run covers those.

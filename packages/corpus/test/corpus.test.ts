@@ -1,36 +1,37 @@
-import { describe, expect, it } from 'vitest';
+/**
+ * What must be true of any corpus version, now and in ten years.
+ *
+ * Every version directory under `corpus/` is discovered and run through the
+ * same suite, so a new one is covered the moment it lands rather than when
+ * someone remembers to add it here. Nothing in this file names a version or a
+ * count: those belong to `provenance.test.ts`, which is frozen against the
+ * workbook v4.4 came from.
+ *
+ * The split is the point. Checks change because search changes, and a suite
+ * that made "add a check" mean "edit six numbers recording a 2026 spreadsheet"
+ * would be taxing the thing the product exists to do.
+ */
+
+import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { computeLaunchReadiness, computeProgress } from '@seo/core';
-import type { CheckState } from '@seo/core';
+import { describe, expect, it } from 'vitest';
+import { computeLaunchReadiness } from '@seo/core';
+import type { CheckState, Corpus } from '@seo/core';
 import { loadCorpus } from '@seo/corpus';
 
-const CORPUS_DIR = fileURLToPath(new URL('../../../corpus/v4.4', import.meta.url));
-const corpus = loadCorpus(CORPUS_DIR);
+const CORPUS_ROOT = fileURLToPath(new URL('../../../corpus', import.meta.url));
 
-/**
- * Counts taken from the source workbook's own Progress sheet. They are the
- * ground truth for whether our compilation preserved the author's methodology:
- * if the engine cannot reproduce the spreadsheet it was derived from, the
- * compilation is wrong somewhere.
- */
-const WORKBOOK = {
-  checks: 97,
-  sources: 34,
-  active: 58,
-  scopeReview: 39,
-  launchGates: 55,
-  gatesOutstanding: 34,
-  applicabilityDecisionsOutstanding: 21,
-  decision: 'HOLD' as const,
-  activeByPhase: [6, 12, 5, 10, 7, 5, 5, 8],
-  checksByPhase: [9, 19, 17, 13, 12, 8, 9, 10],
-  priority: { P0: 55, P1: 35, P2: 7 },
-  profile: { core: 68, extended: 29 },
-};
+/** Every compiled version on disk, by directory name. */
+const versions = readdirSync(CORPUS_ROOT, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory() && /^v\d+\.\d+$/.test(entry.name))
+  .map((entry) => entry.name)
+  .sort();
 
-/** The corpus default: universal checks are in scope, conditional ones await a decision. */
-function defaultStates(): Map<string, CheckState> {
-  return new Map(
+// A repository with no compiled corpus is a broken checkout, not an empty case.
+if (versions.length === 0) throw new Error(`no corpus versions found under ${CORPUS_ROOT}`);
+
+const defaultStates = (corpus: Corpus): Map<string, CheckState> =>
+  new Map(
     corpus.checks.map((c) => [
       c.id,
       {
@@ -41,184 +42,146 @@ function defaultStates(): Map<string, CheckState> {
       } satisfies CheckState,
     ]),
   );
-}
 
-describe('corpus integrity', () => {
-  it('loads every check with a unique id', () => {
-    expect(corpus.checks).toHaveLength(WORKBOOK.checks);
-    expect(new Set(corpus.checks.map((c) => c.id)).size).toBe(WORKBOOK.checks);
-    expect(corpus.version).toBe('4.4');
-  });
+const allStates = (corpus: Corpus, of: (gate: boolean) => CheckState['status']) =>
+  new Map(
+    corpus.checks.map((c) => [
+      c.id,
+      {
+        checkId: c.id,
+        applicability: 'yes',
+        status: of(c.launchGate),
+        coverage: 'verified',
+      } satisfies CheckState,
+    ]),
+  );
 
-  it('preserves the phase distribution of the source workbook', () => {
-    for (let phase = 0; phase < 8; phase += 1) {
-      const count = corpus.checks.filter((c) => c.phase === phase).length;
-      expect(count, `phase ${phase}`).toBe(WORKBOOK.checksByPhase[phase]);
-    }
-  });
+describe.each(versions)('corpus %s', (dir) => {
+  const corpus = loadCorpus(`${CORPUS_ROOT}/${dir}`);
 
-  it('preserves priority and profile distributions', () => {
-    for (const [priority, expected] of Object.entries(WORKBOOK.priority)) {
-      const count = corpus.checks.filter((c) => c.priority === priority).length;
-      expect(count, priority).toBe(expected);
-    }
-    for (const [profile, expected] of Object.entries(WORKBOOK.profile)) {
-      const count = corpus.checks.filter((c) => c.profile === profile).length;
-      expect(count, profile).toBe(expected);
-    }
-  });
+  describe('integrity', () => {
+    it('declares the version its directory is named for', () => {
+      expect(`v${corpus.version}`).toBe(dir);
+    });
 
-  it('binds detectors to exactly the checks that can be mechanically verified', () => {
-    for (const check of corpus.checks) {
-      if (check.automation === 'attested') {
-        expect(check.detectors, check.id).toHaveLength(0);
-      } else {
-        expect(check.detectors.length, check.id).toBeGreaterThan(0);
+    it('gives every check a unique id', () => {
+      expect(new Set(corpus.checks.map((c) => c.id)).size).toBe(corpus.checks.length);
+    });
+
+    it('places every check in a lifecycle phase', () => {
+      for (const check of corpus.checks) {
+        expect(check.phase, check.id).toBeGreaterThanOrEqual(0);
+        expect(check.phase, check.id).toBeLessThanOrEqual(7);
+        expect(check.phaseLabel.length, check.id).toBeGreaterThan(0);
       }
-    }
-  });
+    });
 
-  it('gives every conditional check a way to come into scope', () => {
-    for (const check of corpus.checks) {
-      if (!check.applicability.universal) {
+    it('binds detectors to exactly the checks that can be mechanically verified', () => {
+      for (const check of corpus.checks) {
+        if (check.automation === 'attested') {
+          expect(check.detectors, check.id).toHaveLength(0);
+        } else {
+          expect(check.detectors.length, check.id).toBeGreaterThan(0);
+        }
+      }
+    });
+
+    it('gives every conditional check a way to come into scope', () => {
+      for (const check of corpus.checks) {
+        if (check.applicability.universal) continue;
         expect(check.applicability.any.length, check.id).toBeGreaterThan(0);
         expect(check.applicability.any, check.id).not.toContain('UNMAPPED');
       }
-    }
-  });
-
-  it('carries the full acceptance criteria that detectors are specified against', () => {
-    for (const check of corpus.checks) {
-      expect(check.doneWhen.length, check.id).toBeGreaterThan(20);
-      expect(check.whatToDo.length, check.id).toBeGreaterThan(20);
-    }
-  });
-});
-
-describe('launch readiness reproduces the source workbook', () => {
-  const states = defaultStates();
-
-  it('matches the workbook launch-readiness block exactly', () => {
-    const readiness = computeLaunchReadiness(corpus.checks, states);
-    expect(readiness.gatesOutstanding).toBe(WORKBOOK.gatesOutstanding);
-    expect(readiness.gatesFailed).toBe(0);
-    expect(readiness.applicabilityDecisionsOutstanding).toBe(
-      WORKBOOK.applicabilityDecisionsOutstanding,
-    );
-    expect(readiness.decision).toBe(WORKBOOK.decision);
-    expect(readiness.violations).toHaveLength(0);
-  });
-
-  it('accounts for every launch gate as either outstanding or undecided', () => {
-    const gates = corpus.checks.filter((c) => c.launchGate);
-    expect(gates).toHaveLength(WORKBOOK.launchGates);
-    expect(
-      WORKBOOK.gatesOutstanding + WORKBOOK.applicabilityDecisionsOutstanding,
-    ).toBe(WORKBOOK.launchGates);
-  });
-
-  it('matches the workbook per-phase progress rows', () => {
-    const progress = computeProgress(corpus.checks, states);
-    expect(progress.reduce((n, p) => n + p.active, 0)).toBe(WORKBOOK.active);
-    expect(progress.reduce((n, p) => n + p.scopeReview, 0)).toBe(WORKBOOK.scopeReview);
-    for (const row of progress) {
-      expect(row.active, `phase ${row.phase} active`).toBe(
-        WORKBOOK.activeByPhase[row.phase],
-      );
-    }
-  });
-});
-
-describe('launch gate semantics', () => {
-  it('holds launch while any gate applicability is undecided', () => {
-    const states = defaultStates();
-    // Pass every gate that is already in scope; the undecided ones must still HOLD.
-    for (const check of corpus.checks) {
-      const state = states.get(check.id)!;
-      if (state.applicability === 'yes') {
-        states.set(check.id, { ...state, status: 'passed', coverage: 'verified' });
-      }
-    }
-    const readiness = computeLaunchReadiness(corpus.checks, states);
-    expect(readiness.gatesOutstanding).toBe(0);
-    expect(readiness.applicabilityDecisionsOutstanding).toBe(21);
-    expect(readiness.decision).toBe('HOLD');
-  });
-
-  it('reaches GO only once gates pass and every scope decision is resolved', () => {
-    const states = new Map(
-      corpus.checks.map((c) => [
-        c.id,
-        {
-          checkId: c.id,
-          applicability: 'yes',
-          status: 'passed',
-          coverage: 'verified',
-        } satisfies CheckState,
-      ]),
-    );
-    expect(computeLaunchReadiness(corpus.checks, states).decision).toBe('GO');
-  });
-
-  it('refuses to let "skipped" clear an applicable launch gate', () => {
-    const states = new Map(
-      corpus.checks.map((c) => [
-        c.id,
-        {
-          checkId: c.id,
-          applicability: 'yes',
-          status: c.launchGate ? 'skipped' : 'passed',
-          coverage: 'verified',
-        } satisfies CheckState,
-      ]),
-    );
-    const readiness = computeLaunchReadiness(corpus.checks, states);
-    expect(readiness.decision).toBe('HOLD');
-    expect(readiness.gatesOutstanding).toBe(WORKBOOK.launchGates);
-    expect(readiness.violations).toHaveLength(WORKBOOK.launchGates);
-    expect(readiness.violations[0]?.kind).toBe('skipped-applicable-gate');
-  });
-
-  it('requires a rationale when a check is taken out of scope', () => {
-    const states = defaultStates();
-    states.set('1.14', {
-      checkId: '1.14',
-      applicability: 'no',
-      status: 'not-started',
-      coverage: 'not-applicable',
     });
-    const readiness = computeLaunchReadiness(corpus.checks, states);
-    expect(
-      readiness.violations.some(
-        (v) => v.checkId === '1.14' && v.kind === 'excluded-without-rationale',
-      ),
-    ).toBe(true);
-  });
 
-  it('treats profile as advisory and never as a launch filter', () => {
-    // Extended-profile launch gates exist; filtering to core would hide them.
-    const extendedGates = corpus.checks.filter(
-      (c) => c.launchGate && c.profile === 'extended',
-    );
-    expect(extendedGates.length).toBeGreaterThan(0);
-  });
-});
-
-describe('citations', () => {
-  it('resolves sources for every check whose notes reference them', () => {
-    const citing = corpus.checks.filter((c) => /See Sources:/i.test(c.notes));
-    expect(citing.length).toBe(22);
-    for (const check of citing) {
-      expect(check.sources.length, `${check.id} notes cite sources`).toBeGreaterThan(0);
-    }
-  });
-
-  it('dates every citation so staleness is trackable', () => {
-    for (const check of corpus.checks) {
-      for (const source of check.sources) {
-        expect(source.url, check.id).toMatch(/^https:\/\//);
-        expect(source.verified, check.id).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    it('carries the acceptance criteria detectors are specified against', () => {
+      for (const check of corpus.checks) {
+        expect(check.doneWhen.length, check.id).toBeGreaterThan(20);
+        expect(check.whatToDo.length, check.id).toBeGreaterThan(20);
       }
-    }
+    });
+
+    it('dates every citation so staleness is trackable', () => {
+      for (const check of corpus.checks) {
+        for (const source of check.sources) {
+          expect(source.url, check.id).toMatch(/^https:\/\//);
+          expect(source.verified, check.id).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        }
+      }
+    });
+
+    it('resolves sources for every check whose notes cite them', () => {
+      for (const check of corpus.checks.filter((c) => /See Sources:/i.test(c.notes))) {
+        expect(check.sources.length, `${check.id} notes cite sources`).toBeGreaterThan(0);
+      }
+    });
+  });
+
+  describe('launch gate semantics', () => {
+    it('holds launch while any gate’s applicability is undecided', () => {
+      const states = defaultStates(corpus);
+      // Pass every gate already in scope; the undecided ones must still HOLD.
+      for (const check of corpus.checks) {
+        const state = states.get(check.id)!;
+        if (state.applicability === 'yes') {
+          states.set(check.id, { ...state, status: 'passed', coverage: 'verified' });
+        }
+      }
+
+      const undecidedGates = corpus.checks.filter(
+        (c) => c.launchGate && !c.applicability.universal,
+      ).length;
+      expect(undecidedGates, 'a corpus with no conditional gate cannot test this').toBeGreaterThan(0);
+
+      const readiness = computeLaunchReadiness(corpus.checks, states);
+      expect(readiness.gatesOutstanding).toBe(0);
+      expect(readiness.applicabilityDecisionsOutstanding).toBe(undecidedGates);
+      expect(readiness.decision).toBe('HOLD');
+    });
+
+    it('reaches GO only once gates pass and every scope decision is resolved', () => {
+      const readiness = computeLaunchReadiness(corpus.checks, allStates(corpus, () => 'passed'));
+      expect(readiness.decision).toBe('GO');
+    });
+
+    it('refuses to let "skipped" clear an applicable launch gate', () => {
+      const gates = corpus.checks.filter((c) => c.launchGate).length;
+      expect(gates).toBeGreaterThan(0);
+
+      const readiness = computeLaunchReadiness(
+        corpus.checks,
+        allStates(corpus, (gate) => (gate ? 'skipped' : 'passed')),
+      );
+      expect(readiness.decision).toBe('HOLD');
+      expect(readiness.gatesOutstanding).toBe(gates);
+      expect(readiness.violations).toHaveLength(gates);
+      expect(readiness.violations[0]?.kind).toBe('skipped-applicable-gate');
+    });
+
+    it('requires a rationale when a check is taken out of scope', () => {
+      const excluded = corpus.checks[0]!;
+      const states = defaultStates(corpus);
+      states.set(excluded.id, {
+        checkId: excluded.id,
+        applicability: 'no',
+        status: 'not-started',
+        coverage: 'not-applicable',
+      });
+
+      const readiness = computeLaunchReadiness(corpus.checks, states);
+      expect(
+        readiness.violations.some(
+          (v) => v.checkId === excluded.id && v.kind === 'excluded-without-rationale',
+        ),
+      ).toBe(true);
+    });
+
+    it('treats profile as advisory and never as a launch filter', () => {
+      // Extended-profile launch gates exist; filtering to core would hide them.
+      const extendedGates = corpus.checks.filter(
+        (c) => c.launchGate && c.profile === 'extended',
+      );
+      expect(extendedGates.length).toBeGreaterThan(0);
+    });
   });
 });

@@ -1,0 +1,6 @@
+version: "9.0"
+reviewed: "2026-01-01"
+checkCount: 2
+sourceCount: 0
+files:
+  - phase-1.yaml

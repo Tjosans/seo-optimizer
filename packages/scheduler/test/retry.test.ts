@@ -14,6 +14,7 @@ import {
   isPermanentAuditFailure,
   PermanentAuditError,
   UnknownSiteError,
+  UnknownSiteFlagsError,
 } from '@seo/scheduler';
 import type { AuditJob } from '@seo/scheduler';
 
@@ -23,6 +24,9 @@ describe('isPermanentAuditFailure', () => {
       new JobCancelledError('audit-1'),
       new PermanentAuditError('no corpus 4.4 on disk'),
       new UnknownSiteError('site-1'),
+      // A profile the pinned corpus cannot read will read the same way on the
+      // fourth attempt as on the first.
+      new UnknownSiteFlagsError('site-1', ['ecommmerce'], '4.4'),
       new CorpusVersionMismatchError('4.4', '4.5'),
       new TypeError("cannot read properties of undefined (reading 'pages')"),
       new RangeError('maximum call stack size exceeded'),

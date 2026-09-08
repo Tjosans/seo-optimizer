@@ -19,10 +19,13 @@ import { eq } from 'drizzle-orm';
 import { audits } from '@seo/db';
 import type { Database } from '@seo/db';
 import { CorpusVersionMismatchError, gradeAudit, recordGrade, toEvidence } from '@seo/grader';
+import { unknownFlags } from '@seo/corpus';
+import { CrawlCancelledError } from '@seo/crawler';
 import { crawlToDatabase, persistProbeRuns } from '@seo/persistence';
 import { runProbes } from '@seo/probes';
 import type { SiteContext } from '@seo/probes';
 import { JobCancelledError } from '@seo/queue';
+import { UnknownSiteFlagsError } from './types.js';
 import type { AuditJob, AuditOutcome, CorpusSource } from './types.js';
 
 /**
@@ -39,10 +42,10 @@ import type { AuditJob, AuditOutcome, CorpusSource } from './types.js';
  * writes a second crawl under the same audit id — the failed one stays, with
  * whatever it managed to persist before it died.
  *
- * `signal` is checked between steps rather than inside them. The crawl loop has
- * no cancellation of its own yet (ROADMAP Phase 4), so the finest granularity
- * available is "not after this step" — honest about stopping the audit, honest
- * that the crawl it started still runs to its budget.
+ * `signal` is checked between steps and handed to the crawl itself, which takes
+ * it between requests. A cancelled audit therefore stops within one request
+ * rather than at the end of the crawl it started, and the pages it had already
+ * streamed to the database stay — those are evidence, not debris.
  */
 export async function runAudit(
   db: Database,
@@ -72,11 +75,31 @@ export async function runAudit(
     if (corpus.version !== job.corpusVersion) {
       throw new CorpusVersionMismatchError(job.corpusVersion, corpus.version);
     }
+
+    // Checked here, in the same breath as the corpus version and for the same
+    // reason: a profile this corpus cannot read produces a report that quietly
+    // excuses checks rather than one that is obviously wrong, and finding that
+    // out after twenty minutes of someone else's bandwidth helps nobody.
+    const unknown = unknownFlags(corpus, job.flags);
+    if (unknown.length > 0) {
+      throw new UnknownSiteFlagsError(job.siteId, unknown, corpus.version);
+    }
     stopIfCancelled();
 
     const crawled = await crawlToDatabase(db, {
       auditId: job.auditId,
-      options: job.options,
+      // The crawl's own stopping point. Without this the signal would only be
+      // read between steps, and a cancelled audit would keep fetching until the
+      // page budget ran out.
+      options: {
+        ...job.options,
+        // The crawlers the site has an opinion on are the crawlers worth
+        // arriving as. No policy, no extra requests to anybody's origin.
+        ...(job.aiPolicy === null
+          ? {}
+          : { userAgentTests: Object.keys(job.aiPolicy.agents) }),
+        ...(signal === undefined ? {} : { signal }),
+      },
     });
     stopIfCancelled();
 
@@ -84,6 +107,7 @@ export async function runAudit(
       origin: job.origin,
       crawl: crawled.result,
       flags: job.flags,
+      aiPolicy: job.aiPolicy,
     };
     const runs = runProbes(context);
 
@@ -119,7 +143,14 @@ export async function runAudit(
       checksGraded: recorded.written,
       readiness: recorded.frozen,
     };
-  } catch (cause) {
+  } catch (raw) {
+    // The crawler reports its own stop in its own vocabulary. Restating it as a
+    // cancelled job is what keeps one identity for the thing that happened, so
+    // the queue settles the job as cancelled and the retry policy — which reads
+    // cancellation as permanent — does not schedule another attempt.
+    const cause =
+      raw instanceof CrawlCancelledError ? new JobCancelledError(job.auditId) : raw;
+
     // The crawl's own rows are already closed out by the sink. What is recorded
     // here is the audit's verdict on itself, and a cancelled audit is not a
     // failed one: one is something a person did, the other is something to

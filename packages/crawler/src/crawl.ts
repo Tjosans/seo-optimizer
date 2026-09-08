@@ -39,10 +39,74 @@ export interface CrawlOptions {
   readonly respectRobots?: boolean;
   readonly followSitemaps?: boolean;
   readonly timeoutMs?: number;
+  /**
+   * Stops the crawl where it stands, throwing `CrawlCancelledError`.
+   *
+   * Cooperative and checked between requests, not inside one: the request in
+   * flight when the signal arrives is allowed to finish, because abandoning it
+   * saves the site nothing — the bytes are already on their way — and because a
+   * half-read response is not something the extractor should be handed. So the
+   * guarantee is "no further requests", which is the one that matters to the
+   * site being crawled.
+   */
+  readonly signal?: AbortSignal;
+  /**
+   * Test the seed's other scheme and host spellings, and fetch the root
+   * document's declared icons. Defaults to true.
+   *
+   * Host variants are skipped for a seed whose host cannot have them — an IP
+   * address, `localhost`, any single-label name — because `www.127.0.0.1` is
+   * not a spelling of anything and the only thing testing it produces is a DNS
+   * error in the report.
+   */
+  readonly auxiliary?: boolean;
+  /**
+   * Other crawlers to fetch the seed as, once each.
+   *
+   * robots.txt is a request, not a fence. What a site *does* to a named crawler
+   * — serve it, or have a CDN turn it away at the edge — is only observable by
+   * arriving under that name, which is what corpus check 2.9 means by a
+   * user-agent test. The list comes from the site's own AI crawler policy, so
+   * this asks about crawlers the site has an opinion on and no others.
+   *
+   * Sent honestly: the request really does carry that user-agent, and the site
+   * really does get to decide what to do about it.
+   */
+  readonly userAgentTests?: readonly string[];
   /** Injection seam for tests and for replaying a stored crawl. */
   readonly fetchImpl?: typeof fetchPage;
   /** Called as each page completes, so a long crawl can stream to storage. */
   readonly onPage?: (page: CrawledPage) => void | Promise<void>;
+}
+
+/**
+ * A request made outside the breadth-first walk.
+ *
+ * Some questions cannot be answered by pages a crawl happens to reach. "Does
+ * http://example.com end up at one canonical HTTPS URL in one hop" is about
+ * URLs that are deliberately *not* in the crawl — the whole point is what
+ * happens before you arrive. "Is the favicon actually there" is about a file no
+ * page links to as a page.
+ *
+ * Those requests are made here rather than by the probes that need them,
+ * because politeness is owed to a host and the crawl loop is the only thing
+ * that knows what has been promised: the same delay applies between these and
+ * every other request, and they stop for the same cancellation signal. A probe
+ * that could fetch on its own would be a second, unmetered visitor to a site
+ * that agreed to one.
+ */
+export interface AuxiliaryFetch {
+  /**
+   * `host-variant` — a scheme/host spelling of the seed, tested once.
+   * `icon` — an icon the root document declared.
+   * `user-agent-test` — the seed fetched as somebody else, to see whether the
+   *   site treats that crawler differently from this one.
+   */
+  readonly reason: 'host-variant' | 'icon' | 'user-agent-test';
+  readonly url: string;
+  /** The `user-agent` sent, when it was not the crawl's own. */
+  readonly userAgent?: string;
+  readonly fetch: FetchResult;
 }
 
 export interface CrawlResult {
@@ -56,6 +120,8 @@ export interface CrawlResult {
   readonly blockedByRobots: readonly string[];
   /** In-scope URLs discovered but not fetched, because a budget ran out. */
   readonly notReached: readonly string[];
+  /** Requests made outside the walk, for questions the walk cannot answer. */
+  readonly auxiliary: readonly AuxiliaryFetch[];
 }
 
 interface QueueEntry {
@@ -67,8 +133,51 @@ interface QueueEntry {
 
 const HTML = /^(text\/html|application\/xhtml\+xml)/i;
 
-const sleep = (ms: number): Promise<void> =>
-  ms <= 0 ? Promise.resolve() : new Promise((resolve) => setTimeout(resolve, ms));
+/**
+ * Thrown when a crawl is stopped by its caller's signal.
+ *
+ * A crawl that was cancelled is not a crawl that failed, and the two must stay
+ * distinguishable all the way to the report: one is something a person did, the
+ * other is something to look into. Whatever the crawl had already streamed
+ * through `onPage` stays written — the pages fetched before the stop are
+ * evidence, not debris.
+ */
+export class CrawlCancelledError extends Error {
+  constructor() {
+    super('the crawl was cancelled');
+    this.name = 'CrawlCancelledError';
+  }
+}
+
+const stopIfCancelled = (signal: AbortSignal | undefined): void => {
+  if (signal?.aborted === true) throw new CrawlCancelledError();
+};
+
+/**
+ * The politeness delay, interruptible.
+ *
+ * A plain `setTimeout` would make the delay the floor on how long cancelling
+ * takes, and the delay is the one part of a crawl deliberately measured in
+ * seconds. Waiting it out before noticing would also be the wrong shape of
+ * politeness: nobody is owed the pause before a request that is not going to
+ * be made.
+ */
+const sleep = (ms: number, signal?: AbortSignal): Promise<void> => {
+  stopIfCancelled(signal);
+  if (ms <= 0) return Promise.resolve();
+
+  return new Promise((resolve, reject) => {
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(new CrawlCancelledError());
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+};
 
 async function loadRobots(
   origin: string,
@@ -103,6 +212,7 @@ async function loadSitemaps(
   const urls = new Set<string>();
 
   while (queue.length > 0 && seen.size < 50) {
+    stopIfCancelled(options.signal);
     const next = queue.shift();
     if (next === undefined || seen.has(next)) continue;
     seen.add(next);
@@ -128,6 +238,7 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
   const firstSeed = options.seeds[0];
   if (firstSeed === undefined) throw new Error('a crawl needs at least one seed URL');
 
+  stopIfCancelled(options.signal);
   const { robots, text: robotsTxt } = await loadRobots(firstSeed, options, request);
   const delayMs = Math.max(options.requestDelayMs ?? 0, crawlDelayMs(robots, options.userAgent));
 
@@ -157,13 +268,49 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
   for (const seed of options.seeds) enqueue(seed, 0, null);
   for (const url of sitemapUrls) enqueue(url, 0, null);
 
+  const auxiliary: AuxiliaryFetch[] = [];
   const pages: CrawledPage[] = [];
   let first = true;
 
+  /** One extra request, paced and cancellable like every other. */
+  const aside = async (
+    reason: AuxiliaryFetch['reason'],
+    target: string,
+    extra: { readonly keepBytes?: boolean; readonly userAgent?: string } = {},
+  ): Promise<void> => {
+    if (!first) await sleep(delayMs, options.signal);
+    first = false;
+    const userAgent = extra.userAgent ?? options.userAgent;
+    auxiliary.push({
+      reason,
+      url: target,
+      ...(extra.userAgent === undefined ? {} : { userAgent: extra.userAgent }),
+      fetch: await request(target, {
+        userAgent,
+        ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+        ...(extra.keepBytes === undefined ? {} : { keepBytes: extra.keepBytes }),
+      }),
+    });
+  };
+
+  if (options.auxiliary !== false) {
+    for (const variant of hostVariants(firstSeed)) {
+      stopIfCancelled(options.signal);
+      await aside('host-variant', variant);
+    }
+    for (const agent of [...new Set(options.userAgentTests ?? [])].slice(0, MAX_UA_TESTS)) {
+      stopIfCancelled(options.signal);
+      await aside('user-agent-test', firstSeed, { userAgent: agent });
+    }
+  }
+
   while (queue.length > 0 && pages.length < options.maxPages) {
+    // Checked here and again inside the delay, so the longest a cancelled
+    // crawl keeps going is the single request already in flight.
+    stopIfCancelled(options.signal);
     const entry = queue.shift();
     if (entry === undefined) break;
-    if (!first) await sleep(delayMs);
+    if (!first) await sleep(delayMs, options.signal);
     first = false;
 
     const result = await request(entry.url, {
@@ -198,6 +345,17 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
     }
   }
 
+  // After the walk, because the icons a site declares are found by reading its
+  // root document, and reading it is what the walk just did.
+  if (options.auxiliary !== false) {
+    const root = [...pages].sort((a, b) => a.depth - b.depth)[0];
+    const icons = [...new Set((root?.extracted?.icons ?? []).map((icon) => icon.url))];
+    for (const icon of icons.slice(0, MAX_ICON_FETCHES)) {
+      stopIfCancelled(options.signal);
+      await aside('icon', icon, { keepBytes: true });
+    }
+  }
+
   return {
     seeds: options.seeds,
     pages,
@@ -206,5 +364,51 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
     sitemapUrls,
     blockedByRobots,
     notReached: queue.map((entry) => entry.normalizedUrl),
+    auxiliary,
   };
+}
+
+/** At most three: a favicon, a touch icon, and one more. Beyond that is noise. */
+const MAX_ICON_FETCHES = 3;
+
+/**
+ * A ceiling on user-agent tests, because each is a real request to someone's
+ * origin and a policy naming forty crawlers should not cost forty visits.
+ */
+const MAX_UA_TESTS = 12;
+
+/**
+ * The scheme and host spellings that must all end up in the same place.
+ *
+ * Four URLs for a real domain: http and https, apex and www. Empty for a host
+ * that cannot have them — an IP literal, `localhost`, any name without a dot —
+ * because those variants do not exist and testing them reports DNS failures as
+ * if they were the site's fault.
+ */
+export function hostVariants(seed: string): string[] {
+  let url: URL;
+  try {
+    url = new URL(seed);
+  } catch {
+    return [];
+  }
+
+  const host = url.hostname;
+  const isIpv4 = /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
+  if (isIpv4 || host.startsWith('[') || !host.includes('.')) return [];
+
+  const apex = host.replace(/^www\./i, '');
+  const variants = new Set<string>();
+  for (const hostname of [apex, `www.${apex}`]) {
+    for (const protocol of ['http:', 'https:']) {
+      const variant = new URL(url.toString());
+      variant.protocol = protocol;
+      variant.hostname = hostname;
+      variant.pathname = '/';
+      variant.search = '';
+      variant.hash = '';
+      variants.add(variant.toString());
+    }
+  }
+  return [...variants];
 }

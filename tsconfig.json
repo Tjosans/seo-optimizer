@@ -6,6 +6,7 @@
     { "path": "./packages/crawler" },
     { "path": "./packages/db" },
     { "path": "./packages/grader" },
+    { "path": "./packages/job-store" },
     { "path": "./packages/persistence" },
     { "path": "./packages/probes" },
     { "path": "./packages/queue" },

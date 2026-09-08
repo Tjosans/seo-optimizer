@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { crawl, extract } from '@seo/crawler';
+import { crawl, extract, extractSitemapUrls } from '@seo/crawler';
 import type { CrawlResult } from '@seo/crawler';
 import { startFixtureSite } from '@seo/testkit';
 import type { FixtureSite } from '@seo/testkit';
@@ -34,6 +34,13 @@ describe('crawl', () => {
   it('adds sitemap URLs that nothing links to', () => {
     expect(result.sitemapUrls).toContain(`${site.origin}/orphan`);
     expect(page('/orphan')).toBeDefined();
+  });
+
+  it('records each sitemap document it read, and what was in it', () => {
+    const document = result.sitemaps.find((entry) => entry.url === `${site.origin}/sitemap.xml`);
+    expect(document?.status).toBe(200);
+    expect(document?.urlCount).toBeGreaterThan(0);
+    expect(document?.videoCount).toBe(0);
   });
 
   it('records the whole redirect chain rather than only the destination', () => {
@@ -134,5 +141,55 @@ describe('extract', () => {
     );
     expect(extracted.text).toBe('Visible');
     expect(extracted.wordCount).toBe(1);
+  });
+});
+
+describe('sitemap video entries', () => {
+  const VIDEO_SITEMAP = `<?xml version="1.0" encoding="UTF-8"?>
+    <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+            xmlns:video="http://www.google.com/schemas/sitemap-video/1.1">
+      <url>
+        <loc>https://example.com/watch/one</loc>
+        <video:video>
+          <video:thumbnail_loc>https://example.com/t/one.jpg</video:thumbnail_loc>
+          <video:title>One</video:title>
+          <video:description>The first one.</video:description>
+          <video:content_loc>https://example.com/m/one.mp4</video:content_loc>
+        </video:video>
+      </url>
+      <url><loc>https://example.com/about</loc></url>
+    </urlset>`;
+
+  it('reads a video entry alongside the URL it belongs to', () => {
+    const parsed = extractSitemapUrls(VIDEO_SITEMAP);
+    expect(parsed.urls).toEqual(['https://example.com/watch/one', 'https://example.com/about']);
+    expect(parsed.videos).toHaveLength(1);
+    expect(parsed.videos[0]).toMatchObject({
+      loc: 'https://example.com/watch/one',
+      title: 'One',
+      description: 'The first one.',
+      thumbnailUrl: 'https://example.com/t/one.jpg',
+      contentUrl: 'https://example.com/m/one.mp4',
+      playerUrl: null,
+    });
+  });
+
+  // The namespace URI is fixed and the prefix is whatever the author typed, so
+  // a parser keyed to "video:" would read a valid sitemap as having no videos.
+  it('reads an entry whatever prefix the sitemap binds the namespace to', () => {
+    const parsed = extractSitemapUrls(
+      VIDEO_SITEMAP.replaceAll('video:', 'vid:').replaceAll('xmlns:video=', 'xmlns:vid='),
+    );
+    expect(parsed.videos).toHaveLength(1);
+    expect(parsed.videos[0]?.title).toBe('One');
+  });
+
+  it('reports a URL entry with no video extension as no video', () => {
+    const parsed = extractSitemapUrls(
+      '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' +
+        '<url><loc>https://example.com/</loc></url></urlset>',
+    );
+    expect(parsed.urls).toHaveLength(1);
+    expect(parsed.videos).toHaveLength(0);
   });
 });

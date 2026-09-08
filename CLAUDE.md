@@ -10,8 +10,8 @@ seo-optimizer is an SEO launch-readiness auditor. It crawls a site, runs it agai
 
 - **@seo/core** — types for checks, check state, readiness scoring, and the site inputs a person supplies (AI crawler policy)
 - **@seo/corpus** — loader for the v4.4 check corpus (YAML phases 0-7, source TSV)
-- **@seo/crawler** — site crawler respecting robots.txt, redirect chains, sitemaps; stops between requests on a caller's signal; makes the auxiliary requests probes are not allowed to make themselves
-- **@seo/probes** — 7 detector categories (commerce, delivery, indexability, markup, media, metadata, site)
+- **@seo/crawler** — site crawler respecting robots.txt, redirect chains, sitemaps (and the video entries they declare); stops between requests on a caller's signal; makes the auxiliary requests probes are not allowed to make themselves
+- **@seo/probes** — 8 detector categories (commerce, delivery, indexability, markup, media, metadata, site, video)
 - **@seo/persistence** — sink that streams crawls and probe runs into Postgres
 - **@seo/queue** — in-process job queue: bounded concurrency, one crawl at a time per origin, retries on a caller's policy, outstanding work written to an optional durable store and held on a lease it renews
 - **@seo/job-store** — the Postgres `JobStore` behind that queue, so a restart resumes what was queued
@@ -121,7 +121,7 @@ Key scripts:
 - A machine may **fail** a check; only an `automated` check may be **passed** by one. `assisted` means the engine proposes and a person confirms.
 - A detector that is unimplemented, errored, or observed nothing leaves the check `not-started` / `unknown`. Missing evidence is never good news, and never bad news either.
 - Scope comes from `sites.flags`: an empty profile leaves conditional checks at `review`; a filled-in one narrows non-matching checks to `no` with a written rationale.
-- Only 45 of the corpus's 128 detectors exist, so today 20 of 43 automated checks can be graded end to end and most audits come back mostly ungraded. That is the honest answer, not a bug. `npm run probes:matrix` prints the current figure; do not quote one from memory.
+- Only 48 of the corpus's 128 detectors exist, so today 21 of 43 automated checks can be graded end to end and most audits come back mostly ungraded. That is the honest answer, not a bug. `npm run probes:matrix` prints the current figure; do not quote one from memory.
 - A row a human attested is never overwritten by a re-grade, and it counts in the frozen readiness.
 
 ### Guarantees the sink relies on
@@ -143,6 +143,8 @@ Together these let the sink resolve `discoveredFromId` from an in-memory map. Br
 International is the worked example, and the pattern generalises. `hreflang-cluster-qa` (4.9) reads the crawl as a whole and asks whether the pages agree with each other — reciprocity, self-references, targets the crawl reached. `hreflang-implementation` (1.14) asks whether what they agree on names anything: ISO 639-1 for the language, ISO 3166-1 alpha-2 for the region, one URL per locale, absolute hrefs. A cluster can be flawlessly reciprocal and completely inert because every page in it reciprocates `en-UK`, so folding the two together would let each hide the other's finding. `locale-canonical` (1.14) is the third: whether a page the cluster names is allowed to be indexed as itself, which is the one instruction that outranks every annotation on the site. It fails a non-self canonical where the general `canonicalization` detector only warns, because pointing elsewhere is legitimate for a known duplicate and never legitimate for a locale.
 
 Commerce is the second worked example. `product-variant-canonical` (1.15) asks whether one rule governs which of a product's addresses is the product's; `product-lifecycle-state` (1.15) asks what becomes of that address once the product stops being for sale. A catalogue can hold a flawless canonical rule and still delete every out-of-stock page, or keep every retired product alive at three addresses nobody chose. The two are kept from reporting one fact twice by the route test: a canonical onto a different route is lifecycle consolidation, a canonical onto the same route is variant consolidation.
+
+Video is the third, and the only one where the three detectors split by *artefact* rather than by question. `video-watch-page` (2.14) judges the page a video sits on — indexable, with the player and thumbnail robots.txt actually allows, and with words around the player saying what it is. `videoobject-schema` (2.14) judges the description, and whether it names the video the page plays: markup complete to the last property still describes something else if the embed was swapped. `video-sitemap` (2.14) judges the file that lists the watch pages, and only where the site publishes one — its absence is a decision about discovery that no crawl can second-guess, but a sitemap named `video-sitemap.xml` that 404s is a site that believes it is publishing one.
 
 ## Testing
 
@@ -204,4 +206,4 @@ scripts/{compile-corpus,probe-matrix,triage}.ts
 
 ## What to pick up next
 
-`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; lease expiry (@seo/job-store, @seo/queue) is in, so a second worker can share a queue namespace; what remains is detector coverage — 83 of the corpus's 128 detectors are unimplemented, which is the single thing most limiting what an audit can say. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.
+`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; lease expiry (@seo/job-store, @seo/queue) is in, so a second worker can share a queue namespace; what remains is detector coverage — 80 of the corpus's 128 detectors are unimplemented, which is the single thing most limiting what an audit can say. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.

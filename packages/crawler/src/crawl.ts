@@ -11,7 +11,7 @@
  */
 
 import { extract, extractSitemapUrls } from './extract.js';
-import type { Extracted } from './extract.js';
+import type { Extracted, SitemapVideo } from './extract.js';
 import { fetchPage } from './fetch.js';
 import type { FetchResult } from './fetch.js';
 import { ALLOW_ALL, crawlDelayMs, isAllowed, parseRobots } from './robots.js';
@@ -109,6 +109,29 @@ export interface AuxiliaryFetch {
   readonly fetch: FetchResult;
 }
 
+/**
+ * One sitemap document the crawl asked for, and what came back.
+ *
+ * Kept because "the site declares a sitemap that 404s" and "the site declares
+ * no sitemap" are different findings and the URL list cannot tell them apart:
+ * both produce nothing. A video sitemap named in robots.txt and missing from
+ * the server is precisely what corpus check 2.14 means by "fetchable".
+ */
+export interface SitemapFetch {
+  readonly url: string;
+  /** Null when the request itself failed — DNS, timeout, connection refused. */
+  readonly status: number | null;
+  /** `<url>` entries the document declared. */
+  readonly urlCount: number;
+  /** Of those, how many carried a `<video:video>` extension. */
+  readonly videoCount: number;
+}
+
+/** A `<video:video>` entry, with the sitemap that declared it. */
+export interface SitemapVideoEntry extends SitemapVideo {
+  readonly sitemap: string;
+}
+
 export interface CrawlResult {
   readonly seeds: readonly string[];
   readonly pages: readonly CrawledPage[];
@@ -116,6 +139,10 @@ export interface CrawlResult {
   readonly robotsTxt: string | null;
   /** Every URL the site's own sitemaps declare, normalized. */
   readonly sitemapUrls: readonly string[];
+  /** Every sitemap document the crawl asked for, in the order it asked. */
+  readonly sitemaps: readonly SitemapFetch[];
+  /** Video extension entries, across every sitemap that carried any. */
+  readonly sitemapVideos: readonly SitemapVideoEntry[];
   /** In-scope URLs left unfetched because robots.txt disallowed them. */
   readonly blockedByRobots: readonly string[];
   /** In-scope URLs discovered but not fetched, because a budget ran out. */
@@ -198,18 +225,26 @@ async function loadRobots(
   return { robots: parseRobots(result.body), text: result.body };
 }
 
+interface LoadedSitemaps {
+  readonly urls: string[];
+  readonly documents: SitemapFetch[];
+  readonly videos: SitemapVideoEntry[];
+}
+
 /** Fetch every sitemap reachable from robots.txt, following index files once. */
 async function loadSitemaps(
   robots: Robots,
   origin: string,
   options: CrawlOptions,
   request: typeof fetchPage,
-): Promise<string[]> {
+): Promise<LoadedSitemaps> {
   const queue = robots.sitemaps.length > 0
     ? [...robots.sitemaps]
     : [new URL('/sitemap.xml', origin).toString()];
   const seen = new Set<string>();
   const urls = new Set<string>();
+  const documents: SitemapFetch[] = [];
+  const videos: SitemapVideoEntry[] = [];
 
   while (queue.length > 0 && seen.size < 50) {
     stopIfCancelled(options.signal);
@@ -221,16 +256,29 @@ async function loadSitemaps(
       userAgent: options.userAgent,
       ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
     });
-    if (result.status !== 200 || result.body === '') continue;
+    if (result.status !== 200 || result.body === '') {
+      documents.push({ url: next, status: result.status, urlCount: 0, videoCount: 0 });
+      continue;
+    }
 
     const parsed = extractSitemapUrls(result.body);
     for (const url of parsed.urls) {
       const normalized = normalizeUrl(url);
       if (normalized !== null) urls.add(normalized);
     }
+    for (const video of parsed.videos) {
+      const normalized = normalizeUrl(video.loc);
+      videos.push({ ...video, loc: normalized ?? video.loc, sitemap: next });
+    }
+    documents.push({
+      url: next,
+      status: result.status,
+      urlCount: parsed.urls.length,
+      videoCount: parsed.videos.length,
+    });
     for (const sitemap of parsed.sitemaps) queue.push(sitemap);
   }
-  return [...urls];
+  return { urls: [...urls], documents, videos };
 }
 
 export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
@@ -242,9 +290,10 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
   const { robots, text: robotsTxt } = await loadRobots(firstSeed, options, request);
   const delayMs = Math.max(options.requestDelayMs ?? 0, crawlDelayMs(robots, options.userAgent));
 
-  const sitemapUrls = options.followSitemaps === false
-    ? []
+  const sitemaps: LoadedSitemaps = options.followSitemaps === false
+    ? { urls: [], documents: [], videos: [] }
     : await loadSitemaps(robots, firstSeed, options, request);
+  const sitemapUrls = sitemaps.urls;
 
   const queue: QueueEntry[] = [];
   const queued = new Set<string>();
@@ -362,6 +411,8 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
     robots,
     robotsTxt,
     sitemapUrls,
+    sitemaps: sitemaps.documents,
+    sitemapVideos: sitemaps.videos,
     blockedByRobots,
     notReached: queue.map((entry) => entry.normalizedUrl),
     auxiliary,

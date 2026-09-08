@@ -41,12 +41,28 @@ export interface ExtractedImage {
 export interface ExtractedMedia {
   readonly kind: 'video' | 'audio';
   readonly src: string | null;
+  /** The `poster` image a video shows before it plays; null on audio and on video without one. */
+  readonly poster: string | null;
   /** `<track kind="captions">` or `kind="subtitles"`. */
   readonly hasCaptions: boolean;
   /** Any `<track>` at all, including descriptions and chapters. */
   readonly hasTrack: boolean;
   /** Text between the tags, shown by browsers that cannot play the media. */
   readonly hasFallbackText: boolean;
+}
+
+/**
+ * An `<iframe>`, as declared.
+ *
+ * Recorded without judgement, like everything else here. Most video on the web
+ * arrives this way — a YouTube or Vimeo player in a frame — and which hosts
+ * count as players is a probe's question, not the extractor's.
+ */
+export interface ExtractedFrame {
+  /** Absolute URL, resolved against the document's base. */
+  readonly src: string;
+  readonly title: string | null;
+  readonly loading: string | null;
 }
 
 /**
@@ -122,6 +138,8 @@ export interface Extracted {
   readonly icons: readonly ExtractedIcon[];
   /** `<video>` and `<audio>` elements, for the media-alternatives detector. */
   readonly media: readonly ExtractedMedia[];
+  /** `<iframe>` elements, in document order. Most embedded video is one of these. */
+  readonly frames: readonly ExtractedFrame[];
   /** Visible breadcrumb trails, in document order. Empty when none is present. */
   readonly breadcrumbs: readonly ExtractedBreadcrumb[];
   /** Landmark elements present, for the semantic-html detector. */
@@ -205,16 +223,29 @@ export function extract(html: string, pageUrl: string): Extracted {
     const node = $(element);
     const tag = (element as { tagName?: string }).tagName ?? 'video';
     const src = node.attr('src') ?? node.find('source[src]').first().attr('src');
+    const poster = node.attr('poster');
     const tracks = node.find('track');
     media.push({
       kind: tag.toLowerCase() === 'audio' ? 'audio' : 'video',
       src: src === undefined ? null : resolveUrl(src, base),
+      poster: poster === undefined ? null : resolveUrl(poster, base),
       hasCaptions: tracks.filter((_i, t) => /^(captions|subtitles)$/i.test($(t).attr('kind') ?? ''))
         .length > 0,
       hasTrack: tracks.length > 0,
       // `clone().children().remove()` would drop <source> and <track> too, so
       // the fallback is the element's own text minus its track labels.
       hasFallbackText: clean(node.clone().find('track, source').remove().end().text()) !== '',
+    });
+  });
+
+  const frames: ExtractedFrame[] = [];
+  $('iframe[src]').each((_, element) => {
+    const src = resolveUrl($(element).attr('src') ?? '', base);
+    if (src === null) return;
+    frames.push({
+      src,
+      title: attr($(element).attr('title')),
+      loading: attr($(element).attr('loading')),
     });
   });
 
@@ -307,6 +338,7 @@ export function extract(html: string, pageUrl: string): Extracted {
     scripts,
     icons,
     media,
+    frames,
     breadcrumbs,
     landmarks: LANDMARKS.filter((tag) => $(tag).length > 0),
     text,
@@ -314,10 +346,74 @@ export function extract(html: string, pageUrl: string): Extracted {
   };
 }
 
+/**
+ * One `<video:video>` entry, as a sitemap declares it.
+ *
+ * The video sitemap extension is the only place a site states, in its own
+ * words, which of its URLs are watch pages and what plays on them. Google
+ * requires a thumbnail, a title, a description and a way to play the video;
+ * each is recorded as written, or null when the entry omits it, because
+ * "omitted" is exactly what the detector is looking for.
+ */
+export interface SitemapVideo {
+  /** The `<loc>` of the `<url>` entry carrying it: the watch page. */
+  readonly loc: string;
+  readonly title: string | null;
+  readonly description: string | null;
+  readonly thumbnailUrl: string | null;
+  /** `video:content_loc` — the media file itself. */
+  readonly contentUrl: string | null;
+  /** `video:player_loc` — a player page or embed URL. */
+  readonly playerUrl: string | null;
+}
+
+/**
+ * The local name of a namespaced element: `video:title` is `title`.
+ *
+ * Matching on the local name rather than on `video:` is deliberate. The prefix
+ * is chosen by whoever wrote the file and only the namespace URI is fixed, so a
+ * sitemap that binds the extension to `vid:` is as valid as one that does not
+ * — and a parser keyed to the common spelling would silently read it as having
+ * no videos at all.
+ */
+const localName = (element: { tagName?: string }): string =>
+  (element.tagName ?? '').toLowerCase().split(':').pop() ?? '';
+
 /** Parse a sitemap or sitemap index. Returns the URLs it points at. */
-export function extractSitemapUrls(xml: string): { urls: string[]; sitemaps: string[] } {
+export function extractSitemapUrls(xml: string): {
+  urls: string[];
+  sitemaps: string[];
+  videos: SitemapVideo[];
+} {
   const $ = cheerio.load(xml, { xml: true });
   const urls = $('urlset > url > loc').map((_, e) => clean($(e).text())).get();
   const sitemaps = $('sitemapindex > sitemap > loc').map((_, e) => clean($(e).text())).get();
-  return { urls, sitemaps };
+
+  const videos: SitemapVideo[] = [];
+  $('urlset > url').each((_, entry) => {
+    const loc = clean($(entry).children('loc').first().text());
+    if (loc === '') return;
+    $(entry)
+      .children()
+      .filter((_i, child) => localName(child) === 'video')
+      .each((_i, node) => {
+        const field: Record<string, string> = {};
+        $(node)
+          .children()
+          .each((_j, child) => {
+            const value = clean($(child).text());
+            if (value !== '') field[localName(child)] = value;
+          });
+        videos.push({
+          loc,
+          title: field['title'] ?? null,
+          description: field['description'] ?? null,
+          thumbnailUrl: field['thumbnail_loc'] ?? null,
+          contentUrl: field['content_loc'] ?? null,
+          playerUrl: field['player_loc'] ?? null,
+        });
+      });
+  });
+
+  return { urls, sitemaps, videos };
 }

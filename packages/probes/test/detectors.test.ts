@@ -1,6 +1,6 @@
 /**
  * The detectors added for corpus checks 1.6, 1.9, 1.13, 1.14, 1.15, 2.7, 2.13,
- * 2.17 and 4.9.
+ * 2.14, 2.17 and 4.9.
  *
  * These run against hand-built pages rather than the fixture site, because each
  * one answers a question about a *shape* — a reciprocal hreflang cluster, a
@@ -67,6 +67,8 @@ const siteOf = (
     robots: { groups: [], sitemaps: [], absent: true },
     robotsTxt: null,
     sitemapUrls,
+    sitemaps: [],
+    sitemapVideos: [],
     blockedByRobots: [],
     notReached: [],
     auxiliary,
@@ -795,6 +797,8 @@ const aiSite = (
         : parseRobots(robotsTxt),
     robotsTxt,
     sitemapUrls: [],
+    sitemaps: [],
+    sitemapVideos: [],
     blockedByRobots: [],
     notReached: [],
     auxiliary: tests,
@@ -1346,5 +1350,313 @@ describe('schema-eligibility-matrix', () => {
     ]);
     expect(observation.outcome).toBe('pass');
     expect(observation.data?.['types']).toEqual(['Dataset']);
+  });
+});
+
+// --- 2.14 video-watch-page, videoobject-schema, video-sitemap ---------------
+
+/** Enough words that a thin-context warning is not the thing under test. */
+const PROSE = 'A short film about the making of the thing this page is about. '.repeat(6);
+
+const VIDEO_SCHEMA = {
+  '@context': SCHEMA,
+  '@type': 'VideoObject',
+  name: 'How we make it',
+  description: 'Ten minutes in the workshop.',
+  thumbnailUrl: `${ORIGIN}/thumbs/workshop.jpg`,
+  uploadDate: '2026-03-01',
+  contentUrl: 'https://www.youtube.com/watch?v=abc123',
+};
+
+interface WatchPageSpec {
+  readonly path?: string;
+  /** Markup for the player itself; omit for a page with no video. */
+  readonly player?: string;
+  readonly schema?: Record<string, unknown> | null;
+  readonly head?: string;
+  readonly body?: string;
+}
+
+const watchPage = ({
+  path = '/watch/workshop',
+  player = `<video src="${ORIGIN}/media/workshop.mp4" poster="${ORIGIN}/thumbs/workshop.jpg"></video>`,
+  schema = null,
+  head = '',
+  body = PROSE,
+}: WatchPageSpec): CrawledPage =>
+  page({
+    path,
+    html:
+      `<html><head><title>How we make it</title>${head}` +
+      (schema === null
+        ? ''
+        : `<script type="application/ld+json">${JSON.stringify(schema)}</script>`) +
+      `</head><body><h1>How we make it</h1>${player}<p>${body}</p></body></html>`,
+  });
+
+const YOUTUBE_EMBED = '<iframe src="https://www.youtube.com/embed/abc123"></iframe>';
+
+/** A site whose robots.txt, sitemap documents and video entries are the subject. */
+const videoSite = (
+  pages: readonly CrawledPage[],
+  extra: {
+    readonly robotsTxt?: string;
+    readonly sitemaps?: CrawlResult['sitemaps'];
+    readonly sitemapVideos?: CrawlResult['sitemapVideos'];
+  } = {},
+): SiteContext => ({
+  origin: ORIGIN,
+  flags: ['video'],
+  crawl: {
+    seeds: [`${ORIGIN}/`],
+    pages,
+    robots:
+      extra.robotsTxt === undefined
+        ? { groups: [], sitemaps: [], absent: true }
+        : parseRobots(extra.robotsTxt),
+    robotsTxt: extra.robotsTxt ?? null,
+    sitemapUrls: (extra.sitemapVideos ?? []).map((entry) => entry.loc),
+    sitemaps: extra.sitemaps ?? [],
+    sitemapVideos: extra.sitemapVideos ?? [],
+    blockedByRobots: [],
+    notReached: [],
+    auxiliary: [],
+  } satisfies CrawlResult,
+});
+
+const sitemapVideo = (
+  loc: string,
+  overrides: Partial<CrawlResult['sitemapVideos'][number]> = {},
+): CrawlResult['sitemapVideos'][number] => ({
+  sitemap: `${ORIGIN}/video-sitemap.xml`,
+  loc,
+  title: 'How we make it',
+  description: 'Ten minutes in the workshop.',
+  thumbnailUrl: `${ORIGIN}/thumbs/workshop.jpg`,
+  contentUrl: `${ORIGIN}/media/workshop.mp4`,
+  playerUrl: null,
+  ...overrides,
+});
+
+const runVideoPage = (id: string, target: CrawledPage, site: SiteContext): Observation =>
+  pageProbe(id).run({ page: target, site });
+
+describe('video-watch-page', () => {
+  it('says nothing about a page with no video on it', () => {
+    const plain = page({ path: '/about' });
+    expect(runVideoPage('video-watch-page', plain, videoSite([plain])).outcome).toBe(
+      'not-applicable',
+    );
+  });
+
+  it('passes an indexable page with a player, a thumbnail and context', () => {
+    const target = watchPage({});
+    const observation = runVideoPage('video-watch-page', target, videoSite([target]));
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data?.['players']).toBe(1);
+  });
+
+  // The iframe is how nearly all web video arrives, and a crawl that only knew
+  // about <video> would call the average video site videoless.
+  it('recognises a third-party player embedded in a frame', () => {
+    const target = watchPage({
+      player: YOUTUBE_EMBED,
+      head: `<meta property="og:image" content="${ORIGIN}/t.jpg">`,
+    });
+    const observation = runVideoPage('video-watch-page', target, videoSite([target]));
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data?.['players']).toBe(1);
+  });
+
+  it('fails a video whose page is noindex, because the video has no watch page', () => {
+    const target = watchPage({ head: '<meta name="robots" content="noindex">' });
+    const observation = runVideoPage('video-watch-page', target, videoSite([target]));
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/noindex/);
+  });
+
+  // Googlebot-Video fetches the file and Googlebot-Image the thumbnail. A
+  // disallowed media directory is the commonest way a site hides its own video
+  // from search while believing it has published it.
+  it('fails when robots.txt refuses the player or its thumbnail', () => {
+    const target = watchPage({});
+    const observation = runVideoPage(
+      'video-watch-page',
+      target,
+      videoSite([target], { robotsTxt: 'User-agent: *\nDisallow: /media/\n' }),
+    );
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/robots\.txt blocks/);
+    expect((observation.data?.['blocked'] as string[])[0]).toMatch(/workshop\.mp4/);
+  });
+
+  it('warns about a player with no thumbnail and nothing said around it', () => {
+    const target = watchPage({
+      player: `<video src="${ORIGIN}/media/workshop.mp4"></video>`,
+      body: 'Watch.',
+    });
+    const observation = runVideoPage('video-watch-page', target, videoSite([target]));
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toMatch(/no thumbnail is declared/);
+    expect(observation.summary).toMatch(/words of context/);
+  });
+});
+
+describe('videoobject-schema', () => {
+  it('says nothing about a page with no video on it', () => {
+    const plain = page({ path: '/about' });
+    expect(runVideoPage('videoobject-schema', plain, videoSite([plain])).outcome).toBe(
+      'not-applicable',
+    );
+  });
+
+  it('fails a video the page describes to nobody', () => {
+    const target = watchPage({ player: YOUTUBE_EMBED });
+    const observation = runVideoPage('videoobject-schema', target, videoSite([target]));
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/none is described by VideoObject/);
+  });
+
+  it('passes markup that is complete and names the video the page plays', () => {
+    const target = watchPage({ player: YOUTUBE_EMBED, schema: VIDEO_SCHEMA });
+    const observation = runVideoPage('videoobject-schema', target, videoSite([target]));
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('fails a node missing what a video result requires', () => {
+    const { description, thumbnailUrl, ...rest } = VIDEO_SCHEMA;
+    expect([description, thumbnailUrl]).toBeTruthy();
+    const target = watchPage({ player: YOUTUBE_EMBED, schema: rest });
+    const observation = runVideoPage('videoobject-schema', target, videoSite([target]));
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /missing required description, thumbnailUrl/,
+    );
+  });
+
+  it('fails a node with no way to play the video it describes', () => {
+    const { contentUrl, ...rest } = VIDEO_SCHEMA;
+    expect(contentUrl).toBeTruthy();
+    const target = watchPage({ player: YOUTUBE_EMBED, schema: rest });
+    const observation = runVideoPage('videoobject-schema', target, videoSite([target]));
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /neither contentUrl nor embedUrl/,
+    );
+  });
+
+  // A date a reader understands and a parser does not is the same as no date.
+  it('fails an uploadDate written for a reader rather than a machine', () => {
+    const target = watchPage({
+      player: YOUTUBE_EMBED,
+      schema: { ...VIDEO_SCHEMA, uploadDate: 'March 2026' },
+    });
+    const observation = runVideoPage('videoobject-schema', target, videoSite([target]));
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /not an ISO 8601 date/,
+    );
+  });
+
+  // Complete markup about a video that is not on the page is markup about
+  // something else, and only comparing the two shows it.
+  it('warns when the markup and the player name different videos', () => {
+    const target = watchPage({
+      player: YOUTUBE_EMBED,
+      schema: { ...VIDEO_SCHEMA, contentUrl: 'https://www.youtube.com/watch?v=zzz999' },
+    });
+    const observation = runVideoPage('videoobject-schema', target, videoSite([target]));
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toMatch(/does not play/);
+  });
+
+  it('warns when more videos play than are described', () => {
+    const target = watchPage({
+      player: `${YOUTUBE_EMBED}<iframe src="https://player.vimeo.com/video/999"></iframe>`,
+      schema: VIDEO_SCHEMA,
+    });
+    const observation = runVideoPage('videoobject-schema', target, videoSite([target]));
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toMatch(/2 video\(s\) play here and 1 are described/);
+  });
+});
+
+describe('video-sitemap', () => {
+  const runVideoSitemap = (site: SiteContext): Observation => siteProbe('video-sitemap').run(site);
+
+  // The corpus asks for a video sitemap only where it materially improves
+  // discovery, which is a judgement about a site's traffic, not its markup.
+  it('says nothing about a site that publishes no video sitemap', () => {
+    const observation = runVideoSitemap(videoSite([watchPage({})]));
+    expect(observation.outcome).toBe('not-applicable');
+    expect(observation.summary).toMatch(/1 page\(s\) carrying video/);
+  });
+
+  it('fails a video sitemap the site declares and the server does not serve', () => {
+    const observation = runVideoSitemap(
+      videoSite([watchPage({})], {
+        sitemaps: [{ url: `${ORIGIN}/video-sitemap.xml`, status: 404, urlCount: 0, videoCount: 0 }],
+      }),
+    );
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/could not be fetched/);
+  });
+
+  it('passes entries that are complete and on this site', () => {
+    const target = watchPage({});
+    const observation = runVideoSitemap(
+      videoSite([target], { sitemapVideos: [sitemapVideo(target.normalizedUrl)] }),
+    );
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data?.['entries']).toBe(1);
+  });
+
+  it('fails an entry missing the fields that make it usable', () => {
+    const target = watchPage({});
+    const observation = runVideoSitemap(
+      videoSite([target], {
+        sitemapVideos: [
+          sitemapVideo(target.normalizedUrl, { description: null, thumbnailUrl: null }),
+        ],
+      }),
+    );
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /missing video:description, video:thumbnail_loc/,
+    );
+  });
+
+  it('fails an entry listing a watch page on another origin', () => {
+    const target = watchPage({});
+    const observation = runVideoSitemap(
+      videoSite([target], { sitemapVideos: [sitemapVideo('https://cdn.elsewhere.test/watch/1')] }),
+    );
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /another origin/,
+    );
+  });
+
+  it('fails an entry whose thumbnail robots.txt refuses', () => {
+    const target = watchPage({});
+    const observation = runVideoSitemap(
+      videoSite([target], {
+        robotsTxt: 'User-agent: *\nDisallow: /thumbs/\n',
+        sitemapVideos: [sitemapVideo(target.normalizedUrl)],
+      }),
+    );
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/robots\.txt refuses/);
+  });
+
+  // A player injected by script leaves nothing in the HTML, so the sitemap
+  // gets the benefit of the doubt and the report gets the discrepancy.
+  it('warns about an entry naming a page the crawl found no video on', () => {
+    const plain = page({ path: '/watch/gone' });
+    const observation = runVideoSitemap(
+      videoSite([plain], { sitemapVideos: [sitemapVideo(plain.normalizedUrl)] }),
+    );
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toMatch(/found no video on/);
   });
 });

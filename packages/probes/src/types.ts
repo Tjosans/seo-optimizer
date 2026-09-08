@@ -83,3 +83,14 @@ export const warn = (summary: string, data?: Record<string, unknown>): Observati
 
 export const notApplicable = (summary: string): Observation =>
   ({ outcome: 'not-applicable', summary });
+
+/**
+ * The probe could not answer its question, and says why.
+ *
+ * Distinct from `not-applicable`, which means the question does not arise.
+ * This is the question arising and the evidence being unavailable — a body the
+ * crawler cut at its size limit, most often — and the grader leaves the check
+ * ungraded rather than crediting or blaming the site for what nobody saw.
+ */
+export const errored = (summary: string, data?: Record<string, unknown>): Observation =>
+  data === undefined ? { outcome: 'error', summary } : { outcome: 'error', summary, data };

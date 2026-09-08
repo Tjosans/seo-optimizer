@@ -7,7 +7,7 @@
 import { isAllowed, isSameSite, normalizeUrl, pathDepth } from '@seo/crawler';
 import type { CrawledPage } from '@seo/crawler';
 import type { SiteProbe } from '../types.js';
-import { fail, notApplicable, pass, warn } from '../types.js';
+import { errored, fail, notApplicable, pass, warn } from '../types.js';
 import { checkLanguageTag } from './language-tags.js';
 
 /** Push `value` into the set kept under `key`, creating it on first use. */
@@ -188,6 +188,17 @@ export const indexBloat: SiteProbe = {
     );
     if (indexable.length === 0) return notApplicable('No indexable HTML pages were crawled.');
     if (crawl.sitemapUrls.length === 0) return notApplicable('No sitemap to compare against.');
+
+    // "Absent from the sitemap" is only a finding when the whole sitemap was
+    // read. A document cut at the crawler's body limit is missing URLs this
+    // probe would then report as missing from the site's own index.
+    const cut = crawl.sitemaps.filter((document) => document.truncated);
+    if (cut.length > 0) {
+      return errored(
+        `${cut.length} sitemap(s) were too large to read in full, so what is listed is unknown.`,
+        { samples: cut.slice(0, 5).map((document) => document.url) },
+      );
+    }
 
     const listed = new Set(crawl.sitemapUrls);
     const unlisted = indexable.filter((page) => !listed.has(page.normalizedUrl));

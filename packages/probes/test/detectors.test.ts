@@ -1,6 +1,6 @@
 /**
- * The detectors added for corpus checks 1.6, 1.9, 1.13, 1.14, 1.15, 2.13, 2.17
- * and 4.9.
+ * The detectors added for corpus checks 1.6, 1.9, 1.13, 1.14, 1.15, 2.7, 2.13,
+ * 2.17 and 4.9.
  *
  * These run against hand-built pages rather than the fixture site, because each
  * one answers a question about a *shape* — a reciprocal hreflang cluster, a
@@ -1195,5 +1195,156 @@ describe('product-lifecycle-state', () => {
     ]);
     expect(observation.outcome).toBe('not-applicable');
     expect(observation.summary).toMatch(/still for sale/);
+  });
+});
+
+// --- 2.7 schema-eligibility-matrix ------------------------------------------
+
+/** A page whose visible content is `body` and whose JSON-LD is `blocks`. */
+const marked = (path: string, blocks: readonly unknown[], body = 'Hello'): CrawledPage =>
+  page({
+    path,
+    html:
+      '<html><head>' +
+      blocks
+        .map((block) => `<script type="application/ld+json">${JSON.stringify(block)}</script>`)
+        .join('') +
+      `</head><body><h1>${body}</h1></body></html>`,
+  });
+
+const SCHEMA = 'https://schema.org';
+
+interface SchemaSample {
+  readonly url: string;
+  readonly type: string;
+  readonly issue: string;
+}
+
+const runMatrix = (pages: readonly CrawledPage[]): Observation =>
+  runSite('schema-eligibility-matrix', pages, ['structured-data']);
+
+describe('schema-eligibility-matrix', () => {
+  it('says nothing about a site whose profile claims no eligible templates', () => {
+    const observation = runSite('schema-eligibility-matrix', [
+      marked('/', [{ '@context': SCHEMA, '@type': 'Organization', name: 'Acme' }]),
+    ]);
+    expect(observation.outcome).toBe('not-applicable');
+  });
+
+  // The flag is the site saying it has templates worth marking up. Silence
+  // after that statement is the finding, and no single page can see it.
+  it('fails a site that claims eligible templates and marks none of them up', () => {
+    const observation = runMatrix([page({ path: '/' }), page({ path: '/about' })]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/none of 2 crawled page\(s\) carries any/);
+  });
+
+  it('passes markup that is complete and backed by what the page shows', () => {
+    const observation = runMatrix([
+      marked(
+        '/p/shirt',
+        [
+          {
+            '@context': SCHEMA,
+            '@type': 'Product',
+            name: 'Blue Shirt',
+            offers: { '@type': 'Offer', price: '10.00' },
+          },
+        ],
+        'Blue Shirt',
+      ),
+    ]);
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data?.['types']).toEqual(['Product']);
+  });
+
+  it('fails a type that is missing a property its consumers require', () => {
+    const observation = runMatrix([
+      marked('/e/launch', [{ '@context': SCHEMA, '@type': 'Event', name: 'Launch' }], 'Launch'),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as SchemaSample[])[0]?.issue)).toMatch(
+      /missing required startDate, location/,
+    );
+  });
+
+  it('fails a Product with nothing to offer, review or rate', () => {
+    const observation = runMatrix([
+      marked('/p/shirt', [{ '@context': SCHEMA, '@type': 'Product', name: 'Shirt' }], 'Shirt'),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as SchemaSample[])[0]?.issue)).toMatch(
+      /has none of offers, review, aggregateRating/,
+    );
+  });
+
+  // The whole point of the matrix column headed "visible-content source".
+  it('fails markup describing a subject the page never shows', () => {
+    const observation = runMatrix([
+      marked(
+        '/blog/post',
+        [{ '@context': SCHEMA, '@type': 'Article', headline: 'Ten Ways To Rank' }],
+        'A completely different heading',
+      ),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as SchemaSample[])[0]?.issue)).toMatch(
+      /appears nowhere in the visible content/,
+    );
+  });
+
+  it('fails a block declared outside the schema.org vocabulary', () => {
+    const observation = runMatrix([
+      marked('/', [{ '@type': 'Organization', name: 'Acme' }], 'Acme'),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as SchemaSample[])[0]?.issue)).toMatch(
+      /outside the schema\.org @context/,
+    );
+  });
+
+  it('fails markup a parser cannot read at all', () => {
+    const observation = runMatrix([
+      page({
+        path: '/',
+        html:
+          '<html><head><script type="application/ld+json">{ not json }</script>' +
+          '</head><body><h1>Acme</h1></body></html>',
+      }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as SchemaSample[])[0]?.issue)).toMatch(
+      /failed to parse/,
+    );
+  });
+
+  // The corpus is explicit that accurate FAQPage markup may stay, so this is
+  // guidance about what to build next rather than a defect in what was built.
+  it('warns about a type that no longer earns a rich result, without failing it', () => {
+    const observation = runMatrix([
+      marked(
+        '/faq',
+        [
+          {
+            '@context': SCHEMA,
+            '@type': 'FAQPage',
+            mainEntity: [{ '@type': 'Question', name: 'Do you ship?' }],
+          },
+        ],
+        'Do you ship?',
+      ),
+    ]);
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toMatch(/FAQPage/);
+  });
+
+  // schema.org is vast and Google is not its only consumer. Holding no
+  // requirements for a type is a fact about this engine, not about the site.
+  it('leaves a type it has no requirements for alone', () => {
+    const observation = runMatrix([
+      marked('/data', [{ '@context': SCHEMA, '@type': 'Dataset', name: 'Nowhere in the body' }]),
+    ]);
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data?.['types']).toEqual(['Dataset']);
   });
 });

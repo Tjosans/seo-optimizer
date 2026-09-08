@@ -3,6 +3,8 @@
  * the site says so explicitly.
  */
 
+import { normalizeUrl } from '@seo/crawler';
+import type { CrawledPage } from '@seo/crawler';
 import type { PageProbe, SiteProbe } from '../types.js';
 import { fail, notApplicable, pass, warn } from '../types.js';
 
@@ -56,6 +58,94 @@ export const internalSearchIndexability: SiteProbe = {
   },
 };
 
+/**
+ * Whether a locale variant is allowed to be indexed as itself.
+ *
+ * The defect this exists for is quiet and common: a template ships with the
+ * canonical hard-coded to the default locale, so `/fr/` declares `/en/` as its
+ * address. Every hreflang annotation on the site can be perfect and the French
+ * page still never appears, because canonical outranks hreflang — the site
+ * asked for one page and got it.
+ *
+ * "Is this a locale variant?" is answered from the cluster rather than from the
+ * page, on purpose. A page that carries no annotation of its own but is named
+ * by another locale is exactly the case worth catching: the annotation says it
+ * is a variant, and the canonical says it is a duplicate.
+ */
+export const localeCanonical: PageProbe = {
+  id: 'locale-canonical',
+  scope: 'page',
+  htmlOnly: true,
+  title: 'Each locale variant canonicalizes to itself',
+  run({ page, site }) {
+    const extracted = page.extracted;
+    if (extracted === null) return notApplicable('Response is not HTML.');
+    if (page.fetch.status !== 200) return notApplicable('Response was not a 200.');
+
+    const selves = new Set(
+      [page.normalizedUrl, normalizeUrl(page.fetch.finalUrl)].filter(
+        (url): url is string => url !== null,
+      ),
+    );
+
+    /** Every locale in this page's cluster: URL -> the value naming it. */
+    const cluster = new Map<string, string>();
+    const record = (source: CrawledPage): void => {
+      for (const entry of source.extracted?.hreflang ?? []) {
+        const target = normalizeUrl(entry.url);
+        if (target !== null && !cluster.has(target)) cluster.set(target, entry.hreflang);
+      }
+    };
+
+    record(page);
+    for (const other of site.crawl.pages) {
+      if (selves.has(other.normalizedUrl)) continue;
+      const names = (other.extracted?.hreflang ?? []).some((entry) => {
+        const target = normalizeUrl(entry.url);
+        return target !== null && selves.has(target);
+      });
+      if (names) record(other);
+    }
+
+    const alternates = [...cluster.keys()].filter((url) => !selves.has(url));
+    if (cluster.size === 0) {
+      return notApplicable('No hreflang annotation names this page, so it is not a locale variant.');
+    }
+    if (alternates.length === 0) {
+      // Annotated, but the only locale named is this one. Nothing about the
+      // canonical can be wrong across locales when there is one locale.
+      return notApplicable('The only locale this page is clustered with is itself.');
+    }
+
+    const canonical = extracted.canonical;
+    if (canonical === null) {
+      return fail('A locale variant with no rel=canonical leaves a search engine to pick which locale to keep.', {
+        alternates: alternates.slice(0, 10),
+      });
+    }
+    const declared = normalizeUrl(canonical);
+    if (declared === null) return fail(`rel=canonical is not a usable URL: "${canonical}".`);
+    if (selves.has(declared)) {
+      return pass(`Self-canonical, alongside ${alternates.length} other locale(s).`, {
+        canonical: declared,
+        alternates: alternates.slice(0, 10),
+      });
+    }
+
+    const locale = cluster.get(declared);
+    if (locale !== undefined) {
+      return fail(
+        `Canonicalizes to the "${locale}" locale at ${declared}, so this locale cannot be indexed separately.`,
+        { canonical: declared, locale, pageUrl: page.normalizedUrl },
+      );
+    }
+    return fail(
+      `Canonical points at ${declared}, which no hreflang annotation names; canonical and hreflang disagree about this page's address.`,
+      { canonical: declared, pageUrl: page.normalizedUrl, alternates: alternates.slice(0, 10) },
+    );
+  },
+};
+
 export const xRobotsTagNonHtml: PageProbe = {
   id: 'x-robots-tag-non-html',
   scope: 'page',
@@ -80,4 +170,4 @@ export const xRobotsTagNonHtml: PageProbe = {
   },
 };
 
-export const indexabilityProbes = [internalSearchIndexability, xRobotsTagNonHtml];
+export const indexabilityProbes = [internalSearchIndexability, localeCanonical, xRobotsTagNonHtml];

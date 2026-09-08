@@ -8,6 +8,14 @@ import { isAllowed, isSameSite, normalizeUrl, pathDepth } from '@seo/crawler';
 import type { CrawledPage } from '@seo/crawler';
 import type { SiteProbe } from '../types.js';
 import { fail, notApplicable, pass, warn } from '../types.js';
+import { checkLanguageTag } from './language-tags.js';
+
+/** Push `value` into the set kept under `key`, creating it on first use. */
+const add = (index: Map<string, Set<string>>, key: string, value: string): void => {
+  const existing = index.get(key);
+  if (existing === undefined) index.set(key, new Set([value]));
+  else existing.add(value);
+};
 
 const htmlPages = (pages: readonly CrawledPage[]): CrawledPage[] =>
   pages.filter((page) => page.extracted !== null && page.fetch.status === 200);
@@ -391,6 +399,147 @@ export const hreflangClusterQa: SiteProbe = {
     }
     return pass(
       `${annotated.length} annotated page(s) form complete, reciprocal clusters.`,
+      detail,
+    );
+  },
+};
+
+/**
+ * Hreflang as written, rather than hreflang as a cluster.
+ *
+ * `hreflang-cluster-qa` (4.9) asks whether the pages agree with each other.
+ * This asks the earlier question 1.14 puts as "supported language-region
+ * codes" and "distinct URLs per locale": whether one page's annotation block
+ * says anything a search engine can act on at all. The two fail apart —
+ * a cluster can be flawlessly reciprocal and entirely inert, because every
+ * page in it reciprocates `en-UK`, which names no country.
+ *
+ * The site profile matters here in a way it does not for the cluster check. A
+ * site that declares itself multilingual and carries no annotation anywhere has
+ * not implemented this; a site that never claimed to be multilingual and
+ * carries none has nothing to implement, and saying so would be noise.
+ */
+export const hreflangImplementation: SiteProbe = {
+  id: 'hreflang-implementation',
+  scope: 'site',
+  title: 'Hreflang annotations name locales search engines support',
+  run({ crawl, flags }) {
+    const pages = htmlPages(crawl.pages);
+    const annotated = pages.filter((page) => (page.extracted?.hreflang.length ?? 0) > 0);
+
+    if (annotated.length === 0) {
+      return flags.includes('multilingual')
+        ? fail('The site profile says this site is multilingual, but no crawled page carries an hreflang annotation.', {
+            crawledPages: pages.length,
+          })
+        : notApplicable('No crawled page carries an hreflang annotation.');
+    }
+
+    const invalid: { page: string; hreflang: string; problem: string }[] = [];
+    const unsupported: { page: string; hreflang: string; problem: string }[] = [];
+    const relative: { page: string; hreflang: string; href: string }[] = [];
+    const conflicting: { page: string; hreflang: string; urls: string[] }[] = [];
+    const shared: { page: string; url: string; hreflangs: string[] }[] = [];
+    const repeatedDefault: string[] = [];
+    const lonelyDefault: string[] = [];
+    const locales = new Set<string>();
+
+    for (const page of annotated) {
+      const entries = page.extracted?.hreflang ?? [];
+      /** What each value points at on this page, and what points at each URL. */
+      const byTag = new Map<string, Set<string>>();
+      const byUrl = new Map<string, Set<string>>();
+      let defaults = 0;
+
+      for (const entry of entries) {
+        const value = entry.hreflang.trim();
+        const key = value.toLowerCase();
+        const target = normalizeUrl(entry.url) ?? entry.url;
+        add(byTag, key, target);
+        add(byUrl, target, key);
+
+        if (key === 'x-default') {
+          defaults += 1;
+        } else {
+          const verdict = checkLanguageTag(value);
+          if (!verdict.ok) {
+            invalid.push({ page: page.normalizedUrl, hreflang: value, problem: verdict.problem });
+          } else {
+            locales.add(key);
+            if (verdict.warning !== undefined) {
+              unsupported.push({ page: page.normalizedUrl, hreflang: value, problem: verdict.warning });
+            }
+          }
+        }
+        // A relative hreflang href is not a small untidiness: the annotation is
+        // discarded, so the locale it names is simply absent.
+        if (!/^https?:\/\//i.test(entry.href.trim())) {
+          relative.push({ page: page.normalizedUrl, hreflang: value, href: entry.href });
+        }
+      }
+
+      for (const [hreflang, urls] of byTag) {
+        // A repeated x-default is an ambiguous fallback, reported as itself
+        // below rather than as one more locale that cannot make its mind up.
+        if (hreflang === 'x-default') continue;
+        if (urls.size > 1) {
+          conflicting.push({ page: page.normalizedUrl, hreflang, urls: [...urls] });
+        }
+      }
+      for (const [url, tags] of byUrl) {
+        // x-default is meant to double up on a real locale's URL; two *locales*
+        // on one URL is the thing 1.14 asks against.
+        const named = [...tags].filter((tag) => tag !== 'x-default');
+        if (named.length > 1) shared.push({ page: page.normalizedUrl, url, hreflangs: named });
+      }
+      if (defaults > 1) repeatedDefault.push(page.normalizedUrl);
+      if (defaults === 1 && byTag.size <= 2) lonelyDefault.push(page.normalizedUrl);
+    }
+
+    // Ordered by how completely each defect stops the annotation working.
+    if (invalid.length > 0) {
+      const first = invalid[0]!;
+      return fail(
+        `${invalid.length} hreflang value(s) name a locale that does not exist: "${first.hreflang}" ${first.problem}.`,
+        { samples: invalid.slice(0, 10) },
+      );
+    }
+    if (relative.length > 0) {
+      return fail(`${relative.length} hreflang annotation(s) use a relative href and are ignored.`, {
+        samples: relative.slice(0, 10),
+      });
+    }
+    if (conflicting.length > 0) {
+      return fail(`${conflicting.length} hreflang value(s) are declared twice pointing at different URLs.`, {
+        samples: conflicting.slice(0, 10),
+      });
+    }
+    if (shared.length > 0) {
+      return fail(`${shared.length} URL(s) are claimed by more than one locale, so the locales are not on distinct URLs.`, {
+        samples: shared.slice(0, 10),
+      });
+    }
+    if (repeatedDefault.length > 0) {
+      return fail(`${repeatedDefault.length} page(s) declare x-default more than once.`, {
+        samples: repeatedDefault.slice(0, 10),
+      });
+    }
+
+    const detail = { annotatedPages: annotated.length, locales: [...locales].sort() };
+    if (unsupported.length > 0) {
+      return warn(`${unsupported.length} hreflang value(s) use a region search engines do not document support for.`, {
+        ...detail,
+        samples: unsupported.slice(0, 10),
+      });
+    }
+    if (lonelyDefault.length > 0) {
+      return warn(`${lonelyDefault.length} page(s) declare x-default beside a single locale, so there is nothing to fall back from.`, {
+        ...detail,
+        samples: lonelyDefault.slice(0, 10),
+      });
+    }
+    return pass(
+      `${annotated.length} annotated page(s) name ${locales.size} supported locale(s) on distinct URLs.`,
       detail,
     );
   },
@@ -863,6 +1012,7 @@ export const siteProbes = [
   hostSlashPolicy,
   thirdPartyBudget,
   hreflangClusterQa,
+  hreflangImplementation,
   paginationCrawlPath,
   hostRedirect,
   faviconSiteName,

@@ -240,24 +240,43 @@ interface LoadedSitemaps {
   readonly videos: SitemapVideoEntry[];
 }
 
-/** Fetch every sitemap reachable from robots.txt, following index files once. */
+/**
+ * Fetch the sitemaps a site declares, a document budget at a time.
+ *
+ * Each sitemap named in robots.txt gets a lane of its own, and the budget is
+ * spent round-robin across the lanes: one document from the first, one from
+ * the second, and so on, with an index's children going back into the lane
+ * they came from. A site that declares one sitemap is unaffected.
+ *
+ * The alternative — one queue, first in first out — spends the whole budget on
+ * whatever was declared first. IGN declares eight sitemaps, of which
+ * `sitemap-videos.xml` is fourth, and its article index alone has more
+ * children than the budget: 510,000 URLs were read and not one of the 440
+ * video entries in a single quarterly file, because the crawl never got that
+ * far down the list. What a site declares first is not what an audit needs
+ * most.
+ */
 async function loadSitemaps(
   robots: Robots,
   origin: string,
   options: CrawlOptions,
   request: typeof fetchPage,
 ): Promise<LoadedSitemaps> {
-  const queue = robots.sitemaps.length > 0
+  const roots = robots.sitemaps.length > 0
     ? [...robots.sitemaps]
     : [new URL('/sitemap.xml', origin).toString()];
+  const lanes: string[][] = roots.map((root) => [root]);
   const seen = new Set<string>();
   const urls = new Set<string>();
   const documents: SitemapFetch[] = [];
   const videos: SitemapVideoEntry[] = [];
 
-  while (queue.length > 0 && seen.size < 50) {
+  let turn = 0;
+  while (seen.size < MAX_SITEMAP_DOCUMENTS && lanes.some((lane) => lane.length > 0)) {
     stopIfCancelled(options.signal);
-    const next = queue.shift();
+    const lane = lanes[turn % lanes.length];
+    turn += 1;
+    const next = lane?.shift();
     if (next === undefined || seen.has(next)) continue;
     seen.add(next);
 
@@ -292,7 +311,9 @@ async function loadSitemaps(
       videoCount: parsed.videos.length,
       truncated: result.truncated,
     });
-    for (const sitemap of parsed.sitemaps) queue.push(sitemap);
+    // Back into the lane it came from, so one index's children cannot crowd
+    // out another root's.
+    for (const sitemap of parsed.sitemaps) lane?.push(sitemap);
   }
   return { urls: [...urls], documents, videos };
 }
@@ -434,6 +455,16 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
     auxiliary,
   };
 }
+
+/**
+ * How many sitemap documents one crawl will read.
+ *
+ * A bound on work, not a judgement about the site: large sites paginate their
+ * sitemaps into hundreds of files and reading them all would cost more
+ * requests than the crawl itself. Which documents the budget buys is the
+ * question `loadSitemaps` answers by lane.
+ */
+const MAX_SITEMAP_DOCUMENTS = 50;
 
 /** At most three: a favicon, a touch icon, and one more. Beyond that is noise. */
 const MAX_ICON_FETCHES = 3;

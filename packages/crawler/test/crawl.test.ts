@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { crawl, extract, extractSitemapUrls, fetchPage } from '@seo/crawler';
+import type { FetchResult } from '@seo/crawler';
 import type { CrawlResult } from '@seo/crawler';
 import { startFixtureSite } from '@seo/testkit';
 import type { FixtureSite } from '@seo/testkit';
@@ -214,5 +215,113 @@ describe('a body larger than the fetch budget', () => {
     });
     expect(result.truncated).toBe(false);
     expect(result.body.length).toBeGreaterThan(0);
+  });
+});
+
+// --- how the sitemap budget is spent ----------------------------------------
+
+/**
+ * The shape IGN has: several sitemaps declared, the interesting one late in
+ * the list, and an index ahead of it with more children than the budget. Read
+ * first in first out, the crawl reads half a million article URLs and none of
+ * the video entries.
+ */
+describe('a site declaring more sitemaps than the budget can read', () => {
+  const ORIGIN = 'https://sitemaps.test';
+
+  const xml = (body: string): string =>
+    `<?xml version="1.0" encoding="UTF-8"?>${body}`;
+
+  const index = (children: readonly string[]): string =>
+    xml(
+      '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' +
+        children.map((child) => `<sitemap><loc>${child}</loc></sitemap>`).join('') +
+        '</sitemapindex>',
+    );
+
+  const articleChildren = Array.from(
+    { length: 80 },
+    (_, i) => `${ORIGIN}/sitemaps/articles-${i}.xml`,
+  );
+  const videoChildren = [`${ORIGIN}/sitemaps/videos-2025.xml`, `${ORIGIN}/sitemaps/videos-2026.xml`];
+
+  const urlset = (loc: string, video?: string): string =>
+    xml(
+      '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" ' +
+        'xmlns:video="http://www.google.com/schemas/sitemap-video/1.1">' +
+        `<url><loc>${loc}</loc>${video ?? ''}</url></urlset>`,
+    );
+
+  const VIDEO =
+    '<video:video>' +
+    `<video:thumbnail_loc>${ORIGIN}/t.jpg</video:thumbnail_loc>` +
+    '<video:title>A talk</video:title>' +
+    '<video:description>About something.</video:description>' +
+    `<video:content_loc>${ORIGIN}/m.mp4</video:content_loc>` +
+    '</video:video>';
+
+  const body = (url: string): string | null => {
+    if (url === `${ORIGIN}/robots.txt`) {
+      return `User-agent: *\nAllow: /\nSitemap: ${ORIGIN}/sitemaps/articles.xml\nSitemap: ${ORIGIN}/sitemaps/videos.xml\n`;
+    }
+    if (url === `${ORIGIN}/sitemaps/articles.xml`) return index(articleChildren);
+    if (url === `${ORIGIN}/sitemaps/videos.xml`) return index(videoChildren);
+    if (articleChildren.includes(url)) return urlset(`${ORIGIN}/article/${articleChildren.indexOf(url)}`);
+    if (videoChildren.includes(url)) return urlset(`${ORIGIN}/watch/${videoChildren.indexOf(url)}`, VIDEO);
+    if (url === `${ORIGIN}/`) return '<html><body><p>home</p></body></html>';
+    return null;
+  };
+
+  const requested: string[] = [];
+
+  const fetchImpl = async (url: string): Promise<FetchResult> => {
+    requested.push(url);
+    const content = body(url);
+    return {
+      requestedUrl: url,
+      finalUrl: url,
+      status: content === null ? 404 : 200,
+      headers: {},
+      redirectChain: [],
+      body: content ?? '',
+      byteLength: content?.length ?? 0,
+      truncated: false,
+      contentType: url.endsWith('.xml') ? 'application/xml' : 'text/html',
+      ttfbMs: 1,
+      totalMs: 1,
+      error: null,
+    };
+  };
+
+  let result: CrawlResult;
+
+  beforeAll(async () => {
+    result = await crawl({
+      seeds: [`${ORIGIN}/`],
+      userAgent: 'seo-optimizer/0.1 (+test)',
+      maxPages: 1,
+      maxDepth: 0,
+      auxiliary: false,
+      fetchImpl: fetchImpl as unknown as typeof fetchPage,
+    });
+  });
+
+  it('reads the late-declared video sitemap despite the index ahead of it', () => {
+    expect(result.sitemapVideos.length).toBe(2);
+    expect(result.sitemapVideos.map((entry) => entry.loc)).toEqual([
+      `${ORIGIN}/watch/0`,
+      `${ORIGIN}/watch/1`,
+    ]);
+  });
+
+  it('still spends no more than the document budget', () => {
+    expect(result.sitemaps.length).toBeLessThanOrEqual(50);
+    expect(requested.filter((url) => url.includes('/sitemaps/')).length).toBeLessThanOrEqual(50);
+  });
+
+  it('reads both lanes rather than draining the first', () => {
+    const read = result.sitemaps.map((document) => document.url);
+    expect(read.filter((url) => url.includes('articles-')).length).toBeGreaterThan(10);
+    expect(read.filter((url) => url.includes('videos-')).length).toBe(2);
   });
 });

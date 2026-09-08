@@ -29,6 +29,16 @@
  * usable in a test and in the offline analyzer. See `./store.ts` for what the
  * store does and does not promise.
  *
+ * A store that leases its jobs makes the namespace shareable. The queue holds
+ * what it is running on a claim it has to keep renewing — `heartbeatMs` is how
+ * often — and a claim it fails to renew ages out so another worker may take the
+ * job on. That is what lets a second process share one namespace without both
+ * running the same audit: a worker that has stopped stops renewing, and only
+ * then does its work become anybody else's. The other half is that a worker
+ * whose claim is taken finds out and stands down, which is `JobLeaseLostError`
+ * below — it stops the job, does not retry it, and writes nothing further to
+ * the store, because the row is the new owner's now.
+ *
  * Retries are mechanism here and policy elsewhere. This file knows how to hold
  * a failed job back, wake it and run it again; it holds no opinion on which
  * failures deserve that, because the answer is about the work rather than about
@@ -37,7 +47,7 @@
  * none and a failed job settles as `failed` and stays that way.
  */
 
-import { JobCancelledError } from './types.js';
+import { JobCancelledError, JobLeaseLostError } from './types.js';
 import type { RetryPolicy } from './retry.js';
 import type { JobStore, StoredJob } from './store.js';
 import type { Job, JobEvent, JobHandler, JobState } from './types.js';
@@ -63,6 +73,17 @@ export interface JobQueueOptions<TPayload, TResult> {
    * lost job is acceptable.
    */
   readonly store?: JobStore<TPayload>;
+  /**
+   * How often to renew this queue's claim on the jobs it holds.
+   *
+   * Only meaningful with a store that leases — one implementing `renew` — and
+   * ignored otherwise, which is what keeps the single-owner arrangement the
+   * default. Set it well below the store's lease duration: the renewal has to
+   * survive a slow database and a busy event loop, and a claim that expires
+   * while this process is still working the job hands that job to somebody
+   * else. A third of the lease is the usual shape.
+   */
+  readonly heartbeatMs?: number;
   /**
    * Called when a store write fails after the job was created.
    *
@@ -145,10 +166,18 @@ interface Entry<TPayload, TResult> {
   /** Set by `cancel` on a running job; read once the handler returns. */
   cancelRequested: boolean;
   /**
-   * Whether the job's first store write has landed. A `pending` job is skipped
-   * by `#take`, so nothing runs before it is durable.
+   * Set when a heartbeat finds this job is no longer ours. Read once the
+   * handler returns, and it outranks `cancelRequested`: a job someone else now
+   * holds is not one this process can report as stopped.
    */
-  durability: 'none' | 'pending' | 'stored';
+  leaseLost: boolean;
+  /**
+   * Whether the job's first store write has landed. A `pending` job is skipped
+   * by `#take`, so nothing runs before it is durable. `lost` is terminal for
+   * the store's purposes: the row belongs to another worker and this process
+   * writes nothing more about it.
+   */
+  durability: 'none' | 'pending' | 'stored' | 'lost';
   /**
    * Serializes this job's store writes. Transitions are generated faster than
    * a database answers, and two updates racing could leave the stored state
@@ -170,6 +199,7 @@ export class JobQueue<TPayload, TResult = void> {
   readonly #store: JobStore<TPayload> | undefined;
   readonly #onStoreError: ((error: unknown, job: Job<TPayload>) => void) | undefined;
   readonly #onEvent: ((event: JobEvent<TPayload>) => void) | undefined;
+  readonly #heartbeatMs: number | undefined;
   readonly #now: () => Date;
   readonly #historyLimit: number;
 
@@ -194,6 +224,7 @@ export class JobQueue<TPayload, TResult = void> {
   #writes = 0;
   #recovered = false;
   #retryTimer: ReturnType<typeof setTimeout> | undefined;
+  #heartbeatTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(options: JobQueueOptions<TPayload, TResult>) {
     if (!Number.isInteger(options.concurrency) || options.concurrency < 1) {
@@ -205,6 +236,10 @@ export class JobQueue<TPayload, TResult = void> {
     this.#store = options.store;
     this.#onStoreError = options.onStoreError;
     this.#onEvent = options.onEvent;
+    this.#heartbeatMs =
+      options.heartbeatMs !== undefined && options.store?.renew !== undefined
+        ? options.heartbeatMs
+        : undefined;
     this.#now = options.now ?? (() => new Date());
     this.#historyLimit = options.historyLimit ?? 500;
     this.#paused = options.paused ?? false;
@@ -244,6 +279,14 @@ export class JobQueue<TPayload, TResult = void> {
   /** Whether jobs are being written down at all. */
   get durable(): boolean {
     return this.#store !== undefined;
+  }
+
+  /**
+   * Whether this queue renews a claim on what it holds, and so may share its
+   * namespace with another worker.
+   */
+  get leased(): boolean {
+    return this.#heartbeatMs !== undefined;
   }
 
   enqueue(payload: TPayload, options: EnqueueOptions = {}): JobHandle<TPayload, TResult> {
@@ -381,6 +424,7 @@ export class JobQueue<TPayload, TResult = void> {
       dueAt: null,
       error: seed.error,
       cancelRequested: false,
+      leaseLost: false,
       durability: this.#store === undefined ? 'none' : 'pending',
       storeChain: Promise.resolve(),
     };
@@ -443,12 +487,21 @@ export class JobQueue<TPayload, TResult = void> {
   #persist(entry: Entry<TPayload, TResult>, op: 'save' | 'remove'): void {
     const store = this.#store;
     if (store === undefined || entry.durability === 'none') return;
+    // A job whose lease went is a row this process no longer owns. Saving it
+    // would overwrite the new owner's state; removing it would delete their
+    // work outright. Silence is the only correct write.
+    if (entry.durability === 'lost') return;
 
     const job = op === 'save' ? this.#stored(entry) : undefined;
     this.#writes += 1;
     entry.storeChain = entry.storeChain
       .then(() => (job === undefined ? store.remove(entry.id) : store.save(job)))
       .catch((error: unknown) => {
+        // A store that refuses the write because the row is no longer ours has
+        // just answered the question the heartbeat asks. Acting on it here
+        // rather than waiting for the next beat is the difference between
+        // seconds of two workers on one job and none.
+        if (error instanceof JobLeaseLostError) this.#lose(entry.id);
         this.#reportStoreError(error, entry);
       })
       .finally(() => {
@@ -536,6 +589,10 @@ export class JobQueue<TPayload, TResult = void> {
     this.#closed = true;
     this.#paused = true;
     this.#scheduleWake();
+    if (this.#heartbeatTimer !== undefined) {
+      clearTimeout(this.#heartbeatTimer);
+      this.#heartbeatTimer = undefined;
+    }
 
     for (const entry of [...this.#queued]) this.cancel(entry.id);
     for (const entry of [...this.#active]) this.cancel(entry.id);
@@ -553,7 +610,92 @@ export class JobQueue<TPayload, TResult = void> {
       void this.#run(entry);
     }
     this.#scheduleWake();
+    this.#scheduleHeartbeat();
     this.#checkIdle();
+  }
+
+  /**
+   * The jobs this queue is holding a claim on: everything unfinished that the
+   * store has actually accepted.
+   *
+   * A job whose first write has not landed is not in the store to renew, and
+   * one whose lease is already gone is not ours to renew.
+   */
+  #held(): string[] {
+    const ids: string[] = [];
+    for (const entry of this.#byId.values()) {
+      if (TERMINAL.has(entry.state)) continue;
+      if (entry.durability !== 'stored') continue;
+      ids.push(entry.id);
+    }
+    return ids;
+  }
+
+  /**
+   * Keep one timer running while there is anything to renew.
+   *
+   * Scheduled after each beat rather than on an interval, so a slow store
+   * cannot stack renewals on top of each other, and stopped the moment nothing
+   * is outstanding, so an idle queue holds nothing open.
+   */
+  #scheduleHeartbeat(): void {
+    if (this.#heartbeatTimer !== undefined) return;
+    if (this.#heartbeatMs === undefined || this.#closed) return;
+    if (this.#held().length === 0) return;
+
+    this.#heartbeatTimer = setTimeout(() => {
+      this.#heartbeatTimer = undefined;
+      void this.#beat();
+    }, this.#heartbeatMs);
+  }
+
+  /**
+   * Renew every claim, and stand down from whatever came back lost.
+   *
+   * A renewal that throws is left for the next beat. It is the same
+   * best-effort bargain as every other write after the create, with one
+   * difference worth naming: if the store stays unreachable long enough, this
+   * queue's leases expire and another worker takes the work — which is the
+   * lease doing its job, not a failure mode to defend against here.
+   */
+  async #beat(): Promise<void> {
+    const renew = this.#store?.renew?.bind(this.#store);
+    const ids = this.#held();
+    if (renew !== undefined && ids.length > 0) {
+      try {
+        const lost = await renew(ids);
+        for (const id of lost) this.#lose(id);
+      } catch {
+        // deliberately ignored; the next beat tries again
+      }
+    }
+    this.#scheduleHeartbeat();
+    this.#pump();
+  }
+
+  /**
+   * Give up a job another worker now holds.
+   *
+   * A queued one never starts. A running one is signalled and settles as
+   * failed once its handler returns — not cancelled, because nobody stopped
+   * this work, and not retried, because the new owner is already doing it.
+   */
+  #lose(id: string): void {
+    const entry = this.#byId.get(id);
+    if (entry === undefined || TERMINAL.has(entry.state)) return;
+    if (entry.durability === 'lost') return;
+
+    entry.durability = 'lost';
+    entry.leaseLost = true;
+    this.#emit({ type: 'lease-lost', job: snapshot(entry) });
+
+    if (entry.state === 'queued') {
+      const index = this.#queued.indexOf(entry);
+      if (index >= 0) this.#queued.splice(index, 1);
+      this.#settle(entry, 'failed', new JobLeaseLostError(entry.id));
+      return;
+    }
+    entry.controller.abort(new JobLeaseLostError(entry.id));
   }
 
   /**
@@ -639,10 +781,17 @@ export class JobQueue<TPayload, TResult = void> {
     this.#active.delete(entry);
     if (entry.lane !== null) this.#busyLanes.delete(entry.lane);
 
+    // Losing the lease is settled first and settled here, without asking the
+    // retry policy: another worker holds this job, so a repeat would be two
+    // processes running one audit, which is the exact thing the lane rules
+    // exist to prevent.
+    if (entry.leaseLost) {
+      this.#settle(entry, 'failed', new JobLeaseLostError(entry.id));
+    }
     // A handler that threw because it was cancelled reports as cancelled, not
     // as a site or engine failure. The distinction matters: a failed audit is
     // something to investigate, a cancelled one is something someone did.
-    if (entry.cancelRequested) {
+    else if (entry.cancelRequested) {
       this.#settle(entry, 'cancelled', new JobCancelledError(entry.id));
     } else if (!threw) {
       this.#settle(entry, 'complete', undefined, result as TResult);

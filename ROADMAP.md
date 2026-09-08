@@ -2,7 +2,7 @@
 
 ## Status
 Current phase: Phase 4 — Orchestration & Scaling
-Last updated: 2026-09-05
+Last updated: 2026-09-08
 
 ## Phase 0 — Foundation
 - [x] Create monorepo structure with TypeScript workspace packages
@@ -45,7 +45,7 @@ Last updated: 2026-09-05
 - [x] Build retry logic and error recovery for failed audits (@seo/queue: held jobs, backoff, retry-aware cancellation; @seo/scheduler: which failures repeat, and the audit row across attempts)
 - [ ] Handle multiple concurrent site audits without resource contention
 - [x] Back the job queue with durable storage so a restart does not lose queued audits (@seo/queue: a `JobStore` seam; @seo/job-store: the `jobs` table behind it; @seo/scheduler: `recover()` on the way up)
-- [ ] Expire and renew job leases so a second worker can share one queue namespace (the `owner` and `leased_at` columns exist and are stamped; nothing reads them yet)
+- [x] Expire and renew job leases so a second worker can share one queue namespace (@seo/job-store: `leaseMs`, a claim that ages out by the database clock, `renew`, and writes refused on a row that has moved on; @seo/queue: `heartbeatMs` and `JobLeaseLostError`; @seo/scheduler: `heartbeatMs`, and a `reconcile` that leaves another worker's audits alone)
 - [x] Reconcile audits left `pending` with no job behind them (@seo/scheduler: `reconcile()` closes out rows nothing is going to run, bounded by the database clock at recovery)
 - [x] Give crawl() cooperative cancellation so a cancelled job stops mid-crawl rather than at the end (@seo/crawler: a `signal` checked between requests and inside the politeness delay; a cancelled crawl reads `cancelled`, not `failed`)
 - [x] Grade probe evidence into checkStates and freeze readiness on the audit (@seo/grader: verdicts, evidence trail, frozen readiness)
@@ -80,6 +80,13 @@ Last updated: 2026-09-05
 ## Blocked
 
 ## Decisions
+- 2026-09-08: made leases opt-in with `leaseMs` rather than the default, because turning them on changes what a restart means — a process that comes back under a new name has to wait out its own claim — and a store that quietly did that would have made every existing single-owner deployment slower to recover for a guarantee it was not asking for
+- 2026-09-08: measured lease expiry with Postgres's `now()` rather than the process's, on the same grounds as the reconcile cutoff: every timestamp being compared was written by the database, and a claim decided by two machines agreeing about the time would eventually hand one worker's job to another over nothing but clock skew
+- 2026-09-08: had a lost lease settle the job as `failed` without asking the retry policy, because a retry here would be this process running what the new owner already is — the exact thing the origin lane exists to prevent, arrived at from the other direction
+- 2026-09-08: made `save` and `remove` refuse to touch a row another worker holds, and had `save` say so by throwing, because a superseded process finishing its run would otherwise overwrite the new owner's state or delete their job outright; the throw is also what lets the queue stand down at once instead of waiting for the next heartbeat to tell it the same thing
+- 2026-09-08: had `runAudit` write nothing to the `audits` row when the lease went, rather than closing it out as cancelled — the run stopping is true of this process, not of the audit, and the row belongs to whoever is running it now
+- 2026-09-08: taught `reconcile` to ask the store what is outstanding for *anyone* before writing an audit off, because with two workers the in-memory queue is no longer the whole answer to "is anything going to run this" and the sweep would otherwise fail exactly the audits the other worker was quietly getting on with
+- 2026-09-08: left ownership recorded and unenforced on the write path, and put the guarantee in the claim instead — a worker only runs what `load` handed it, and only holds it while it keeps renewing — because enforcing it per statement would mean a lock protocol the queue would have to understand, and the interface is deliberately three methods with no locking in them
 - 2026-09-08: added `sites.aiPolicy` as jsonb rather than a table or an enum, because the shape is a map from crawler name to stance and crawler names change faster than anything needing a migration should; the policy joins `flags` as the second thing on a site record that a person states and no crawl can derive
 - 2026-09-08: had `ai-crawler-directive-verify` compare robots.txt against the policy in *both* directions, because the missed case is the welcoming one — a blanket disallow written years ago quietly excludes the crawler someone has since decided to court, and only the policy makes that visible
 - 2026-09-08: treated a disallowed crawler still receiving a 200 as normal rather than a defect: robots.txt asks and well-behaved crawlers comply, so robots-only enforcement is the common shape. Only the reverse — a welcomed crawler turned away at the edge — is infrastructure contradicting a decision

@@ -37,6 +37,7 @@
  * it is one.
  */
 
+import { JobLeaseLostError } from './types.js';
 import type { JobState } from './types.js';
 
 /**
@@ -63,17 +64,76 @@ export interface StoredJob<TPayload> {
 
 export interface JobStore<TPayload> {
   /**
-   * Every job that has not finished, oldest first.
+   * Every job that has not finished and that this owner may run, oldest first.
    *
    * Called once by `JobQueue.recover`. An implementation backed by shared
    * storage claims what it returns, so a second process reading the same store
-   * does not hand out the same work twice.
+   * does not hand out the same work twice. A store that leases its jobs returns
+   * only what is free — unclaimed, already this owner's, or held by a lease
+   * that has expired — and leaves the rest to whoever is still holding them.
    */
   load(): Promise<readonly StoredJob<TPayload>[]>;
   /** Write a job, creating it or replacing what is stored under its id. */
   save(job: StoredJob<TPayload>): Promise<void>;
   /** Forget a job. Removing one that is not there is not an error. */
   remove(id: string): Promise<void>;
+  /**
+   * Refresh this owner's claim on the jobs it is still working, and report
+   * which of them it has lost.
+   *
+   * Optional, and the whole of what makes a namespace shareable. A lease says
+   * "this worker holds this job until then", and a worker that has stopped —
+   * crashed, wedged, cut off from the database — stops saying it, so the claim
+   * ages out and another worker may take the job. That is only safe if a worker
+   * still alive keeps renewing, and only honest if a worker whose claim was
+   * taken finds out. This method is both halves.
+   *
+   * Returns the subset of `ids` this owner no longer holds: taken by another
+   * worker, or gone from the store entirely. The queue stops those jobs and
+   * writes nothing further about them.
+   *
+   * A store without leases leaves this undefined, and a queue given one never
+   * asks. That is the single-owner arrangement, unchanged.
+   */
+  renew?(ids: readonly string[]): Promise<readonly string[]>;
+  /**
+   * Every outstanding job id in this namespace, whoever holds it.
+   *
+   * Optional, and deliberately not a claim: it is how a caller tells "nothing
+   * is going to run this" apart from "someone else is". @seo/scheduler's
+   * `reconcile` uses it so a second worker's audits are not closed out from
+   * under it as abandoned.
+   */
+  outstanding?(): Promise<readonly string[]>;
+}
+
+/** What a store remembers about who holds a job, and since when. */
+interface Lease {
+  readonly owner: string;
+  readonly leasedAt: number;
+}
+
+export interface MemoryJobStoreOptions<TPayload> {
+  /** Which worker this handle speaks for. Only matters with `leaseMs`. */
+  readonly owner?: string;
+  /**
+   * How long a claim stands without being renewed. Omit for no leases at all,
+   * which is the single-owner behaviour: `load` claims everything it finds.
+   */
+  readonly leaseMs?: number;
+  /** Injection seam for a test that needs to age a lease without waiting. */
+  readonly now?: () => number;
+  /**
+   * The state another handle on the same store already holds.
+   *
+   * Not for callers to build — `withOwner` passes it. Two handles sharing this
+   * are two workers sharing one store, which is what a lease test needs and
+   * what a table gives you for free.
+   */
+  readonly shared?: {
+    readonly jobs: Map<string, StoredJob<TPayload>>;
+    readonly leases: Map<string, Lease>;
+  };
 }
 
 /**
@@ -85,27 +145,97 @@ export interface JobStore<TPayload> {
  * work to the next, which is a restart with the crash left out.
  */
 export class MemoryJobStore<TPayload> implements JobStore<TPayload> {
-  readonly #jobs = new Map<string, StoredJob<TPayload>>();
+  readonly #jobs: Map<string, StoredJob<TPayload>>;
+  readonly #leases: Map<string, Lease>;
+  readonly #owner: string;
+  readonly #leaseMs: number | undefined;
+  readonly #now: () => number;
 
-  constructor(initial: Iterable<StoredJob<TPayload>> = []) {
+  constructor(
+    initial: Iterable<StoredJob<TPayload>> = [],
+    options: MemoryJobStoreOptions<TPayload> = {},
+  ) {
+    this.#jobs = options.shared?.jobs ?? new Map();
+    this.#leases = options.shared?.leases ?? new Map();
+    this.#owner = options.owner ?? 'memory';
+    this.#leaseMs = options.leaseMs;
+    this.#now = options.now ?? (() => Date.now());
     for (const job of initial) this.#jobs.set(job.id, job);
   }
 
+  /** Who this handle claims jobs as. */
+  get owner(): string {
+    return this.#owner;
+  }
+
+  /**
+   * A second handle on the same jobs, speaking for a different worker.
+   *
+   * This is what makes two workers testable without two processes: the stored
+   * state is shared exactly as a table is, and the handles agree about nothing
+   * else.
+   */
+  withOwner(owner: string): MemoryJobStore<TPayload> {
+    return new MemoryJobStore<TPayload>([], {
+      owner,
+      ...(this.#leaseMs === undefined ? {} : { leaseMs: this.#leaseMs }),
+      now: this.#now,
+      shared: { jobs: this.#jobs, leases: this.#leases },
+    });
+  }
+
+  /** Whether someone else's claim on this job is still standing. */
+  #heldByAnother(id: string): boolean {
+    if (this.#leaseMs === undefined) return false;
+    const lease = this.#leases.get(id);
+    if (lease === undefined || lease.owner === this.#owner) return false;
+    return this.#now() - lease.leasedAt < this.#leaseMs;
+  }
+
+  #claim(id: string): void {
+    this.#leases.set(id, { owner: this.#owner, leasedAt: this.#now() });
+  }
+
   load(): Promise<readonly StoredJob<TPayload>[]> {
-    const jobs = [...this.#jobs.values()].sort(
-      (a, b) => a.enqueuedAt.getTime() - b.enqueuedAt.getTime(),
-    );
+    const jobs = [...this.#jobs.values()]
+      .filter((job) => !this.#heldByAnother(job.id))
+      .sort((a, b) => a.enqueuedAt.getTime() - b.enqueuedAt.getTime());
+    for (const job of jobs) this.#claim(job.id);
     return Promise.resolve(jobs);
   }
 
   save(job: StoredJob<TPayload>): Promise<void> {
+    // Refused rather than merged: the row is another worker's now, and the
+    // version this handle holds describes a run that worker has taken over.
+    if (this.#heldByAnother(job.id)) {
+      return Promise.reject(new JobLeaseLostError(job.id));
+    }
     this.#jobs.set(job.id, job);
+    this.#claim(job.id);
     return Promise.resolve();
   }
 
   remove(id: string): Promise<void> {
+    if (this.#heldByAnother(id)) return Promise.resolve();
     this.#jobs.delete(id);
+    this.#leases.delete(id);
     return Promise.resolve();
+  }
+
+  renew(ids: readonly string[]): Promise<readonly string[]> {
+    const lost: string[] = [];
+    for (const id of ids) {
+      if (!this.#jobs.has(id) || this.#heldByAnother(id)) {
+        lost.push(id);
+        continue;
+      }
+      this.#claim(id);
+    }
+    return Promise.resolve(lost);
+  }
+
+  outstanding(): Promise<readonly string[]> {
+    return Promise.resolve([...this.#jobs.keys()]);
   }
 
   /** What is outstanding right now, without claiming it. For assertions. */

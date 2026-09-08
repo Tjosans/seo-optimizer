@@ -24,7 +24,7 @@ import { CrawlCancelledError } from '@seo/crawler';
 import { crawlToDatabase, persistProbeRuns } from '@seo/persistence';
 import { runProbes } from '@seo/probes';
 import type { SiteContext } from '@seo/probes';
-import { JobCancelledError } from '@seo/queue';
+import { JobCancelledError, JobLeaseLostError } from '@seo/queue';
 import { UnknownSiteFlagsError } from './types.js';
 import type { AuditJob, AuditOutcome, CorpusSource } from './types.js';
 
@@ -46,6 +46,12 @@ import type { AuditJob, AuditOutcome, CorpusSource } from './types.js';
  * it between requests. A cancelled audit therefore stops within one request
  * rather than at the end of the crawl it started, and the pages it had already
  * streamed to the database stay — those are evidence, not debris.
+ *
+ * The signal has one other reason to fire: this process lost its lease on the
+ * job, and another worker now owns the audit. That run stops the same way and
+ * then says nothing at all about the row, because everything this function
+ * could write about the audit would be a claim about work someone else is
+ * still doing.
  */
 export async function runAudit(
   db: Database,
@@ -54,7 +60,11 @@ export async function runAudit(
   signal?: AbortSignal,
 ): Promise<AuditOutcome> {
   const stopIfCancelled = (): void => {
-    if (signal?.aborted === true) throw new JobCancelledError(job.auditId);
+    if (signal?.aborted !== true) return;
+    // Why the run is stopping decides what gets written at the end of it, so
+    // the reason travels with the error rather than being rediscovered later.
+    const reason: unknown = signal.reason;
+    throw reason instanceof JobLeaseLostError ? reason : new JobCancelledError(job.auditId);
   };
 
   stopIfCancelled();
@@ -144,6 +154,19 @@ export async function runAudit(
       readiness: recorded.frozen,
     };
   } catch (raw) {
+    // A lease lost mid-run means this process has been superseded: the row is
+    // another worker's, and it is running this audit now. Writing `failed` or
+    // `cancelled` here would put a verdict on the row about a run that is
+    // still going on somewhere else, so this attempt stands down silently and
+    // leaves the audit to its new owner.
+    const lease =
+      raw instanceof JobLeaseLostError
+        ? raw
+        : signal?.reason instanceof JobLeaseLostError
+          ? signal.reason
+          : undefined;
+    if (lease !== undefined) throw lease;
+
     // The crawler reports its own stop in its own vocabulary. Restating it as a
     // cancelled job is what keeps one identity for the thing that happened, so
     // the queue settles the job as cancelled and the retry policy — which reads

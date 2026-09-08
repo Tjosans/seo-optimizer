@@ -31,7 +31,7 @@
  */
 
 import { CorpusVersionMismatchError } from '@seo/grader';
-import { exponentialBackoff, JobCancelledError } from '@seo/queue';
+import { exponentialBackoff, JobCancelledError, JobLeaseLostError } from '@seo/queue';
 import type { RetryPolicy } from '@seo/queue';
 import { UnknownSiteError, UnknownSiteFlagsError } from './types.js';
 import type { AuditJob } from './types.js';
@@ -65,6 +65,10 @@ export function isPermanentAuditFailure(cause: unknown): boolean {
   return (
     // Not a failure at all: someone stopped it.
     cause instanceof JobCancelledError ||
+    // Also not a failure: another worker holds this audit and is running it.
+    // The queue settles a lost lease without asking, and this says the same
+    // thing again for any caller that asks the policy directly.
+    cause instanceof JobLeaseLostError ||
     cause instanceof PermanentAuditError ||
     cause instanceof UnknownSiteError ||
     cause instanceof UnknownSiteFlagsError ||

@@ -12,7 +12,7 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { fileURLToPath } from 'node:url';
-import { eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { loadCorpus } from '@seo/corpus';
 import { audits, createDatabase, jobs, sites } from '@seo/db';
 import { PostgresJobStore } from '@seo/job-store';
@@ -218,6 +218,90 @@ describe.skipIf(!url)('an audit across a restart', () => {
       await storeless.recover();
       await expect(storeless.reconcile(scope())).rejects.toThrow('needs a store');
       await storeless.close();
+    });
+  });
+
+  describe('a namespace two workers share', () => {
+    const LEASE_MS = 30_000;
+    const scope = () => ({ siteIds: [siteId] });
+
+    const worker = (owner: string) =>
+      new PostgresJobStore<AuditJob>({ db, queue, owner, leaseMs: LEASE_MS });
+
+    /** Age a worker's claim past its lease, by the database's own clock. */
+    const abandon = async (auditId: string) => {
+      await db
+        .update(jobs)
+        .set({ leasedAt: sql`now() - make_interval(secs => ${LEASE_MS / 1000 + 1})` })
+        .where(and(eq(jobs.queue, queue), eq(jobs.id, auditId)));
+    };
+
+    it('leaves an audit the other worker is still holding', async () => {
+      const holder = new AuditScheduler({
+        db,
+        corpus,
+        crawl: BUDGET,
+        store: worker('worker-a'),
+        heartbeatMs: 1_000,
+        paused: true,
+      });
+      const submitted = await holder.submit({ siteId, corpusVersion: '4.4' });
+
+      // The second worker sees a `pending` row it did not submit and has no
+      // job for — which is exactly what an orphan looks like from here. The
+      // difference is that somebody else is holding this one.
+      const sweeper = new AuditScheduler({
+        db,
+        corpus,
+        crawl: BUDGET,
+        store: worker('worker-b'),
+        heartbeatMs: 1_000,
+        paused: true,
+      });
+      expect(await sweeper.recover()).toBe(0);
+      await sweeper.reconcile(scope());
+
+      expect((await auditRow(submitted.auditId))?.status).toBe('pending');
+
+      await sweeper.close();
+      await holder.close();
+    });
+
+    it('picks up an audit whose worker stopped saying it was theirs', async () => {
+      const dying = new AuditScheduler({
+        db,
+        corpus,
+        crawl: BUDGET,
+        store: worker('worker-a'),
+        heartbeatMs: 1_000,
+        paused: true,
+      });
+      const submitted = await dying.submit({ siteId, corpusVersion: '4.4' });
+      // No close and no drain: worker A is gone, and its claim ages out.
+      await abandon(submitted.auditId);
+
+      const survivor = new AuditScheduler({
+        db,
+        corpus,
+        crawl: BUDGET,
+        store: worker('worker-b'),
+        heartbeatMs: 1_000,
+      });
+      expect(await survivor.recover()).toBe(1);
+      await survivor.drain();
+
+      const row = await auditRow(submitted.auditId);
+      expect(row?.status).toBe('complete');
+      expect(row?.readiness).not.toBeNull();
+
+      // Settled by its new owner, and gone from the namespace both share.
+      const [left] = await db
+        .select({ id: jobs.id })
+        .from(jobs)
+        .where(and(eq(jobs.queue, queue), eq(jobs.id, submitted.auditId)));
+      expect(left).toBeUndefined();
+
+      await survivor.close();
     });
   });
 });

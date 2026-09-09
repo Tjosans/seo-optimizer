@@ -115,22 +115,34 @@ function videoObjects(page: CrawledPage): Record<string, unknown>[] {
  * `players` is what a visitor would see — a `<video>` element or a known
  * player's frame. `nodes` is what a machine is told. The two are counted apart
  * because every finding in this file is about them disagreeing.
+ *
+ * A player is counted whether or not the markup says where its media comes
+ * from. Euronews serves `<video class="js-native-video">` and assigns the
+ * source in script, which is a video on the page by every measure that
+ * matters; counting only the ones with a `src` attribute made eight such pages
+ * read as carrying no video, and the detectors said nothing about any of them.
+ * `urls` is the subset the markup does state, which is all that robots.txt and
+ * the markup comparison can be asked about.
  */
 interface PageVideo {
-  readonly players: readonly string[];
+  /** Players a visitor would see, sourced or not. */
+  readonly count: number;
+  /** The source URLs the markup states, which may be fewer than `count`. */
+  readonly urls: readonly string[];
   readonly posters: readonly string[];
   readonly nodes: readonly Record<string, unknown>[];
 }
 
 function videosOn(page: CrawledPage): PageVideo {
   const extracted = page.extracted;
-  if (extracted === null) return { players: [], posters: [], nodes: [] };
+  if (extracted === null) return { count: 0, urls: [], posters: [], nodes: [] };
 
   const elements = extracted.media.filter((item) => item.kind === 'video');
   const frames = extracted.frames.filter((frame) => isPlayerFrame(frame.src));
 
   return {
-    players: [
+    count: elements.length + frames.length,
+    urls: [
       ...elements.map((element) => element.src).filter((src): src is string => src !== null),
       ...frames.map((frame) => frame.src),
     ],
@@ -144,7 +156,7 @@ function videosOn(page: CrawledPage): PageVideo {
 /** A page that plays a video, or says it has one. */
 const carriesVideo = (page: CrawledPage): boolean => {
   const video = videosOn(page);
-  return video.players.length > 0 || video.nodes.length > 0;
+  return video.count > 0 || video.nodes.length > 0;
 };
 
 const isNoindex = (page: CrawledPage): boolean =>
@@ -221,12 +233,12 @@ export const videoWatchPage: PageProbe = {
     if (extracted === null) return notApplicable(NO_HTML);
 
     const video = videosOn(page);
-    if (video.players.length === 0 && video.nodes.length === 0) {
+    if (video.count === 0 && video.nodes.length === 0) {
       return notApplicable('The page plays no video and declares none.');
     }
 
     const data = {
-      players: video.players.length,
+      players: video.count,
       videoObjects: video.nodes.length,
       wordCount: extracted.wordCount,
     };
@@ -248,7 +260,7 @@ export const videoWatchPage: PageProbe = {
         .filter((url): url is string => url !== null),
       ...(extracted.openGraph['og:image'] === undefined ? [] : [extracted.openGraph['og:image']]),
     ];
-    const blockedPlayers = video.players.filter((url) =>
+    const blockedPlayers = video.urls.filter((url) =>
       blockedForAgent(site.crawl, site.origin, VIDEO_AGENT, url),
     );
     const blockedThumbnails = thumbnails.filter((url) =>
@@ -278,7 +290,7 @@ export const videoWatchPage: PageProbe = {
 
     return notes.length === 0
       ? pass(
-          `A watch page for ${video.players.length || video.nodes.length} video(s): indexable, ` +
+          `A watch page for ${video.count || video.nodes.length} video(s): indexable, ` +
             'with a declared thumbnail and surrounding context.',
           data,
         )
@@ -305,15 +317,15 @@ export const videoObjectSchema: PageProbe = {
     if (extracted === null) return notApplicable(NO_HTML);
 
     const video = videosOn(page);
-    if (video.players.length === 0 && video.nodes.length === 0) {
+    if (video.count === 0 && video.nodes.length === 0) {
       return notApplicable('The page plays no video and declares none.');
     }
 
     if (video.nodes.length === 0) {
       return fail(
-        `${video.players.length} video(s) play on this page and none is described by ` +
+        `${video.count} video(s) play on this page and none is described by ` +
           'VideoObject structured data.',
-        { players: video.players.slice(0, 5) },
+        { players: video.urls.slice(0, 5) },
       );
     }
 
@@ -339,7 +351,7 @@ export const videoObjectSchema: PageProbe = {
       }
     }
 
-    const data = { videoObjects: video.nodes.length, players: video.players.length };
+    const data = { videoObjects: video.nodes.length, players: video.count };
 
     if (defects.length > 0) {
       return fail(
@@ -349,12 +361,12 @@ export const videoObjectSchema: PageProbe = {
     }
 
     // Complete markup describing a video this page does not play is markup
-    // about something else. Only tested when there is a player to compare
-    // against: a video injected by script leaves nothing in the HTML, and the
-    // markup is then the only evidence there is.
-    if (video.players.length > 0) {
+    // about something else. Only players whose source the markup states can be
+    // compared: a player sourced in script says nothing about which video it
+    // is, and the markup is then the only evidence there is.
+    if (video.urls.length > 0) {
       const played = new Set(
-        video.players.map(mediaId).filter((id): id is string => id !== null),
+        video.urls.map(mediaId).filter((id): id is string => id !== null),
       );
       const declared = video.nodes
         .flatMap((node) => PLAYABLE.map((property) => stringProperty(node, property)))
@@ -369,12 +381,13 @@ export const videoObjectSchema: PageProbe = {
           { ...data, declared: declared.slice(0, 5), played: [...played].slice(0, 5) },
         );
       }
-      if (video.players.length > video.nodes.length) {
-        return warn(
-          `${video.players.length} video(s) play here and ${video.nodes.length} are described.`,
-          data,
-        );
-      }
+    }
+
+    if (video.count > video.nodes.length) {
+      return warn(
+        `${video.count} video(s) play here and ${video.nodes.length} are described.`,
+        data,
+      );
     }
 
     return pass(

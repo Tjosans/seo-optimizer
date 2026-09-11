@@ -284,13 +284,15 @@ async function loadSitemaps(
     if (next === undefined || seen.has(next)) continue;
     seen.add(next);
 
-    // Parsed as it arrives, up to the protocol's own ceiling. A fetch that
-    // returns its body instead of streaming it — a test double, a replayed
-    // crawl — is parsed the same way afterwards.
+    // Parsed as it arrives, up to the protocol's own ceiling, and opened first
+    // when it is a `.xml.gz` — the ceiling is on the uncompressed size. A fetch
+    // that returns its body instead of streaming it — a test double, a
+    // replayed crawl — is parsed the same way afterwards.
     const parser = createSitemapParser();
     const result = await request(next, {
       userAgent: options.userAgent,
       maxBytes: SITEMAP_MAX_BYTES,
+      gunzip: true,
       onText: (chunk) => parser.write(chunk),
       ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
     });

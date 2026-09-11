@@ -199,14 +199,13 @@ describe('a body larger than the fetch budget', () => {
   // The cut is invisible in the parsed result — a severed element reads as an
   // element missing its last fields — so the flag is the only thing that keeps
   // a detector from reporting the crawler's own limit as the site's defect.
-  it('is marked truncated, and reports the size it would have been', async () => {
+  it('is marked truncated, and holds no more than the limit', async () => {
     const result = await fetchPage(`${site.origin}/`, {
       userAgent: 'seo-optimizer/0.1 (+test)',
       maxBytes: 64,
     });
     expect(result.truncated).toBe(true);
     expect(result.body.length).toBeLessThanOrEqual(64);
-    expect(result.byteLength).toBeGreaterThan(64);
   });
 
   it('is not marked truncated when the whole body fits', async () => {

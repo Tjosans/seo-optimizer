@@ -195,7 +195,7 @@ export const indexBloat: SiteProbe = {
     const cut = crawl.sitemaps.filter((document) => document.truncated);
     if (cut.length > 0) {
       return errored(
-        `${cut.length} sitemap(s) were too large to read in full, so what is listed is unknown.`,
+        `${cut.length} sitemap(s) could not be read in full, so what is listed is unknown.`,
         { samples: cut.slice(0, 5).map((document) => document.url) },
       );
     }

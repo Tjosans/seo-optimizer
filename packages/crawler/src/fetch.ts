@@ -22,16 +22,22 @@ export interface FetchResult {
   readonly headers: Readonly<Record<string, string>>;
   readonly redirectChain: readonly RedirectHop[];
   readonly body: string;
+  /**
+   * Bytes of body read, after any decompression. When `truncated`, this is
+   * how far the read got — a lower bound on the size, not the size.
+   */
   readonly byteLength: number;
   /**
-   * Whether `body` is the start of the response rather than all of it.
+   * Whether the body was read to its end.
    *
    * A body cut at `maxBytes` parses cleanly and is wrong in a way nothing
    * downstream can see: the last element is severed mid-attribute, and a
    * detector reading it finds a page or a sitemap entry missing what it
    * needs. That is the engine's cut, not the site's defect, so it has to be
    * visible — a probe reading a truncated body must say it could not observe,
-   * never that the site is broken.
+   * never that the site is broken. A gzip file that stops decompressing part
+   * way is marked the same way: what came before the damage is real, and
+   * nothing after it was observed.
    */
   readonly truncated: boolean;
   readonly contentType: string | null;
@@ -58,7 +64,13 @@ export interface FetchOptions {
   readonly userAgent: string;
   readonly timeoutMs?: number;
   readonly maxRedirects?: number;
-  /** Stop reading a body past this size. Protects against tarpits. */
+  /**
+   * Stop reading a body past this size, and cancel the rest of the response.
+   *
+   * The response is read a chunk at a time and abandoned at the limit, so a
+   * tarpit — or a link to a two-gigabyte video the walk followed like any
+   * other — costs this much and no more, in bandwidth and in memory.
+   */
   readonly maxBytes?: number;
   readonly acceptLanguage?: string;
   /** Keep the raw body of a non-textual response, up to `maxAssetBytes`. */
@@ -70,11 +82,23 @@ export interface FetchOptions {
    *
    * For a document fetched only to be parsed into something far smaller — a
    * sitemap — the whole body held as one string is the expensive part. With
-   * this set, each decoded chunk goes to the callback, `body` comes back
-   * empty, and `maxBytes` stops the read where it stands rather than after the
-   * whole response has arrived; `byteLength` then counts what was read.
+   * this set, each decoded chunk goes to the callback and `body` comes back
+   * empty.
    */
   readonly onText?: (chunk: string) => void;
+  /**
+   * Read a body that is itself a gzip file as the text inside it.
+   *
+   * Sitemaps are routinely published as `sitemap.xml.gz`, and the protocol
+   * allows it. That is a file, not transport compression: `fetch` already
+   * undoes `Content-Encoding`, but a gzip file arrives still compressed and
+   * labelled however the server likes — `application/gzip`, `x-gzip`,
+   * `octet-stream`, now and then `text/xml`. So the file is recognised by its
+   * first two bytes rather than by its label, and `maxBytes` applies to what
+   * it expands to, which is also what stops a small file that inflates without
+   * end from being read without end.
+   */
+  readonly gunzip?: boolean;
 }
 
 const DEFAULTS = {
@@ -94,40 +118,111 @@ const headersToObject = (headers: Headers): Record<string, string> => {
 /** Only these bodies are worth reading; anything else is measured, not parsed. */
 const TEXTUAL = /^(text\/|application\/(xhtml\+xml|xml|json|ld\+json|rss\+xml))/;
 
+interface BodyRead {
+  readonly byteLength: number;
+  readonly truncated: boolean;
+}
+
 /**
- * Read a body chunk by chunk into `onText`, stopping at `maxBytes`.
+ * Read a stream chunk by chunk into `sink`, stopping at `maxBytes`.
  *
  * The chunk that crosses the limit is delivered up to the limit and no
- * further, and the rest of the response is cancelled rather than downloaded to
- * be thrown away. A multi-byte character severed by the cut is left undecoded:
- * the document is marked truncated either way, and a replacement character at
- * the end of it would be one more thing that looks like the site's.
+ * further, and the rest of the stream is cancelled rather than downloaded to
+ * be thrown away. An error `unreadable` recognises ends the read as truncated
+ * instead of failing it; anything else is rethrown.
  */
-async function streamText(
-  response: Response,
+async function readBounded(
+  stream: ReadableStream<Uint8Array>,
   maxBytes: number,
-  onText: (chunk: string) => void,
-): Promise<{ byteLength: number; truncated: boolean }> {
+  sink: (chunk: Uint8Array) => void,
+  unreadable: (cause: unknown) => boolean = () => false,
+): Promise<BodyRead> {
   let byteLength = 0;
-  if (response.body === null) return { byteLength, truncated: false };
-
-  const decoder = new TextDecoder();
-  const reader = response.body.getReader();
+  const reader = stream.getReader();
   for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
+    let next: Awaited<ReturnType<typeof reader.read>>;
+    try {
+      next = await reader.read();
+    } catch (cause) {
+      if (unreadable(cause)) return { byteLength, truncated: true };
+      throw cause;
+    }
+    if (next.done) return { byteLength, truncated: false };
+    const chunk = next.value;
     const room = maxBytes - byteLength;
-    byteLength += value.byteLength;
-    if (value.byteLength > room) {
-      onText(decoder.decode(value.subarray(0, room), { stream: true }));
+    byteLength += chunk.byteLength;
+    if (chunk.byteLength > room) {
+      if (room > 0) sink(chunk.subarray(0, room));
       await reader.cancel();
       return { byteLength, truncated: true };
     }
-    onText(decoder.decode(value, { stream: true }));
+    sink(chunk);
   }
-  const tail = decoder.decode();
-  if (tail !== '') onText(tail);
-  return { byteLength, truncated: false };
+}
+
+/** Every gzip file begins with these two bytes. */
+const GZIP_MAGIC = [0x1f, 0x8b] as const;
+
+interface Unwrapped {
+  readonly stream: ReadableStream<Uint8Array>;
+  readonly gzip: boolean;
+  /** Whether an error came from the network rather than from decompressing. */
+  readonly sourceFailed: () => boolean;
+}
+
+/**
+ * The body as a stream of what it contains, with a gzip file opened.
+ *
+ * Deciding means looking at the first two bytes, which means reading them;
+ * they are replayed ahead of the rest, so the stream handed back is the whole
+ * body either way. Errors from the network are noted as they pass, so a
+ * connection that drops mid-file can still be told apart from a file that is
+ * damaged — the first is a failed fetch, the second a body read as far as it
+ * could be.
+ */
+async function unwrapGzip(body: ReadableStream<Uint8Array>): Promise<Unwrapped> {
+  const reader = body.getReader();
+  const head: Uint8Array[] = [];
+  let headLength = 0;
+  let ended = false;
+  while (headLength < GZIP_MAGIC.length) {
+    const next = await reader.read();
+    if (next.done) {
+      ended = true;
+      break;
+    }
+    head.push(next.value);
+    headLength += next.value.byteLength;
+  }
+
+  let sourceFailed = false;
+  const replay = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of head) controller.enqueue(chunk);
+      if (ended) controller.close();
+    },
+    async pull(controller) {
+      try {
+        const next = await reader.read();
+        if (next.done) controller.close();
+        else controller.enqueue(next.value);
+      } catch (cause) {
+        sourceFailed = true;
+        throw cause;
+      }
+    },
+    cancel(reason) {
+      return reader.cancel(reason);
+    },
+  });
+
+  const lead = Buffer.concat(head).subarray(0, GZIP_MAGIC.length);
+  const gzip = lead.length === GZIP_MAGIC.length && GZIP_MAGIC.every((byte, i) => lead[i] === byte);
+  return {
+    stream: gzip ? replay.pipeThrough(new DecompressionStream('gzip')) : replay,
+    gzip,
+    sourceFailed: () => sourceFailed,
+  };
 }
 
 export async function fetchPage(url: string, options: FetchOptions): Promise<FetchResult> {
@@ -203,17 +298,43 @@ export async function fetchPage(url: string, options: FetchOptions): Promise<Fet
     let truncated = false;
     let bytes: Uint8Array | undefined;
     try {
-      const textual = contentType === null || TEXTUAL.test(contentType);
-      if (textual && options.onText !== undefined) {
-        ({ byteLength, truncated } = await streamText(response, maxBytes, options.onText));
-      } else {
-        const buffer = await response.arrayBuffer();
-        byteLength = buffer.byteLength;
-        if (textual) {
-          truncated = byteLength > maxBytes;
-          body = new TextDecoder().decode(truncated ? buffer.slice(0, maxBytes) : buffer);
-        } else if (options.keepBytes === true && byteLength <= maxAssetBytes) {
-          bytes = new Uint8Array(buffer);
+      if (response.body !== null) {
+        const source: Unwrapped = options.gunzip === true
+          ? await unwrapGzip(response.body)
+          : { stream: response.body, gzip: false, sourceFailed: () => false };
+
+        if (source.gzip || contentType === null || TEXTUAL.test(contentType)) {
+          const decoder = new TextDecoder();
+          const parts: string[] = [];
+          const emit = options.onText ?? ((text: string): void => { parts.push(text); });
+          ({ byteLength, truncated } = await readBounded(
+            source.stream,
+            maxBytes,
+            (chunk) => {
+              const text = decoder.decode(chunk, { stream: true });
+              if (text !== '') emit(text);
+            },
+            () => source.gzip && !source.sourceFailed(),
+          ));
+          // A multi-byte character severed by a cut is left undecoded: the body
+          // is marked truncated either way, and a replacement character at the
+          // end of it would be one more thing that looks like the site's.
+          if (!truncated) {
+            const tail = decoder.decode();
+            if (tail !== '') emit(tail);
+          }
+          body = parts.join('');
+        } else {
+          const keep = options.keepBytes === true;
+          const kept: Uint8Array[] = [];
+          let keptLength = 0;
+          ({ byteLength, truncated } = await readBounded(source.stream, maxBytes, (chunk) => {
+            keptLength += chunk.byteLength;
+            if (keep && keptLength <= maxAssetBytes) kept.push(chunk);
+          }));
+          if (keep && !truncated && byteLength <= maxAssetBytes) {
+            bytes = new Uint8Array(Buffer.concat(kept));
+          }
         }
       }
     } catch (cause) {

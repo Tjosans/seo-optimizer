@@ -17,11 +17,13 @@ export interface Job<TPayload> {
    * Mutual-exclusion key. Two jobs sharing a lane never run at the same time,
    * however much concurrency is available.
    *
-   * For a crawl the lane is the site's origin. The crawl loop paces itself with
-   * a politeness delay measured between its own requests; two workers crawling
-   * one origin would each honour that delay and together still double the load
-   * the site agreed to. Serializing per origin is what keeps the guarantee the
-   * crawler makes true once more than one crawl is in flight.
+   * For a crawl the lane is the host its requests reach. The crawl loop paces
+   * itself with a politeness delay measured between its own requests; two
+   * workers crawling one host would each honour that delay and together still
+   * double the load the site agreed to. Serializing per host is what keeps the
+   * guarantee the crawler makes true once more than one crawl is in flight —
+   * across processes too, when the store can say what another worker is
+   * running (see `JobStore.acquire`).
    */
   readonly lane: string | null;
   /** Higher runs first. Jobs of equal priority run in enqueue order. */
@@ -77,7 +79,9 @@ export type JobEvent<TPayload> =
       readonly delayMs: number;
     }
   | { readonly type: 'cancelled'; readonly job: Job<TPayload> }
-  | { readonly type: 'lease-lost'; readonly job: Job<TPayload> };
+  | { readonly type: 'lease-lost'; readonly job: Job<TPayload> }
+  /** Its lane is running on another worker; the job waits a beat and asks again. */
+  | { readonly type: 'lane-held'; readonly job: Job<TPayload> };
 
 /** Rejection reason for a job cancelled before or during its run. */
 export class JobCancelledError extends Error {

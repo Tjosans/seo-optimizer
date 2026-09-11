@@ -381,7 +381,10 @@ export const jobs = pgTable(
     queue: text('queue').notNull(),
     /** Whatever the queue was handed. Opaque here on purpose. */
     payload: jsonb('payload').notNull(),
-    /** Mutual-exclusion key; for an audit, the site's origin. */
+    /**
+     * Mutual-exclusion key; for an audit, the host its requests reach. Read
+     * across workers as well as written, so two of them never run one lane.
+     */
     lane: text('lane'),
     priority: integer('priority').notNull().default(0),
     state: jobStateEnum('state').notNull().default('queued'),

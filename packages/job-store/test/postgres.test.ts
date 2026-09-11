@@ -333,6 +333,71 @@ describe.skipIf(!url)('two workers sharing a namespace', () => {
     expect((await next.load()).map((row) => row.id)).toEqual(['a1']);
   });
 
+  it('refuses a lane another worker is running, and only that lane', async () => {
+    const { queue, a, b } = pair();
+    await a.save(job('a1', { state: 'running', attempt: 1 }));
+
+    expect(await b.acquire(job('b1', { state: 'running', attempt: 1 }))).toBe(false);
+    // Refused means nothing was written.
+    const rows = await db
+      .select({ id: jobs.id })
+      .from(jobs)
+      .where(and(eq(jobs.queue, queue), eq(jobs.id, 'b1')));
+    expect(rows).toEqual([]);
+
+    expect(
+      await b.acquire(job('b2', { lane: 'https://other.example', state: 'running', attempt: 1 })),
+    ).toBe(true);
+    expect(await ownerOf(queue, 'b2')).toBe('worker-b');
+  });
+
+  it('does not count queued work, or the asking worker’s own', async () => {
+    const { a, b } = pair();
+    await a.save(job('a1'));
+    expect(await b.acquire(job('b1', { state: 'running', attempt: 1 }))).toBe(true);
+
+    // b1 is worker B's own running job, and B asking again for the lane is the
+    // queue's business, not the table's.
+    expect(await b.acquire(job('b2', { state: 'running', attempt: 1 }))).toBe(true);
+  });
+
+  it('lets the lane go once the worker running it stops renewing', async () => {
+    const { queue, a, b } = pair();
+    await a.save(job('a1', { state: 'running', attempt: 1 }));
+    await expire(queue, 'a1');
+
+    expect(await b.acquire(job('b1', { state: 'running', attempt: 1 }))).toBe(true);
+  });
+
+  it('writes a recovered job back as queued, so it holds no lane while it waits', async () => {
+    const { queue, a, b } = pair();
+    await a.save(job('a1', { state: 'running', attempt: 1 }));
+
+    // Worker A comes back under its own name and takes the job back.
+    await a.load();
+    const [row] = await db
+      .select({ state: jobs.state })
+      .from(jobs)
+      .where(and(eq(jobs.queue, queue), eq(jobs.id, 'a1')));
+    expect(row?.state).toBe('queued');
+    expect(await b.acquire(job('b1', { state: 'running', attempt: 1 }))).toBe(true);
+  });
+
+  it('gives one lane to exactly one of two workers asking at once', async () => {
+    const { queue, a, b } = pair();
+    const running = (id: string) => job(id, { state: 'running', attempt: 1 });
+
+    // Many rounds, because a race that is lost one time in ten is a race.
+    for (let round = 0; round < 10; round += 1) {
+      const [left, right] = await Promise.all([
+        a.acquire(running(`a-${round}`)),
+        b.acquire(running(`b-${round}`)),
+      ]);
+      expect([left, right].filter(Boolean)).toHaveLength(1);
+      await db.delete(jobs).where(eq(jobs.queue, queue));
+    }
+  });
+
   it('runs a job the previous worker abandoned mid-flight', async () => {
     const { queue, a, b } = pair();
     // What a worker that died leaves: its own claim, and a job marked running

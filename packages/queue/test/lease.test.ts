@@ -248,6 +248,17 @@ describe('a queue whose lease is taken', () => {
     expect(renew).not.toHaveBeenCalled();
   });
 
+  it('does not ask the store for a lane when it does not lease', async () => {
+    const store = new MemoryJobStore<string>();
+    const acquire = vi.spyOn(store, 'acquire');
+    const queue = new JobQueue<string>({ concurrency: 1, store, handler: () => {} });
+
+    await queue.enqueue('crawl example.com', { id: 'a1', lane: 'example.com' }).done;
+    await queue.close();
+    // One process owns the namespace, so its own lanes are the whole answer.
+    expect(acquire).not.toHaveBeenCalled();
+  });
+
   it('does not beat at all without a store that can renew', () => {
     const queue = new JobQueue<string>({
       concurrency: 1,
@@ -255,5 +266,150 @@ describe('a queue whose lease is taken', () => {
       handler: () => {},
     });
     expect(queue.leased).toBe(false);
+  });
+});
+
+describe('a lane two workers share', () => {
+  const laned = (id: string, lane: string, over: Partial<StoredJob<string>> = {}) => ({
+    ...job(id),
+    lane,
+    ...over,
+  });
+
+  it('refuses a lane another worker is running, and only that lane', async () => {
+    const { store } = leased('worker-a');
+    const other = store.withOwner('worker-b');
+    await store.save(laned('a1', 'example.com', { state: 'running', attempt: 1 }));
+
+    expect(await other.acquire(laned('b1', 'example.com'))).toBe(false);
+    // Refused means nothing was written: the job is not the store's to show.
+    expect(other.snapshot().map((j) => j.id)).toEqual(['a1']);
+
+    // Asked the way the queue asks: with the job as it will be once running.
+    expect(
+      await other.acquire(laned('b2', 'other.example', { state: 'running', attempt: 1 })),
+    ).toBe(true);
+    expect(other.snapshot().find((j) => j.id === 'b2')?.state).toBe('running');
+  });
+
+  it('does not count a job that is only queued there', async () => {
+    const { store } = leased('worker-a');
+    const other = store.withOwner('worker-b');
+    await store.save(laned('a1', 'example.com'));
+
+    // Waiting is not crawling. Holding the lane for a job that has not started
+    // would let one worker's backlog stall every other worker's.
+    expect(await other.acquire(laned('b1', 'example.com'))).toBe(true);
+  });
+
+  it('does not count the asking worker’s own jobs', async () => {
+    const { store } = leased('worker-a');
+    await store.save(laned('a1', 'example.com', { state: 'running', attempt: 1 }));
+
+    // The row of a job this worker has just finished can outlive the run by
+    // one write; its own lanes are the queue's to keep, not the store's.
+    expect(await store.acquire(laned('a2', 'example.com'))).toBe(true);
+  });
+
+  it('lets the lane go once the worker running it stops renewing', async () => {
+    const { store, clock } = leased('worker-a');
+    const other = store.withOwner('worker-b');
+    // What a worker that died mid-crawl leaves: a running row nobody renews.
+    await store.save(laned('a1', 'example.com', { state: 'running', attempt: 1 }));
+
+    clock.ms += LEASE_MS + 1;
+    expect(await other.acquire(laned('b1', 'example.com'))).toBe(true);
+  });
+
+  it('records a job it recovers as queued, so the lane is not held while it waits', async () => {
+    const { store } = leased('worker-a');
+    const other = store.withOwner('worker-b');
+    await store.save(laned('a1', 'example.com', { state: 'running', attempt: 1 }));
+
+    // Worker A restarts under its own name and takes the job back. Until it
+    // runs again, nobody is crawling that site.
+    expect((await store.load()).map((j) => j.id)).toEqual(['a1']);
+    expect(await other.acquire(laned('b1', 'example.com'))).toBe(true);
+  });
+
+  it('never runs one site on two workers at once', async () => {
+    const { store } = leased('worker-a');
+    const shared = store.withOwner('worker-b');
+    const release = deferred();
+    const aStarted = deferred();
+    const crawling = new Set<string>();
+    const overlaps: string[] = [];
+    const bEvents: string[] = [];
+
+    const worker = (handle: MemoryJobStore<string>, onEvent?: (type: string) => void) =>
+      new JobQueue<string>({
+        concurrency: 2,
+        store: handle,
+        heartbeatMs: HEARTBEAT_MS,
+        ...(onEvent === undefined ? {} : { onEvent: (event) => onEvent(event.type) }),
+        handler: async (site) => {
+          if (crawling.has(site)) overlaps.push(site);
+          crawling.add(site);
+          if (site === 'example.com') {
+            aStarted.resolve();
+            await release.promise;
+          }
+          crawling.delete(site);
+        },
+      });
+
+    const a = worker(store);
+    const b = worker(shared, (type) => bEvents.push(type));
+
+    const first = a.enqueue('example.com', { id: 'a1', lane: 'example.com' });
+    await aStarted.promise;
+
+    const second = b.enqueue('example.com', { id: 'b1', lane: 'example.com' });
+    const elsewhere = b.enqueue('other.example', { id: 'b2', lane: 'other.example' });
+
+    // Worker B had a free slot and a free lane of its own. The store is what
+    // held it back — and only from the site worker A is already crawling.
+    await until(() => bEvents.includes('lane-held'), 'worker B to be refused the lane');
+    await elsewhere.done;
+    expect(b.get('b1')?.state).toBe('queued');
+    expect(b.get('b1')?.attempt).toBe(0);
+
+    release.resolve();
+    await first.done;
+    await second.done;
+    expect(overlaps).toEqual([]);
+    // Asking again cost no attempt: being refused is not a failed run.
+    expect(b.get('b1')?.attempt).toBe(1);
+
+    await a.close();
+    await b.close();
+    expect(store.size).toBe(0);
+  });
+
+  it('cancels a job cleanly while its lane is held elsewhere', async () => {
+    const { store } = leased('worker-a');
+    const other = store.withOwner('worker-b');
+    await store.save(laned('a1', 'example.com', { state: 'running', attempt: 1 }));
+    const handler = vi.fn();
+    const events: string[] = [];
+
+    const queue = new JobQueue<string>({
+      concurrency: 1,
+      store: other,
+      heartbeatMs: HEARTBEAT_MS,
+      onEvent: (event) => events.push(event.type),
+      handler,
+    });
+
+    const handle = queue.enqueue('example.com', { id: 'b1', lane: 'example.com' });
+    await until(() => events.includes('lane-held'), 'the lane to be refused');
+
+    expect(queue.cancel('b1')).toBe(true);
+    await expect(handle.done).rejects.toThrow(/cancelled/);
+    await queue.close();
+
+    expect(handler).not.toHaveBeenCalled();
+    // Gone from the store, and worker A's row untouched.
+    expect(other.snapshot().map((j) => j.id)).toEqual(['a1']);
   });
 });

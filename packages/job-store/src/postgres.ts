@@ -34,6 +34,12 @@
  * needs, and it costs no migration: `owner` and `leased_at` were already
  * columns, and claiming is what `load` already meant.
  *
+ * A lease covers a job; `acquire` covers its lane. The queue keeps lanes in
+ * memory, which is one process's view, so a worker about to run a laned job
+ * asks here first whether another live worker is running one in that lane —
+ * two audits of one site landing on two workers must still crawl it one at a
+ * time. `lane` was already a column too.
+ *
  * Two things a caller has to get right for leases to hold.
  *
  *   **The lease must outlast a beat, and the beat must outrun the lease.** The
@@ -60,7 +66,7 @@
  * `revive` when a payload needs rebuilding from what JSON kept.
  */
 
-import { and, asc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { jobs } from '@seo/db';
 import type { Database } from '@seo/db';
@@ -180,9 +186,17 @@ export class PostgresJobStore<TPayload> implements JobStore<TPayload> {
 
       if (rows.length === 0) return [];
 
+      // Written back as queued, which is what the queue takes them back as. A
+      // row left reading `running` would hold its lane against every other
+      // worker for as long as the job waits here for a slot.
       await tx
         .update(jobs)
-        .set({ owner: this.#owner, leasedAt: sql`now()`, updatedAt: sql`now()` })
+        .set({
+          owner: this.#owner,
+          leasedAt: sql`now()`,
+          updatedAt: sql`now()`,
+          state: 'queued',
+        })
         .where(
           and(
             eq(jobs.queue, this.#queue),
@@ -216,6 +230,63 @@ export class PostgresJobStore<TPayload> implements JobStore<TPayload> {
    * about the queue's state.
    */
   async save(job: StoredJob<TPayload>): Promise<void> {
+    await this.#write(this.#db, job);
+  }
+
+  /**
+   * Write a job down as running, unless another worker is running one in its
+   * lane.
+   *
+   * The check and the write share a transaction behind an advisory lock on the
+   * lane, because without one two workers asking at the same instant would each
+   * read no running job, each write their own, and crawl the site together —
+   * the one outcome this exists to rule out. The lock is transaction-scoped, so
+   * it goes back to the pool with the connection and a worker that dies holding
+   * it releases it with the session. It covers this namespace's lane and
+   * nothing wider: the lock is on the pair.
+   *
+   * Only a live claim holds a lane. A running row whose lease has aged out
+   * belongs to a worker that has stopped renewing, and the site is no longer
+   * being crawled by it; waiting on that row would make one crash stall a site
+   * until someone cleaned the table. Without a lease the namespace has one
+   * owner, so there is no one else to wait for.
+   */
+  async acquire(job: StoredJob<TPayload>): Promise<boolean> {
+    const lane = job.lane;
+    if (lane === null || this.#leaseMs === undefined) {
+      await this.save(job);
+      return true;
+    }
+    const leaseMs = this.#leaseMs;
+
+    return this.#db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${this.#queue}), hashtext(${lane}))`,
+      );
+
+      const [held] = await tx
+        .select({ id: jobs.id })
+        .from(jobs)
+        .where(
+          and(
+            eq(jobs.queue, this.#queue),
+            eq(jobs.lane, lane),
+            eq(jobs.state, 'running'),
+            ne(jobs.id, job.id),
+            ne(jobs.owner, this.#owner),
+            gte(jobs.leasedAt, sql`now() - make_interval(secs => ${leaseMs / 1000})`),
+          ),
+        )
+        .limit(1);
+      if (held !== undefined) return false;
+
+      await this.#write(tx, job);
+      return true;
+    });
+  }
+
+  /** The upsert behind `save` and `acquire`, on whichever connection is holding the lock. */
+  async #write(executor: Pick<Database, 'insert'>, job: StoredJob<TPayload>): Promise<void> {
     const claimable = this.#claimable();
     const row = {
       id: job.id,
@@ -233,7 +304,7 @@ export class PostgresJobStore<TPayload> implements JobStore<TPayload> {
       updatedAt: sql`now()`,
     };
 
-    const written = await this.#db
+    const written = await executor
       .insert(jobs)
       .values(row)
       .onConflictDoUpdate({

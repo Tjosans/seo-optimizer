@@ -16,6 +16,8 @@ import { fetchPage } from './fetch.js';
 import type { FetchResult } from './fetch.js';
 import { ALLOW_ALL, crawlDelayMs, isAllowed, parseRobots } from './robots.js';
 import type { Robots } from './robots.js';
+import { negotiateProtocol } from './protocol.js';
+import type { ProtocolCheck } from './protocol.js';
 import { SITEMAP_MAX_BYTES, createSitemapParser } from './sitemap.js';
 import type { SitemapVideo } from './sitemap.js';
 import { isSameSite, normalizeUrl } from './url.js';
@@ -77,6 +79,8 @@ export interface CrawlOptions {
   readonly userAgentTests?: readonly string[];
   /** Injection seam for tests and for replaying a stored crawl. */
   readonly fetchImpl?: typeof fetchPage;
+  /** Injection seam for the TLS handshake, like `fetchImpl` for requests. */
+  readonly negotiateImpl?: typeof negotiateProtocol;
   /** Called as each page completes, so a long crawl can stream to storage. */
   readonly onPage?: (page: CrawledPage) => void | Promise<void>;
 }
@@ -171,6 +175,15 @@ export interface CrawlResult {
   readonly notReached: readonly string[];
   /** Requests made outside the walk, for questions the walk cannot answer. */
   readonly auxiliary: readonly AuxiliaryFetch[];
+  /**
+   * The HTTP version the root document's host negotiates, from one TLS
+   * handshake after the walk.
+   *
+   * Absent when no handshake was made: auxiliary requests were off, the root
+   * document was not served over HTTPS, or the crawl was recorded before this
+   * existed. Absent is not HTTP/1.1 — it is not knowing.
+   */
+  readonly protocol?: ProtocolCheck;
 }
 
 interface QueueEntry {
@@ -460,6 +473,8 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
     }
   }
 
+  let protocol: ProtocolCheck | undefined;
+
   // After the walk, because the icons a site declares are found by reading its
   // root document, and reading it is what the walk just did.
   if (options.auxiliary !== false) {
@@ -468,6 +483,18 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
     for (const icon of icons.slice(0, MAX_ICON_FETCHES)) {
       stopIfCancelled(options.signal);
       await aside('icon', icon, { keepBytes: true });
+    }
+
+    // With the host the root document actually came from, after redirects: the
+    // version a visitor gets is the canonical host's, not the seed spelling's.
+    const landed = root?.fetch.error === null ? root.fetch.finalUrl : null;
+    if (landed !== null && landed.startsWith('https://')) {
+      stopIfCancelled(options.signal);
+      if (!first) await sleep(delayMs, options.signal);
+      first = false;
+      protocol = await (options.negotiateImpl ?? negotiateProtocol)(landed, {
+        ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+      });
     }
   }
 
@@ -489,6 +516,7 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
       ),
     ],
     auxiliary,
+    ...(protocol === undefined ? {} : { protocol }),
   };
 }
 

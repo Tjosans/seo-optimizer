@@ -120,6 +120,10 @@ describe('site probes', () => {
     expect(JSON.stringify(search?.observation.data)).toContain('/search');
   });
 
+  it('holds a site served over plain HTTP on its protocol version', () => {
+    expect(forSite('http-version')?.observation.outcome).toBe('warn');
+  });
+
   it('counts third-party script hosts across the crawl', () => {
     const budget = forSite('third-party-budget');
     expect(budget?.observation.outcome).toBe('warn');

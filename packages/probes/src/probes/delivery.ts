@@ -1,11 +1,11 @@
 /**
- * How the response was delivered: status, redirects, transport security and
- * caching. These read headers only, so they apply to every response, not just
- * HTML.
+ * How the response was delivered: status, redirects, transport security,
+ * caching and protocol version. These read headers and the transport, not
+ * markup, so they apply to every response, not just HTML.
  */
 
-import type { PageProbe } from '../types.js';
-import { fail, notApplicable, pass, warn } from '../types.js';
+import type { PageProbe, SiteProbe } from '../types.js';
+import { errored, fail, notApplicable, pass, warn } from '../types.js';
 
 export const httpStatus: PageProbe = {
   id: 'http-status',
@@ -134,6 +134,71 @@ export const compressionCache: PageProbe = {
   },
 };
 
+/** An `Alt-Svc` entry offering HTTP/3, final or draft: `h3=":443"`, `h3-29=":443"`. */
+const ADVERTISES_H3 = /(^|,)\s*h3(-\d+)?\s*=/i;
+
+/**
+ * Which HTTP version a visitor's browser gets.
+ *
+ * Asked of the host the root document came from, which is where a visit
+ * lands. HTTP/2 is settled in the TLS handshake the crawl made for exactly
+ * this; HTTP/3 is offered in an `Alt-Svc` header, and a browser that sees one
+ * switches to it for the next request. Either answers the corpus's "HTTP/2 or
+ * HTTP/3".
+ *
+ * HTTP/1.1 alone is a `warn`, not a `fail`, alongside its neighbours in 1.7:
+ * missing compression and missing security headers are held the same way. It
+ * is a delivery that could be better, which a machine will not clear, rather
+ * than a defect that stops anything working.
+ */
+export const httpVersion: SiteProbe = {
+  id: 'http-version',
+  scope: 'site',
+  title: 'The site is served over HTTP/2 or HTTP/3',
+  run({ crawl }) {
+    const root = [...crawl.pages].sort((a, b) => a.depth - b.depth)[0];
+    if (root === undefined || root.fetch.error !== null || root.fetch.status === null) {
+      return errored('The root document could not be fetched, so there is no host to ask about.');
+    }
+
+    const landed = root.fetch.finalUrl;
+    const altSvc = root.fetch.headers['alt-svc'] ?? null;
+    const h3 = altSvc !== null && ADVERTISES_H3.test(altSvc);
+    const protocol = crawl.protocol;
+    const data = {
+      url: landed,
+      alpn: protocol?.alpn ?? null,
+      tlsVersion: protocol?.tlsVersion ?? null,
+      altSvc,
+    };
+
+    if (!landed.startsWith('https://')) {
+      return warn(
+        'Served over plain HTTP, which every browser speaks as HTTP/1.1: HTTP/2 is only offered over TLS (see https-enforcement).',
+        data,
+      );
+    }
+    if (protocol?.alpn === 'h2') {
+      return pass(`Negotiates HTTP/2${h3 ? ' and advertises HTTP/3' : ''}.`, data);
+    }
+    if (h3) {
+      // A browser upgrades on the header whatever the handshake said, so this
+      // is true however the handshake went, or whether one was made at all.
+      return pass('Advertises HTTP/3 in Alt-Svc, which browsers switch to after the first request.', data);
+    }
+    if (protocol === undefined) {
+      return errored('No TLS handshake was recorded for this crawl, so the HTTP version is unknown.', data);
+    }
+    if (protocol.error !== null) {
+      return errored(`The TLS handshake failed (${protocol.error}), so the HTTP version is unknown.`, data);
+    }
+    return warn(
+      `Only HTTP/1.1 is offered: the TLS handshake ${protocol.alpn === null ? 'negotiated no protocol at all' : 'chose http/1.1 over h2'}, and no Alt-Svc header advertises HTTP/3.`,
+      data,
+    );
+  },
+};
+
 export const deliveryProbes = [
   httpStatus,
   redirectChain,
@@ -141,4 +206,5 @@ export const deliveryProbes = [
   mixedContent,
   securityHeaders,
   compressionCache,
+  httpVersion,
 ];

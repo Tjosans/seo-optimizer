@@ -24,6 +24,13 @@
  * "approved baseline" was read as naming an input to the check, not an
  * artifact a human must produce, so those rows stayed `automated`.
  *
+ * Amended 2026-09-11, signed off by the maintainer: 3.11 moved to `assisted`
+ * under the same rule. Its "Done when" asks that media alternatives are
+ * *accurate* and content understandable, which is a person reading the page;
+ * markup shows only that the alternatives exist. No audit had graded 3.11
+ * before the change — its detector did not exist — so no delivered verdict
+ * moves with it.
+ *
  * Tiers claim what CAN be automated, not what is built: 42 automated rows are
  * not yet fully coverable by the probe registry. That gap belongs to the
  * detector roadmap, not to this table.
@@ -96,7 +103,7 @@ export const TRIAGE: Readonly<Record<string, TriageEntry>> = {
   '3.8': ['attested', 'content', []],
   '3.9': ['automated', 'content', ['answer-first-structure', 'author-date-signals']],
   '3.10': ['assisted', 'content', ['cannibalization']],
-  '3.11': ['automated', 'content', ['content-accessibility']],
+  '3.11': ['assisted', 'content', ['content-accessibility']],
   '3.12': ['assisted', 'content', ['locale-content-parity']],
   '3.13': ['assisted', 'content', ['ugc-governance', 'outbound-link-qualification']],
 

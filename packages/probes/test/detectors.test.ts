@@ -1,6 +1,6 @@
 /**
  * The detectors added for corpus checks 1.6, 1.7, 1.9, 1.13, 1.14, 1.15, 2.7, 2.13,
- * 2.14, 2.17 and 4.9.
+ * 2.14, 2.17, 3.11 and 4.9.
  *
  * These run against hand-built pages rather than the fixture site, because each
  * one answers a question about a *shape* — a reciprocal hreflang cluster, a
@@ -1839,5 +1839,77 @@ describe('http-version', () => {
     const observation = runVersion(root(), { ...ALPN_H2, alpn: null, tlsVersion: null, error: 'ECONNRESET' });
     expect(observation.outcome).toBe('error');
     expect(observation.summary).toContain('ECONNRESET');
+  });
+});
+
+// --- 3.11 content-accessibility --------------------------------------------
+
+describe('content-accessibility', () => {
+  const readable = (body: string, lang = ' lang="en"'): CrawledPage =>
+    page({ path: '/guide', html: `<html${lang}><head><title>Guide</title></head><body>${body}</body></html>` });
+
+  const check = (target: CrawledPage): Observation => runPage('content-accessibility', target, [target]);
+
+  it('passes markup with no barrier, and says what it cannot judge', () => {
+    const observation = check(
+      readable(
+        '<a href="/returns">Returns policy</a><img src="/a.png" alt="A folded jacket">' +
+          '<table><tr><th>Size</th><th>Chest</th></tr><tr><td>M</td><td>100</td></tr></table>' +
+          '<video src="/v.mp4"><track kind="captions" src="/v.vtt"></video>',
+      ),
+    );
+    expect(observation.outcome).toBe('pass');
+    expect(observation.summary).toContain('accurate is for a person');
+  });
+
+  it('fails a link with no accessible name', () => {
+    const observation = check(readable('<a href="https://instagram.com/shop"><i class="icon-ig"></i></a>'));
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('1 link(s) have no accessible name');
+  });
+
+  it('fails an image with no alt, and leaves one hidden or named another way alone', () => {
+    expect(check(readable('<img src="/a.png">')).outcome).toBe('fail');
+    expect(check(readable('<img src="/a.png" role="presentation"><img src="/b.png" aria-label="Map">')).outcome)
+      .toBe('pass');
+  });
+
+  it('accepts alt="" as a decorative image', () => {
+    expect(check(readable('<img src="/divider.png" alt="">')).outcome).toBe('pass');
+  });
+
+  it('fails a page that declares no language', () => {
+    const observation = check(readable('<p>Hello</p>', ''));
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('declares no language');
+  });
+
+  it('asks a person about generic link text, in the languages it knows', () => {
+    const english = check(readable('<p>Returns are free. <a href="/returns">Read more »</a></p>'));
+    expect(english.outcome).toBe('warn');
+    expect(english.summary).toContain('"read more"');
+    expect(check(readable('<a href="/retur">Läs mer</a>')).outcome).toBe('warn');
+    expect(check(readable('<a href="/returns">Read more about returns</a>')).outcome).toBe('pass');
+  });
+
+  it('asks a person about a data table with no header cells, but not a declared layout table', () => {
+    const grid = '<tr><td>S</td><td>10</td></tr><tr><td>M</td><td>12</td></tr>';
+    expect(check(readable(`<table>${grid}</table>`)).outcome).toBe('warn');
+    expect(check(readable(`<table role="presentation">${grid}</table>`)).outcome).toBe('pass');
+    expect(check(readable('<table><tr><td>Only one row</td><td>here</td></tr></table>')).outcome).toBe('pass');
+  });
+
+  it('asks a person about a video with no caption track, whose captions may be in the picture', () => {
+    expect(check(readable('<video src="/v.mp4"></video>')).outcome).toBe('warn');
+  });
+
+  it('lists the doubts alongside the barriers when it fails', () => {
+    const observation = check(readable('<a href="/x"></a><a href="/y">click here</a>'));
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('"click here"');
+  });
+
+  it('says nothing about an error page', () => {
+    expect(check(page({ path: '/gone', status: 404 })).outcome).toBe('not-applicable');
   });
 });

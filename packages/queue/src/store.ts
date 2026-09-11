@@ -97,6 +97,28 @@ export interface JobStore<TPayload> {
    */
   renew?(ids: readonly string[]): Promise<readonly string[]>;
   /**
+   * Write a job down as running, unless another worker is running one in its
+   * lane. Returns false, having written nothing, when one is.
+   *
+   * Optional, and the other half of sharing a namespace. The queue keeps its
+   * lanes in memory, which serializes a lane within one process and says
+   * nothing about the next: two workers each handed an audit of one site would
+   * each find the lane free and crawl it together, which is the load the lane
+   * exists to refuse. This is the question asked of the one place both workers
+   * can see.
+   *
+   * "Another worker" is exact. A running job in the lane blocks only while the
+   * claim on it is live — a dead worker's row ages out with its lease, as its
+   * work does — and only when someone else holds it: this owner's own jobs are
+   * the queue's lane bookkeeping to track, and counting them here would stall
+   * a job behind the removal of its predecessor's row.
+   *
+   * Throws `JobLeaseLostError` when the job itself is held elsewhere. A queue
+   * that does not lease never asks, and neither does one running a job with no
+   * lane.
+   */
+  acquire?(job: StoredJob<TPayload>): Promise<boolean>;
+  /**
    * Every outstanding job id in this namespace, whoever holds it.
    *
    * Optional, and deliberately not a claim: it is how a caller tells "nothing
@@ -200,8 +222,24 @@ export class MemoryJobStore<TPayload> implements JobStore<TPayload> {
     const jobs = [...this.#jobs.values()]
       .filter((job) => !this.#heldByAnother(job.id))
       .sort((a, b) => a.enqueuedAt.getTime() - b.enqueuedAt.getTime());
-    for (const job of jobs) this.#claim(job.id);
+    for (const job of jobs) {
+      this.#claim(job.id);
+      // The queue takes these back as queued, so the record says so too: a row
+      // still reading `running` would hold its lane against every other worker
+      // for as long as the job waits here for a slot.
+      this.#jobs.set(job.id, { ...job, state: 'queued' });
+    }
     return Promise.resolve(jobs);
+  }
+
+  acquire(job: StoredJob<TPayload>): Promise<boolean> {
+    if (job.lane !== null && this.#leaseMs !== undefined) {
+      for (const other of this.#jobs.values()) {
+        if (other.id === job.id || other.lane !== job.lane || other.state !== 'running') continue;
+        if (this.#heldByAnother(other.id)) return Promise.resolve(false);
+      }
+    }
+    return this.save(job).then(() => true);
   }
 
   save(job: StoredJob<TPayload>): Promise<void> {

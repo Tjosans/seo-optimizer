@@ -13,7 +13,7 @@ The system is a pipeline of packages under `packages/`, each with one job:
 | `@seo/probes`      | Runs detectors over a crawl and produces observations.            |
 | `@seo/persistence` | Writes a crawl and its probe runs into Postgres.                  |
 | `@seo/grader`      | Reads evidence against the corpus and freezes launch readiness.   |
-| `@seo/queue`       | Runs audits at a bounded concurrency, one at a time per origin.   |
+| `@seo/queue`       | Runs audits at a bounded concurrency, one at a time per host.     |
 | `@seo/job-store`   | Keeps queued work in Postgres, so a restart resumes it.           |
 | `@seo/scheduler`   | The front door: submit an audit, get an id back, poll the row.    |
 | `@seo/db`          | The Postgres schema and migrations (Drizzle).                     |

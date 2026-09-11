@@ -16,7 +16,12 @@ import { and, eq, sql } from 'drizzle-orm';
 import { loadCorpus } from '@seo/corpus';
 import { audits, createDatabase, jobs, sites } from '@seo/db';
 import { PostgresJobStore } from '@seo/job-store';
-import { AuditScheduler, ORPHANED_AUDIT_ERROR, PermanentAuditError } from '@seo/scheduler';
+import {
+  auditLane,
+  AuditScheduler,
+  ORPHANED_AUDIT_ERROR,
+  PermanentAuditError,
+} from '@seo/scheduler';
 import type { AuditJob, CrawlBudget } from '@seo/scheduler';
 import { startFixtureSite } from '@seo/testkit';
 import type { FixtureSite } from '@seo/testkit';
@@ -82,9 +87,9 @@ describe.skipIf(!url)('an audit across a restart', () => {
     expect((await auditRow(submitted.auditId))?.status).toBe('pending');
     const [stored] = await db.select().from(jobs).where(eq(jobs.id, submitted.auditId));
     expect(stored).toMatchObject({ queue, state: 'queued', attempt: 0 });
-    // The lane is what keeps two audits of one origin from crawling together,
+    // The lane is what keeps two audits of one site from crawling together,
     // so it has to come back with the job rather than be re-derived.
-    expect(stored?.lane).toBe(site.origin);
+    expect(stored?.lane).toBe(auditLane(site.origin));
     expect(stored?.payload).toMatchObject({ auditId: submitted.auditId, origin: site.origin });
 
     // No close, no drain: the process is simply gone.
@@ -93,7 +98,7 @@ describe.skipIf(!url)('an audit across a restart', () => {
 
     const resumed = revived.status(submitted.auditId);
     expect(resumed?.payload.auditId).toBe(submitted.auditId);
-    expect(resumed?.lane).toBe(site.origin);
+    expect(resumed?.lane).toBe(auditLane(site.origin));
 
     await revived.drain();
 
@@ -303,5 +308,43 @@ describe.skipIf(!url)('an audit across a restart', () => {
 
       await survivor.close();
     });
+
+    it('crawls one site on one worker at a time, whichever was handed the audit', async () => {
+      // A namespace of its own, so nothing an earlier test left running can
+      // hold the lane and turn this into a test of lease expiry.
+      const shared = `audits-test-lanes-${crypto.randomUUID()}`;
+      const scheduler = (owner: string) =>
+        new AuditScheduler({
+          db,
+          corpus,
+          crawl: BUDGET,
+          store: new PostgresJobStore<AuditJob>({ db, queue: shared, owner, leaseMs: LEASE_MS }),
+          heartbeatMs: 50,
+          concurrency: 2,
+        });
+      const a = scheduler('worker-a');
+      const b = scheduler('worker-b');
+
+      try {
+        // Two submissions of one site, arriving at two processes — which is
+        // what an API behind a load balancer does. Each worker has a free slot
+        // and, in its own memory, a free lane.
+        const [first, second] = await Promise.all([
+          a.submit({ siteId, corpusVersion: '4.4' }),
+          b.submit({ siteId, corpusVersion: '4.4' }),
+        ]);
+        await Promise.all([first.done, second.done]);
+
+        const [one, two] = [await auditRow(first.auditId), await auditRow(second.auditId)];
+        const spans = [one, two]
+          .map((row) => ({ start: row!.startedAt!.getTime(), end: row!.finishedAt!.getTime() }))
+          .sort((x, y) => x.start - y.start);
+        expect(spans[1]!.start).toBeGreaterThanOrEqual(spans[0]!.end);
+      } finally {
+        await a.close();
+        await b.close();
+        await db.delete(jobs).where(eq(jobs.queue, shared));
+      }
+    }, 60_000);
   });
 });

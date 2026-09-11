@@ -39,6 +39,14 @@
  * below — it stops the job, does not retry it, and writes nothing further to
  * the store, because the row is the new owner's now.
  *
+ * Lanes are the part a lease alone does not cover. `#busyLanes` is this
+ * process's memory, so two workers each handed an audit of one site would each
+ * find the lane free. A leasing queue therefore asks the store before it runs a
+ * laned job — `JobStore.acquire`, which writes the job down as running only if
+ * no other live worker is running one in that lane — and a job refused waits a
+ * heartbeat and asks again. The site sees one crawler however many processes
+ * share the work.
+ *
  * Retries are mechanism here and policy elsewhere. This file knows how to hold
  * a failed job back, wake it and run it again; it holds no opinion on which
  * failures deserve that, because the answer is about the work rather than about
@@ -205,6 +213,12 @@ export class JobQueue<TPayload, TResult = void> {
 
   readonly #queued: Entry<TPayload, TResult>[] = [];
   readonly #active = new Set<Entry<TPayload, TResult>>();
+  /**
+   * Jobs taken from the queue whose lane the store is still being asked for.
+   * They hold a slot and their lane here, so nothing this process runs can
+   * overtake them, and they are not yet running.
+   */
+  readonly #starting = new Set<Entry<TPayload, TResult>>();
   readonly #busyLanes = new Set<string>();
   readonly #byId = new Map<string, Entry<TPayload, TResult>>();
   /** Ids of finished jobs, oldest first, for bounded retention. */
@@ -245,9 +259,12 @@ export class JobQueue<TPayload, TResult = void> {
     this.#paused = options.paused ?? false;
   }
 
-  /** Jobs waiting for a slot, including those waiting out a retry delay. */
+  /**
+   * Jobs waiting for a slot, including those waiting out a retry delay and
+   * those whose lane another worker holds.
+   */
   get queued(): number {
-    return this.#queued.length;
+    return this.#queued.length + this.#starting.size;
   }
 
   /** Handlers currently running. */
@@ -270,6 +287,7 @@ export class JobQueue<TPayload, TResult = void> {
   get idle(): boolean {
     return (
       this.#queued.length === 0 &&
+      this.#starting.size === 0 &&
       this.#active.size === 0 &&
       this.#deciding === 0 &&
       this.#writes === 0
@@ -530,6 +548,8 @@ export class JobQueue<TPayload, TResult = void> {
     const entry = this.#byId.get(id);
     if (entry === undefined || TERMINAL.has(entry.state)) return false;
 
+    // A job still asking the store for its lane is queued too: it never
+    // starts, and `#start` finds it settled when the answer comes back.
     if (entry.state === 'queued') {
       const index = this.#queued.indexOf(entry);
       if (index >= 0) this.#queued.splice(index, 1);
@@ -595,6 +615,7 @@ export class JobQueue<TPayload, TResult = void> {
     }
 
     for (const entry of [...this.#queued]) this.cancel(entry.id);
+    for (const entry of [...this.#starting]) this.cancel(entry.id);
     for (const entry of [...this.#active]) this.cancel(entry.id);
 
     // Not `#active.size`: a job whose handler has returned and whose retry
@@ -604,10 +625,11 @@ export class JobQueue<TPayload, TResult = void> {
   }
 
   #pump(): void {
-    while (!this.#paused && this.#active.size < this.concurrency) {
+    while (!this.#paused && this.#active.size + this.#starting.size < this.concurrency) {
       const entry = this.#take();
       if (entry === undefined) break;
-      void this.#run(entry);
+      if (this.#sharesLanes(entry)) void this.#start(entry);
+      else void this.#run(entry);
     }
     this.#scheduleWake();
     this.#scheduleHeartbeat();
@@ -746,7 +768,92 @@ export class JobQueue<TPayload, TResult = void> {
     return this.#queued.splice(best, 1)[0];
   }
 
-  async #run(entry: Entry<TPayload, TResult>): Promise<void> {
+  /**
+   * Whether this job's lane has to be cleared with the store, not just here.
+   *
+   * Only a leasing queue shares its namespace, so only a leasing queue can be
+   * one of two workers on a lane; everywhere else the in-memory lanes are the
+   * whole answer and the store is not asked.
+   */
+  #sharesLanes(entry: Entry<TPayload, TResult>): boolean {
+    return (
+      entry.lane !== null &&
+      entry.durability === 'stored' &&
+      this.#heartbeatMs !== undefined &&
+      this.#store?.acquire !== undefined
+    );
+  }
+
+  /**
+   * Ask the store for the job's lane, and run it if the store says yes.
+   *
+   * The job holds its slot and its lane here while it asks, so this process
+   * cannot start a second job in that lane in the meantime. The question goes
+   * through the job's own store chain, so a cancel that lands while it is being
+   * asked is written after the answer rather than overtaken by it — the row the
+   * claim just marked running is then removed, which is what frees the lane.
+   *
+   * A refusal is not a failure and costs no attempt. The job goes back in line
+   * and asks again a heartbeat later; the other worker's crawl of that site
+   * takes minutes, and polling faster would only be this process asking the
+   * database the same question.
+   *
+   * A store that cannot answer is treated as a refusal. Running on its silence
+   * would be exactly the second crawler this exists to prevent, and a store
+   * that stays unreachable is one whose leases are expiring anyway.
+   */
+  async #start(entry: Entry<TPayload, TResult>): Promise<void> {
+    const acquire = this.#store?.acquire?.bind(this.#store);
+    const lane = entry.lane;
+    if (acquire === undefined || lane === null) return;
+
+    this.#starting.add(entry);
+    this.#busyLanes.add(lane);
+
+    const claim: StoredJob<TPayload> = {
+      ...this.#stored(entry),
+      state: 'running',
+      attempt: entry.attempt + 1,
+      nextAttemptAt: null,
+    };
+    const asked = entry.storeChain.then(() => acquire(claim));
+    entry.storeChain = asked.then(
+      () => {},
+      () => {},
+    );
+
+    let granted = false;
+    try {
+      granted = await asked;
+    } catch (error) {
+      if (error instanceof JobLeaseLostError) this.#lose(entry.id);
+      else this.#reportStoreError(error, entry);
+    }
+
+    this.#starting.delete(entry);
+    this.#busyLanes.delete(lane);
+
+    // Cancelled, or taken by another worker, while the store was deciding.
+    if (TERMINAL.has(entry.state)) {
+      this.#pump();
+      return;
+    }
+
+    if (granted) {
+      void this.#run(entry, { claimed: true });
+      return;
+    }
+
+    entry.dueAt = Date.now() + (this.#heartbeatMs ?? 0);
+    this.#queued.push(entry);
+    this.#emit({ type: 'lane-held', job: snapshot(entry) });
+    this.#pump();
+  }
+
+  async #run(
+    entry: Entry<TPayload, TResult>,
+    options: { readonly claimed?: boolean } = {},
+  ): Promise<void> {
     entry.state = 'running';
     entry.attempt += 1;
     entry.startedAt = this.#now();
@@ -757,8 +864,9 @@ export class JobQueue<TPayload, TResult = void> {
     // Recorded before the handler is called, and not awaited. The attempt
     // number is the part that matters: a job that takes the process down with
     // it must come back having used an attempt, or a poison payload would be
-    // retried by every restart forever.
-    this.#persist(entry, 'save');
+    // retried by every restart forever. A job whose lane was claimed has
+    // already been written down as running, attempt and all.
+    if (options.claimed !== true) this.#persist(entry, 'save');
     this.#emit({ type: 'started', job: snapshot(entry) });
 
     let result: TResult | undefined;

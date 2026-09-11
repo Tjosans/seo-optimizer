@@ -12,9 +12,9 @@
  * in the database — pending, running, complete, failed, cancelled. The queue
  * owns how many run at once and which may run together. Neither knows the
  * other's rules, and the lane is the one place they meet: an audit is laned on
- * its site's origin, so two audits of one customer queue behind each other
- * however much concurrency is on offer, and the politeness the crawl loop
- * promises that origin survives being scheduled.
+ * the host its requests reach (`auditLane`), so two audits of one site queue
+ * behind each other however much concurrency is on offer, and the politeness
+ * the crawl loop promises that host survives being scheduled.
  *
  * An audit that finishes here is graded: the run ends by turning the evidence
  * it gathered into `checkStates` and freezing a readiness verdict onto the row,
@@ -45,7 +45,8 @@
  * More than one scheduler may share a store, if the store leases its jobs and
  * `heartbeatMs` is set. Then each audit is held by exactly one of them, a
  * scheduler that stops holding one gives it up to whichever picks it up next,
- * and the sweep asks the store what is outstanding *anywhere* before it writes
+ * two schedulers handed audits of one site crawl it one at a time — the store
+ * is asked for the lane before either starts — and the sweep asks the store what is outstanding *anywhere* before it writes
  * an audit off — the row it must never close is the one another worker is
  * quietly getting on with. See `@seo/job-store` for what a lease costs and what
  * a worker has to be named for one to survive a restart.
@@ -58,6 +59,7 @@ import { audits, sites } from '@seo/db';
 import type { Database } from '@seo/db';
 import { JobQueue } from '@seo/queue';
 import type { Job, JobEvent, JobStore, RetryAttempt, RetryPolicy } from '@seo/queue';
+import { auditLane } from './lane.js';
 import { auditRetryPolicy } from './retry.js';
 import { runAudit } from './run-audit.js';
 import { UnknownSiteError } from './types.js';
@@ -229,7 +231,7 @@ export class AuditScheduler {
 
     // The audit id doubles as the job id, so `cancel` and `status` take the one
     // identifier a caller was given rather than a second one to keep track of.
-    const handle = this.#queue.enqueue(job, { id: audit.id, lane: site.origin });
+    const handle = this.#queue.enqueue(job, { id: audit.id, lane: auditLane(site.origin) });
     try {
       await handle.stored;
     } catch (cause) {

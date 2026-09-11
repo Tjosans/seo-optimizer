@@ -65,7 +65,15 @@ Key scripts:
 4. **Persist** (`@seo/persistence`) — stream pages and probes into Postgres.
 5. **Grade** (`@seo/grader`) — read the evidence against the pinned corpus, write `checkStates`, link each verdict to the observations behind it, and freeze launch readiness (`@seo/core`) onto `audits.readiness`.
 
-`@seo/scheduler` drives all five steps for one audit and owns its row's lifecycle; `@seo/queue` decides how many audits run at once and refuses to run two against one origin.
+`@seo/scheduler` drives all five steps for one audit and owns its row's lifecycle; `@seo/queue` decides how many audits run at once and refuses to run two against one host — across workers too, when they share a leased store.
+
+### What a lane is
+
+- An audit's lane is the host its requests reach: `auditLane(origin)` in @seo/scheduler drops the scheme, a default port and a leading `www.`. Every crawl requests all four scheme/www spellings of its seed, so two site records spelled `http://example.com` and `https://www.example.com` are one lane. A non-default port and any other subdomain stay separate lanes.
+- Within a process the queue's own memory keeps a lane to one job. Across processes it cannot, so a leasing queue asks the store first: `JobStore.acquire` writes the job down as `running` only if no other *live* worker is running a job in that lane, under a Postgres advisory lock on `(queue, lane)` so two workers asking at once cannot both win.
+- A refusal costs no attempt. The job goes back in line, emits `lane-held`, and asks again a heartbeat later. A store that cannot answer counts as a refusal.
+- A dead worker's `running` row stops holding its lane when its lease ages out, as its job does. `load` writes recovered jobs back as `queued`, so a job waiting for a slot holds no lane.
+- Lanes are per namespace. Two queue namespaces crawling one host do not see each other.
 
 ### What durable means here
 
@@ -87,6 +95,8 @@ Key scripts:
 - Give each worker an `owner` that survives a restart (a pod name, a slot number). The default is host and pid, which is fine for diagnostics and wrong for recovery: a process back under a new name cannot reclaim its own rows and has to wait out its own lease.
 - Losing a lease is not a failure of the work. The queue aborts the job's signal, settles it `failed` with `JobLeaseLostError`, does not retry it, and writes nothing further to the store — the row is the new owner's. `runAudit` leaves the `audits` row alone for the same reason: the audit is still running, just not here.
 - `reconcile` asks the store what is outstanding for *anyone* before it writes a row off, so a second worker's audits are never closed out from under it.
+- Two workers handed audits of one site crawl it one at a time — see "What a lane is" above.
+- A worker only claims abandoned jobs in `recover()`, once, on the way up. A dead worker's backlog waits for the next worker to start (ROADMAP Phase 4).
 
 ### What cancelling does
 
@@ -148,7 +158,7 @@ Video is the third, and the only one where the three detectors split by *artefac
 
 ## Testing
 
-Unit tests (no database needed): `packages/corpus/test/{corpus,provenance,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,fetch,robots,sitemap,url}.test.ts`, `packages/probes/test/{probes,detectors,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store,lease}.test.ts`, `packages/grader/test/grade.test.ts`, `packages/scheduler/test/retry.test.ts`.
+Unit tests (no database needed): `packages/corpus/test/{corpus,provenance,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,fetch,robots,sitemap,url}.test.ts`, `packages/probes/test/{probes,detectors,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store,lease}.test.ts`, `packages/grader/test/grade.test.ts`, `packages/scheduler/test/{retry,lane}.test.ts`.
 
 Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/{scheduler,recovery,cancel,flags,ai-policy}.test.ts`, `packages/job-store/test/postgres.test.ts`, `packages/grader/test/record.test.ts`.
 
@@ -186,7 +196,7 @@ packages/
   probes/src/{registry,types,matrix}.ts  +  src/probes/*.ts
   queue/src/{queue,retry,store,types}.ts
   job-store/src/postgres.ts
-  scheduler/src/{scheduler,run-audit,retry,types}.ts
+  scheduler/src/{scheduler,run-audit,retry,lane,types}.ts
   grader/src/{grade,scope,record,types}.ts
   testkit/src/fixture-site.ts
 corpus/
@@ -207,4 +217,4 @@ scripts/{compile-corpus,probe-matrix,triage}.ts
 
 ## What to pick up next
 
-`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; lease expiry (@seo/job-store, @seo/queue) is in, so a second worker can share a queue namespace; what remains is detector coverage — 80 of the corpus's 128 detectors are unimplemented, which is the single thing most limiting what an audit can say. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.
+`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; lease expiry (@seo/job-store, @seo/queue) is in, so a second worker can share a queue namespace, and lanes hold across workers, so two of them never crawl one host together; what remains is detector coverage — 80 of the corpus's 128 detectors are unimplemented, which is the single thing most limiting what an audit can say. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.

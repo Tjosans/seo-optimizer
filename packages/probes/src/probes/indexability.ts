@@ -9,7 +9,7 @@ import type { PageProbe, SiteProbe } from '../types.js';
 import { fail, notApplicable, pass, warn } from '../types.js';
 
 /** Query keys and path segments that mean "these are search results". */
-const SEARCH_PARAMS = ['q', 's', 'query', 'search', 'keyword', 'keywords'];
+export const SEARCH_PARAMS = ['q', 's', 'query', 'search', 'keyword', 'keywords'];
 const SEARCH_PATH = /\/(search|suche|recherche|busca|resultater)\b/i;
 
 const looksLikeSearch = (url: string): boolean => {

@@ -85,6 +85,20 @@ describe('crawl', () => {
     expect(limited.notReached.length).toBeGreaterThan(0);
   });
 
+  it('counts a URL linked past the depth budget as not reached, rather than losing it', async () => {
+    const shallow = await crawl({
+      seeds: [`${site.origin}/`],
+      userAgent: 'seo-optimizer/0.1 (+test)',
+      maxPages: 50,
+      maxDepth: 0,
+      followSitemaps: false,
+    });
+    expect(shallow.pages.map((entry) => entry.normalizedUrl)).toEqual([`${site.origin}/`]);
+    expect(shallow.notReached).toContain(`${site.origin}/about`);
+    // Disallowed is its own list, whatever the depth.
+    expect(shallow.notReached).not.toContain(`${site.origin}/private/secret`);
+  });
+
   it('reports a fetch failure as data instead of throwing', async () => {
     const dead = await crawl({
       // Port 1 is reserved and refuses connections on every platform.

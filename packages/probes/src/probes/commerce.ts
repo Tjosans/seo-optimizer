@@ -58,11 +58,11 @@ function productNode(page: CrawledPage): Record<string, unknown> | null {
  * from a URL shape would pull category listings and articles into product
  * families, and the finding is about duplicates within one product.
  */
-const isProductPage = (page: CrawledPage): boolean =>
+export const isProductPage = (page: CrawledPage): boolean =>
   productNode(page) !== null ||
   /^(og:)?product\b/i.test(page.extracted?.openGraph['og:type'] ?? '');
 
-const isNoindex = (page: CrawledPage): boolean =>
+export const isNoindex = (page: CrawledPage): boolean =>
   /\bnoindex\b/i.test(
     `${page.extracted?.metaRobots ?? ''} ${page.fetch.headers['x-robots-tag'] ?? ''}`,
   );
@@ -75,7 +75,7 @@ const isNoindex = (page: CrawledPage): boolean =>
  * facet, a session id; it does not matter which. Whatever the parameter means,
  * the site is serving that product at two addresses, which is the subject.
  */
-const routeOf = (url: string): string | null => {
+export const routeOf = (url: string): string | null => {
   try {
     const parsed = new URL(url);
     return `${parsed.origin}${parsed.pathname}`;

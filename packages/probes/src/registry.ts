@@ -10,6 +10,7 @@
 import type { CrawledPage } from '@seo/crawler';
 import { commerceProbes } from './probes/commerce.js';
 import { deliveryProbes } from './probes/delivery.js';
+import { facetProbes } from './probes/facets.js';
 import { indexabilityProbes } from './probes/indexability.js';
 import { markupProbes } from './probes/markup.js';
 import { mediaProbes } from './probes/media.js';
@@ -21,6 +22,7 @@ import type { PageProbe, Probe, ProbeRun, SiteContext, SiteProbe } from './types
 export const PROBES: readonly Probe[] = [
   ...commerceProbes,
   ...deliveryProbes,
+  ...facetProbes,
   ...indexabilityProbes,
   ...markupProbes,
   ...mediaProbes,

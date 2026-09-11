@@ -11,7 +11,7 @@ seo-optimizer is an SEO launch-readiness auditor. It crawls a site, runs it agai
 - **@seo/core** — types for checks, check state, readiness scoring, and the site inputs a person supplies (AI crawler policy)
 - **@seo/corpus** — loader for the v4.4 check corpus (YAML phases 0-7, source TSV)
 - **@seo/crawler** — site crawler respecting robots.txt, redirect chains, sitemaps (and the video entries they declare), flagging any response body it had to cut; stops between requests on a caller's signal; makes the auxiliary requests probes are not allowed to make themselves
-- **@seo/probes** — 8 detector categories (commerce, delivery, indexability, markup, media, metadata, site, video)
+- **@seo/probes** — 9 detector categories (commerce, delivery, facets, indexability, markup, media, metadata, site, video)
 - **@seo/persistence** — sink that streams crawls and probe runs into Postgres
 - **@seo/queue** — in-process job queue: bounded concurrency, one crawl at a time per origin, retries on a caller's policy, outstanding work written to an optional durable store and held on a lease it renews
 - **@seo/job-store** — the Postgres `JobStore` behind that queue, so a restart resumes what was queued
@@ -59,7 +59,7 @@ Key scripts:
 
 ## How it works
 
-1. **Crawl** (`@seo/crawler`) — breadth-first from seeds, respects robots.txt, extracts links and metadata, paced politeness delay, bounded by page/depth budget. It also makes the *auxiliary* requests that sit outside the walk — the four scheme/host spellings of the seed, and the root document's declared icons — and records them on `CrawlResult.auxiliary`. Probes never fetch: politeness is owed to a host, and the crawl loop is the only thing that knows what was promised. Host variants are skipped for a seed that cannot have them (an IP, `localhost`, any single-label host), which is why they never fire against the fixture site.
+1. **Crawl** (`@seo/crawler`) — breadth-first from seeds, respects robots.txt, extracts links and metadata, paced politeness delay, bounded by page/depth budget. What either budget left unfetched is recorded on `CrawlResult.notReached`, not dropped. It also makes the *auxiliary* requests that sit outside the walk — the four scheme/host spellings of the seed, and the root document's declared icons — and records them on `CrawlResult.auxiliary`. Probes never fetch: politeness is owed to a host, and the crawl loop is the only thing that knows what was promised. Host variants are skipped for a seed that cannot have them (an IP, `localhost`, any single-label host), which is why they never fire against the fixture site.
 2. **Extract** — parse each page's HTML; record head tags, links, hierarchy, structure.
 3. **Probe** (`@seo/probes`) — detectors observe the crawl result and emit evidence.
 4. **Persist** (`@seo/persistence`) — stream pages and probes into Postgres.
@@ -131,7 +131,7 @@ Key scripts:
 - A machine may **fail** a check; only an `automated` check may be **passed** by one. `assisted` means the engine proposes and a person confirms.
 - A detector that is unimplemented, errored, or observed nothing leaves the check `not-started` / `unknown`. Missing evidence is never good news, and never bad news either.
 - Scope comes from `sites.flags`: an empty profile leaves conditional checks at `review`; a filled-in one narrows non-matching checks to `no` with a written rationale.
-- Only 48 of the corpus's 128 detectors exist, so today 21 of 43 automated checks can be graded end to end and most audits come back mostly ungraded. That is the honest answer, not a bug. `npm run probes:matrix` prints the current figure; do not quote one from memory.
+- Only 50 of the corpus's 128 detectors exist, so today 22 of 43 automated checks can be graded end to end and most audits come back mostly ungraded. That is the honest answer, not a bug. `npm run probes:matrix` prints the current figure; do not quote one from memory.
 - A row a human attested is never overwritten by a re-grade, and it counts in the frozen readiness.
 
 ### Guarantees the sink relies on
@@ -156,9 +156,11 @@ Commerce is the second worked example. `product-variant-canonical` (1.15) asks w
 
 Video is the third, and the only one where the three detectors split by *artefact* rather than by question. `video-watch-page` (2.14) judges the page a video sits on — indexable, with the player and thumbnail robots.txt actually allows, and with words around the player saying what it is. `videoobject-schema` (2.14) judges the description, and whether it names the video the page plays: markup complete to the last property still describes something else if the embed was swapped. `video-sitemap` (2.14) judges the file that lists the watch pages, and only where the site publishes one — its absence is a decision about discovery that no crawl can second-guess, but a sitemap named `video-sitemap.xml` that 404s is a site that believes it is publishing one.
 
+Faceted navigation is the fourth, split into crawl and index. `parameter-crawl-space` (1.12) asks whether the parameter URL space is bounded: session ids in URLs, one filter state at several parameter orders, and a crawl budget spent on permutations of routes already fetched all say it is not. `faceted-nav-control` (1.12) asks whether each filtered page the crawl opened has a decision behind it — self-canonical and distinct from its listing, or noindexed or canonicalized away and kept out of the sitemap. A site can noindex every filter flawlessly and still hand a crawler ten thousand of them. Neither passes on what the crawl did not walk: filter URLs found and left unfetched hold the check with a `warn`, because whether a space closes is only observed by walking it. Pagination, internal search and product variant parameters stay with 1.13, 1.4 and 1.15.
+
 ## Testing
 
-Unit tests (no database needed): `packages/corpus/test/{corpus,provenance,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,fetch,robots,sitemap,url}.test.ts`, `packages/probes/test/{probes,detectors,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store,lease}.test.ts`, `packages/grader/test/grade.test.ts`, `packages/scheduler/test/{retry,lane}.test.ts`.
+Unit tests (no database needed): `packages/corpus/test/{corpus,provenance,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,fetch,robots,sitemap,url}.test.ts`, `packages/probes/test/{probes,detectors,facets,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store,lease}.test.ts`, `packages/grader/test/grade.test.ts`, `packages/scheduler/test/{retry,lane}.test.ts`.
 
 Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/{scheduler,recovery,cancel,flags,ai-policy}.test.ts`, `packages/job-store/test/postgres.test.ts`, `packages/grader/test/record.test.ts`.
 
@@ -217,4 +219,4 @@ scripts/{compile-corpus,probe-matrix,triage}.ts
 
 ## What to pick up next
 
-`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; lease expiry (@seo/job-store, @seo/queue) is in, so a second worker can share a queue namespace, and lanes hold across workers, so two of them never crawl one host together; what remains is detector coverage — 80 of the corpus's 128 detectors are unimplemented, which is the single thing most limiting what an audit can say. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.
+`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; lease expiry (@seo/job-store, @seo/queue) is in, so a second worker can share a queue namespace, and lanes hold across workers, so two of them never crawl one host together; what remains is detector coverage — 78 of the corpus's 128 detectors are unimplemented, which is the single thing most limiting what an audit can say. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.

@@ -1,0 +1,2211 @@
+{
+  "schema": 1,
+  "label": "budget-lanes",
+  "startedAt": "2026-09-11T23:07:32.345Z",
+  "durationMs": 53402,
+  "corpusVersion": "4.4",
+  "detectorsImplemented": 54,
+  "settings": {
+    "maxPages": 80,
+    "maxDepth": 2,
+    "requestDelayMs": 400,
+    "timeoutMs": 15000,
+    "flags": []
+  },
+  "sites": [
+    {
+      "url": "https://www.kjell.com/se",
+      "origin": "https://www.kjell.com",
+      "ok": true,
+      "error": null,
+      "crawl": {
+        "pages": 80,
+        "htmlPages": 80,
+        "nonOkPages": 0,
+        "transportFailures": 0,
+        "blockedByRobots": 0,
+        "notReached": 24548,
+        "sitemapUrls": 24490,
+        "robotsTxt": true,
+        "medianTtfbMs": 154,
+        "durationMs": 53398
+      },
+      "observations": {
+        "total": 2345,
+        "pass": 1146,
+        "fail": 227,
+        "warn": 313,
+        "notApplicable": 659,
+        "error": 0,
+        "detectorsFiring": 54
+      },
+      "checks": {
+        "total": 97,
+        "inScope": 58,
+        "graded": 14,
+        "passed": 2,
+        "failed": 8,
+        "inProgress": 4,
+        "notStarted": 83,
+        "byBasis": {
+          "detectors-missing": 38,
+          "attested-only": 6,
+          "scope-undecided": 39,
+          "verified-fail": 8,
+          "verified-pass": 2,
+          "held-by-warning": 3,
+          "awaiting-confirmation": 1
+        }
+      },
+      "readiness": {
+        "decision": "HOLD",
+        "gatesOutstanding": 33,
+        "gatesFailed": 8,
+        "applicabilityDecisionsOutstanding": 21,
+        "violations": []
+      },
+      "verdicts": [
+        {
+          "checkId": "0.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (competitor-serp-baseline)"
+        },
+        {
+          "checkId": "0.2",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (keyword-intent-map)"
+        },
+        {
+          "checkId": "0.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (url-inventory-builder)"
+        },
+        {
+          "checkId": "0.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": true,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "0.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (brand-entity-consistency)"
+        },
+        {
+          "checkId": "0.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged ai-policy, and this site's profile is empty"
+        },
+        {
+          "checkId": "0.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged multilingual, and this site's profile is empty"
+        },
+        {
+          "checkId": "0.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged migration, and this site's profile is empty"
+        },
+        {
+          "checkId": "0.9",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": true,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "1.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 2 of 2 detectors are not implemented (raw-rendered-parity, rendering-strategy-classifier)"
+        },
+        {
+          "checkId": "1.2",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 83 of 240 observations failed (heading-outline, semantic-html)"
+        },
+        {
+          "checkId": "1.3",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 40 of 82 observations failed (canonicalization)"
+        },
+        {
+          "checkId": "1.4",
+          "status": "passed",
+          "coverage": "verified",
+          "basis": "verified-pass",
+          "launchGate": true,
+          "summary": "verified: 240 of 241 observations passed, 1 found no subject"
+        },
+        {
+          "checkId": "1.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 2 of 2 detectors are not implemented (lab-perf-budget, lcp-element-strategy)"
+        },
+        {
+          "checkId": "1.6",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 1 of 161 observations failed (host-redirect)"
+        },
+        {
+          "checkId": "1.7",
+          "status": "in-progress",
+          "coverage": "unknown",
+          "basis": "held-by-warning",
+          "launchGate": false,
+          "summary": "held: 80 of 162 observations warned — short of a defect, but not something a machine will clear"
+        },
+        {
+          "checkId": "1.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (staging-protection)"
+        },
+        {
+          "checkId": "1.9",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged media, and this site's profile is empty"
+        },
+        {
+          "checkId": "1.10",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (ci-seo-guards)"
+        },
+        {
+          "checkId": "1.11",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (ci-extended-checks)"
+        },
+        {
+          "checkId": "1.12",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged faceted-nav, and this site's profile is empty"
+        },
+        {
+          "checkId": "1.13",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged pagination, and this site's profile is empty"
+        },
+        {
+          "checkId": "1.14",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged multilingual, and this site's profile is empty"
+        },
+        {
+          "checkId": "1.15",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged ecommerce, and this site's profile is empty"
+        },
+        {
+          "checkId": "1.16",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged non-html-files, and this site's profile is empty"
+        },
+        {
+          "checkId": "1.17",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": true,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "1.18",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (domain-expiry-rdap)"
+        },
+        {
+          "checkId": "1.19",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged experiments, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.1",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 1 of 4 observations failed (sitemap-canonical-agreement)"
+        },
+        {
+          "checkId": "2.2",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 2 of 80 observations failed (image-alt-quality)"
+        },
+        {
+          "checkId": "2.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged image-search, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (gsc-property-ownership)"
+        },
+        {
+          "checkId": "2.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged analytics, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged consent, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged structured-data, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.8",
+          "status": "in-progress",
+          "coverage": "unknown",
+          "basis": "held-by-warning",
+          "launchGate": false,
+          "summary": "held: 1 of 80 observations warned — short of a defect, but not something a machine will clear"
+        },
+        {
+          "checkId": "2.9",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged ai-policy, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.10",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged indexnow, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.11",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged ecommerce, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.12",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged local-business, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.13",
+          "status": "passed",
+          "coverage": "verified",
+          "basis": "verified-pass",
+          "launchGate": false,
+          "summary": "verified: 1 of 1 observations passed"
+        },
+        {
+          "checkId": "2.14",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged video, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.15",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged paywall, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.16",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged publisher, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.17",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged hierarchical, and this site's profile is empty"
+        },
+        {
+          "checkId": "3.1",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 5 of 160 observations failed (primary-heading, title-uniqueness)"
+        },
+        {
+          "checkId": "3.2",
+          "status": "in-progress",
+          "coverage": "unknown",
+          "basis": "held-by-warning",
+          "launchGate": false,
+          "summary": "held: 13 of 80 observations warned — short of a defect, but not something a machine will clear"
+        },
+        {
+          "checkId": "3.3",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 1 of 3 observations failed (orphan-pages)"
+        },
+        {
+          "checkId": "3.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (trust-pages-presence)"
+        },
+        {
+          "checkId": "3.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (content-helpfulness)"
+        },
+        {
+          "checkId": "3.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged ymyl, and this site's profile is empty"
+        },
+        {
+          "checkId": "3.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (launch-content-completeness)"
+        },
+        {
+          "checkId": "3.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": false,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "3.9",
+          "status": "in-progress",
+          "coverage": "unknown",
+          "basis": "awaiting-confirmation",
+          "launchGate": false,
+          "summary": "proposed: 81 observations, none failed; this check needs a human to confirm"
+        },
+        {
+          "checkId": "3.10",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (cannibalization)"
+        },
+        {
+          "checkId": "3.11",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 2 of 80 observations failed (content-accessibility)"
+        },
+        {
+          "checkId": "3.12",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged multilingual, and this site's profile is empty"
+        },
+        {
+          "checkId": "3.13",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged ugc, and this site's profile is empty"
+        },
+        {
+          "checkId": "4.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 3 of 3 detectors are not implemented (raw-rendered-crawl-diff, broken-links, metadata-completeness)"
+        },
+        {
+          "checkId": "4.2",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (indexability-matrix-reconciliation)"
+        },
+        {
+          "checkId": "4.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (mobile-journey-qa)"
+        },
+        {
+          "checkId": "4.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 2 of 2 detectors are not implemented (axe-accessibility, manual-a11y-evaluation)"
+        },
+        {
+          "checkId": "4.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (template-lab-perf)"
+        },
+        {
+          "checkId": "4.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged structured-data, and this site's profile is empty"
+        },
+        {
+          "checkId": "4.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged analytics, consent, and this site's profile is empty"
+        },
+        {
+          "checkId": "4.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged migration, and this site's profile is empty"
+        },
+        {
+          "checkId": "4.9",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged multilingual, and this site's profile is empty"
+        },
+        {
+          "checkId": "4.10",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged ecommerce, and this site's profile is empty"
+        },
+        {
+          "checkId": "4.11",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (prelaunch-baseline-snapshot)"
+        },
+        {
+          "checkId": "4.12",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": true,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "5.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (production-smoke-test)"
+        },
+        {
+          "checkId": "5.2",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged migration, and this site's profile is empty"
+        },
+        {
+          "checkId": "5.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (production-crawl-verify)"
+        },
+        {
+          "checkId": "5.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 2 of 2 detectors are not implemented (sitemap-submit, url-inspection)"
+        },
+        {
+          "checkId": "5.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 2 of 2 detectors are not implemented (availability-canary, indexability-canary)"
+        },
+        {
+          "checkId": "5.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged analytics, and this site's profile is empty"
+        },
+        {
+          "checkId": "5.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": true,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "5.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged bing, and this site's profile is empty"
+        },
+        {
+          "checkId": "6.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (indexation-review)"
+        },
+        {
+          "checkId": "6.2",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (field-cwv-monitor)"
+        },
+        {
+          "checkId": "6.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (reporting-anomaly-thresholds)"
+        },
+        {
+          "checkId": "6.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged ai-reporting, and this site's profile is empty"
+        },
+        {
+          "checkId": "6.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (security-manual-actions)"
+        },
+        {
+          "checkId": "6.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged migration, and this site's profile is empty"
+        },
+        {
+          "checkId": "6.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged analytics, and this site's profile is empty"
+        },
+        {
+          "checkId": "6.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (backlink-monitor)"
+        },
+        {
+          "checkId": "6.9",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged ecommerce, multilingual, and this site's profile is empty"
+        },
+        {
+          "checkId": "7.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (monitoring-incident-sla)"
+        },
+        {
+          "checkId": "7.2",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (content-decay)"
+        },
+        {
+          "checkId": "7.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (quarterly-regression-crawl)"
+        },
+        {
+          "checkId": "7.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (release-regression-review)"
+        },
+        {
+          "checkId": "7.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (digital-pr-tracking)"
+        },
+        {
+          "checkId": "7.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (offpage-reputation-governance)"
+        },
+        {
+          "checkId": "7.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (a11y-regression-sampling)"
+        },
+        {
+          "checkId": "7.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged large-site, js-heavy, marketplace, and this site's profile is empty"
+        },
+        {
+          "checkId": "7.9",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged structured-data, multilingual, merchant-feed, and this site's profile is empty"
+        },
+        {
+          "checkId": "7.10",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (security-dependency-maintenance)"
+        }
+      ],
+      "probeFailures": [
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.kjell.com/no/produkter/sikkerhet-og-overvaking/brannvern/roykvarslere/luxorparts-tradlos-roykvarsler-2-pk.-p21130",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.kjell.com/se/outlet/natverk/tp-link-routrar/tp-link-archer-mr200-4g-router-ac750-p96380?outlet=a",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/kalkulator/texas-instruments-ti-30xa-kalkulator-p15306",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/kalkulator/texas-instruments-ti-84-plus-kalkulator-p15320",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/kameraguide",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/blekkpatroner/canon/canon-cli-526bk-svart-foto-p17004",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/blekkpatroner/canon/canon-pgi-525pgbk-svart-p17008",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/ljud-bild/foto-video/gimbal/dji-osmo-mobile-7-gimbal-p60024?outlet=a",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/toner/hp/greenman-toner-tilsvarer-hp-85a-svart-p17028",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/mobilladdare/usb-laddare/linocell-usb-c-laddare-med-pd-20-w-vit-p89300?outlet=b",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/toner/hp/greenman-toner-tilsvarer-hp-78a-svart-p17030",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/kablar-adaptrar/usb-c-kabel/usb-c-till-usb-c/unisynk-usb4-kabel-usbc-till-usbc-240w-2m-p14001?outlet=a",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/toner/samsung/greenman-toner-tilsvarer-samsung-d1082s-svart-p17048",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/ipad-tillbehor/tangentbord-for-ipad/linocell-premium-magnetiskt-tangentbordsfodral-for-ipad-10e-gen-och-ipad-a16-p22938?outlet=b",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/blekkpatroner/canon/peach-blekk-av-typen-canon-pg-510-svart-p17058",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/natverk/mobilt-bredband-och-routrar/4g-router/d-link-dwr-960w-4g-router-ac1200-p65308?outlet=b",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/blekkpatroner/canon/peach-blekk-av-typen-canon-cl-511-farge-p17059",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/tv-spel-gaming/handkontroller/handkontroller-till-mobilen/gxtrust-gxt-735-mylox-tradlos-mobil-handkontroll-svart-p29972?outlet=a",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/blekkpatroner/canon/peach-blekk-av-typen-canon-pg-512-svart-p17060",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/ljud-bild/musikspelare-radio/musikmottagare-sandare/linocell-fm-sandare-med-bluetooth-och-snabbladdning-p69634?outlet=b",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/blekkpatroner/canon/peach-blekk-av-typen-canon-cl-513-farge-p17061",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/dator/mac-tillbehor/plexgear-usb-c-till-magsafe-3-kabel-2-m-p65261?outlet=b",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/blekkpatroner/epson/epson-t1281-svart-p17100",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/mobilladdare/snabbladdare/linocell-magsafe-tradlos-qi2-snabbladdare-15-w-p66243?outlet=a",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/blekkpatroner/epson/epson-t1285-value-pack-p17104",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/iphone-tillbehor/iphone-horlurar/apple-earpods-med-lightning-kontakt-p22325?outlet=a",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/toner/brother/brother-toner-tn-2210-svart-p17105",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/mobiltelefoner/knapptelefoner/doro-leva-l11-mobiltelefon-p66799?outlet=a",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/toner/brother/brother-toner-tn-2220-svart-xl-p17106",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/mobiltelefoner/smartphones/tcl-k70-se-64-gb-p60917?outlet=c",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/toner/brother/greenman-toner-tilsvarer-brother-tn-2005-svart-p17205",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/ljud-bild/tv-tillbehor/streaming-mediaspelare/chromecast/google-tv-streamer-4k-p24828?outlet=a",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/toner/hp/greenman-toner-tilsvarer-hp-35a-svart-p17253",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/mobilskal-och-fodral/planboksfodral/ideal-of-sweden-magnetic-card-holder-korthallare-med-magsafe-black-p21363?outlet=b",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/toner/hp/greenman-toner-tilsvarer-hp-53x-svart-p17261",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/dator/datorkomponenter/optiska-enheter/dvd-brannare/plexgear-extern-dvd-brannare-p90819?outlet=a",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/data/datatilbehor/dvd-og-blu-ray/dvd-plater/bandridge-dvd-bluray-linserengjoring-p18060",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/natverk/mesh/tp-link-deco-x10-ax1500-3-pack-p65411?outlet=a",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/data/datatilbehor/dvd-og-blu-ray/cd-plater/hama-cd-linserengjoring-p18064",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/natverk/wifi-forstarkare/repeater-for-tradlost-natverk/tp-link-re450-wifi-repeater-ac1750-p61260?outlet=b",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/data/datatilbehor/dvd-og-blu-ray/cd-plater/hama-cd-vatrengjoring-p18067",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/hem-fritid/kropp-halsa/harvard/harfon/multistyler-7-i-1-harfon-p66700?outlet=a",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/lyd-og-bilde/musikkspiller-og-radio/platespillere/tilbehor-for-platespiller/kullfiberborste-p18112",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/sakerhet-overvakning/dorrklockor/smarta-dorrklockor/tp-link-tapo-d210-videodorrklocka-p66480?outlet=a",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/data/datatilbehor/dvd-og-blu-ray/cd-dvd-etuier/dvd-omslag-enkelt-5-pk.-p19315",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/kablar-adaptrar/usb-c-kabel/usb-c-till-usb-c/linocell-premium-kevlar-usb-c-3.2-kabel-svart-3-m-p22996?outlet=c",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/data/datatilbehor/dvd-og-blu-ray/cd-dvd-etuier/dvd-omslag-dobbelt-5-pk.-p19316",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/el-verktyg/starkstrom/grenuttag/luxorparts-grenuttag-2-vags-2-pack-p67660?outlet=b",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/data/datatilbehor/dvd-og-blu-ray/cd-dvd-etuier/cd-lomme-dobbel-med-karbonpapp-25-pk.-p19419",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/natverk/natverkskablar/natverkskablar-i-fardiga-langder/luxorparts-utp-natverkskabel-cat.-6-vit-30-m-p68081?outlet=b",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/lyd-og-bilde/musikkspiller-og-radio/platespillere/plateetui/lp-omslag-100-pk.-p19122",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/iphone-tillbehor/iphone-horlurar/linocell-adapter-lightning-till-35-mm-p99186?outlet=b",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/lyd-og-bilde/musikkspiller-og-radio/platespillere/plateetui/lp-omslag-10-pk.-p19503",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/mobilladdare/samsung-laddare/linocell-usb-c-kabel-2.0-vit-1-m-p22829?outlet=b",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/lyd-og-bilde/musikkspiller-og-radio/platespillere/plateetui/inneromslag-til-lp-10-pk.-p19504",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/hem-fritid/fritid/dronare/tillbehor-till-dronare/dji-neo-dronarbatteri-p57989?outlet=a",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/lyd-og-bilde/musikkspiller-og-radio/platespillere/plateetui/ep-omslag-25-pk.-p19505",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/el-verktyg/elektronik/arduino/utvecklingskort/arduino-nano-esp32-utvecklingskort-p88444?outlet=b",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/sikkerhet-og-overvaking/brannvern/gasslarm/nexa-gassdetektor-for-230-v-eller-12-v-p21107",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/tv-spel-gaming/handkontroller/handkontroller-for-nintendo/8bitdo-usb-wireless-adapter-2-p62165?outlet=b",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/sikkerhet-og-overvaking/brannvern/branntepper/luxorparts-brannteppe-rod-120x120-cm-p21114",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/dator/tangentbord/tradlosa-tangentbord/plexgear-tradlost-kontorskit-mk108-p61231?outlet=b",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/sikkerhet-og-overvaking/brannvern/roykvarslere/luxorparts-tradlos-roykvarsler-2-pk.-p21130",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/natverk/tp-link-routrar/tp-link-archer-mr200-4g-router-ac750-p96380?outlet=a",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/sikkerhet-og-overvaking/laser/hengelas/hengelas-med-hoy-boyle-40-mm-p21137",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/ljud-bild/tv-tillbehor/tv-stativ/nikabe-v-base-golvstativ-for-tv-49-70-tum-svart-p30377?outlet=a",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/sikkerhet-og-overvaking/laser/hengelas/kombinasjonslas-20-mm-3-pk.-p21139",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/natverk/natverkskablar/natverkskablar-i-fardiga-langder/luxorparts-utp-natverkskabel-cat.-6-vit-50-m-p68082?outlet=b",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/hjem-fritid/fest/roykmaskiner-boblemaskiner/roykvaeske-1-l-p22284",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/mobilladdare/snabbladdare/linocell-magsafe-tradlos-qi2-snabbladdare-15-w-p66243?outlet=c",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/lyd-og-bilde/hodetelefoner-og-hodesett/hodetelefonstativ-tilbehor/ekstra-oreplugger-3-par-svart-p23204",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/hem-fritid/kropp-halsa/harvard/trimmer/remington-mb7050-har-och-skaggtrimmer-p64842?outlet=b",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/lyd-og-bilde/hodetelefoner-og-hodesett/hodetelefonstativ-tilbehor/ekstra-oreplugger-3-par-hvit-p23211",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/hem-fritid/kropp-halsa/blodtrycksmatare/luxorparts-blodtrycksmatare-for-overarm-p48920?outlet=b",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/lyd-og-bilde/hodetelefoner-og-hodesett/on-ear-hodetelefoner/hodetelefoner-p23324",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/ljud-bild/musikspelare-radio/dabfm-antenner/hama-aktiv-inomhusantenn-for-fm-dab-och-dab-p30046?outlet=b",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/lyd-og-bilde/mikrofoner/mikrofonbeskyttelse/mikrofonbeskyttelse-o12-14-mm-p24127",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/se/outlet/ljud-bild/foto-video/kameror/digitalkameror/kodak-pixpro-fz45-digitalkamera-16-mp-p24817?outlet=b",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "semantic-html",
+          "pageUrl": "https://www.kjell.com/no/produkter/lyd-og-bilde/mikrofoner/mikrofonbeskyttelse/mikrofonbeskyttelse-o40-50-mm-p24131",
+          "summary": "No <main> landmark; primary content is not distinguishable from chrome.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "heading-outline",
+          "pageUrl": "https://www.kjell.com/se",
+          "summary": "No <h1> on the page.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "heading-outline",
+          "pageUrl": "https://www.kjell.com/se/kameraguide",
+          "summary": "No <h1> on the page.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "heading-outline",
+          "pageUrl": "https://www.kjell.com/no",
+          "summary": "No <h1> on the page.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "primary-heading",
+          "pageUrl": "https://www.kjell.com/se",
+          "summary": "No <h1> to carry the page subject.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "primary-heading",
+          "pageUrl": "https://www.kjell.com/se/kameraguide",
+          "summary": "No <h1> to carry the page subject.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "primary-heading",
+          "pageUrl": "https://www.kjell.com/no",
+          "summary": "No <h1> to carry the page subject.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-alt-quality",
+          "pageUrl": "https://www.kjell.com/no/produkter/sikkerhet-og-overvaking/brannvern/roykvarslere/luxorparts-tradlos-roykvarsler-2-pk.-p21130",
+          "summary": "1 of 19 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-alt-quality",
+          "pageUrl": "https://www.kjell.com/se/outlet/natverk/tp-link-routrar/tp-link-archer-mr200-4g-router-ac750-p96380?outlet=a",
+          "summary": "1 of 19 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se",
+          "summary": "4 of 20 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/kalkulator/texas-instruments-ti-30xa-kalkulator-p15306",
+          "summary": "5 of 7 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet",
+          "summary": "4 of 64 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/kalkulator/texas-instruments-ti-84-plus-kalkulator-p15320",
+          "summary": "5 of 7 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/kameraguide",
+          "summary": "4 of 4 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/blekkpatroner/canon/canon-cli-526bk-svart-foto-p17004",
+          "summary": "5 of 14 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no",
+          "summary": "4 of 20 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/blekkpatroner/canon/canon-pgi-525pgbk-svart-p17008",
+          "summary": "5 of 14 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/ljud-bild/foto-video/gimbal/dji-osmo-mobile-7-gimbal-p60024?outlet=a",
+          "summary": "5 of 32 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/toner/hp/greenman-toner-tilsvarer-hp-85a-svart-p17028",
+          "summary": "5 of 12 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/mobilladdare/usb-laddare/linocell-usb-c-laddare-med-pd-20-w-vit-p89300?outlet=b",
+          "summary": "8 of 25 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/toner/hp/greenman-toner-tilsvarer-hp-78a-svart-p17030",
+          "summary": "5 of 12 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/kablar-adaptrar/usb-c-kabel/usb-c-till-usb-c/unisynk-usb4-kabel-usbc-till-usbc-240w-2m-p14001?outlet=a",
+          "summary": "5 of 7 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/toner/samsung/greenman-toner-tilsvarer-samsung-d1082s-svart-p17048",
+          "summary": "5 of 12 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/ipad-tillbehor/tangentbord-for-ipad/linocell-premium-magnetiskt-tangentbordsfodral-for-ipad-10e-gen-och-ipad-a16-p22938?outlet=b",
+          "summary": "9 of 28 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/blekkpatroner/canon/peach-blekk-av-typen-canon-pg-510-svart-p17058",
+          "summary": "5 of 7 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/natverk/mobilt-bredband-och-routrar/4g-router/d-link-dwr-960w-4g-router-ac1200-p65308?outlet=b",
+          "summary": "5 of 16 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/blekkpatroner/canon/peach-blekk-av-typen-canon-cl-511-farge-p17059",
+          "summary": "5 of 7 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/tv-spel-gaming/handkontroller/handkontroller-till-mobilen/gxtrust-gxt-735-mylox-tradlos-mobil-handkontroll-svart-p29972?outlet=a",
+          "summary": "5 of 36 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/blekkpatroner/canon/peach-blekk-av-typen-canon-pg-512-svart-p17060",
+          "summary": "5 of 7 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/ljud-bild/musikspelare-radio/musikmottagare-sandare/linocell-fm-sandare-med-bluetooth-och-snabbladdning-p69634?outlet=b",
+          "summary": "5 of 20 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/blekkpatroner/canon/peach-blekk-av-typen-canon-cl-513-farge-p17061",
+          "summary": "5 of 7 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/dator/mac-tillbehor/plexgear-usb-c-till-magsafe-3-kabel-2-m-p65261?outlet=b",
+          "summary": "5 of 14 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/blekkpatroner/epson/epson-t1281-svart-p17100",
+          "summary": "5 of 7 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/mobilladdare/snabbladdare/linocell-magsafe-tradlos-qi2-snabbladdare-15-w-p66243?outlet=a",
+          "summary": "5 of 18 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/blekkpatroner/epson/epson-t1285-value-pack-p17104",
+          "summary": "5 of 7 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/iphone-tillbehor/iphone-horlurar/apple-earpods-med-lightning-kontakt-p22325?outlet=a",
+          "summary": "5 of 18 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/toner/brother/brother-toner-tn-2210-svart-p17105",
+          "summary": "5 of 7 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/mobiltelefoner/knapptelefoner/doro-leva-l11-mobiltelefon-p66799?outlet=a",
+          "summary": "5 of 20 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/toner/brother/brother-toner-tn-2220-svart-xl-p17106",
+          "summary": "5 of 7 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/mobiltelefoner/smartphones/tcl-k70-se-64-gb-p60917?outlet=c",
+          "summary": "5 of 20 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/toner/brother/greenman-toner-tilsvarer-brother-tn-2005-svart-p17205",
+          "summary": "5 of 10 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/ljud-bild/tv-tillbehor/streaming-mediaspelare/chromecast/google-tv-streamer-4k-p24828?outlet=a",
+          "summary": "5 of 18 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/toner/hp/greenman-toner-tilsvarer-hp-35a-svart-p17253",
+          "summary": "5 of 12 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/mobilskal-och-fodral/planboksfodral/ideal-of-sweden-magnetic-card-holder-korthallare-med-magsafe-black-p21363?outlet=b",
+          "summary": "5 of 10 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/kontor/skrivere-og-tilbehor/toner/hp/greenman-toner-tilsvarer-hp-53x-svart-p17261",
+          "summary": "5 of 10 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/dator/datorkomponenter/optiska-enheter/dvd-brannare/plexgear-extern-dvd-brannare-p90819?outlet=a",
+          "summary": "5 of 18 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/data/datatilbehor/dvd-og-blu-ray/dvd-plater/bandridge-dvd-bluray-linserengjoring-p18060",
+          "summary": "4 of 6 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/natverk/mesh/tp-link-deco-x10-ax1500-3-pack-p65411?outlet=a",
+          "summary": "5 of 20 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/data/datatilbehor/dvd-og-blu-ray/cd-plater/hama-cd-linserengjoring-p18064",
+          "summary": "5 of 10 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/natverk/wifi-forstarkare/repeater-for-tradlost-natverk/tp-link-re450-wifi-repeater-ac1750-p61260?outlet=b",
+          "summary": "5 of 16 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/data/datatilbehor/dvd-og-blu-ray/cd-plater/hama-cd-vatrengjoring-p18067",
+          "summary": "5 of 10 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/hem-fritid/kropp-halsa/harvard/harfon/multistyler-7-i-1-harfon-p66700?outlet=a",
+          "summary": "4 of 37 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/lyd-og-bilde/musikkspiller-og-radio/platespillere/tilbehor-for-platespiller/kullfiberborste-p18112",
+          "summary": "4 of 9 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/sakerhet-overvakning/dorrklockor/smarta-dorrklockor/tp-link-tapo-d210-videodorrklocka-p66480?outlet=a",
+          "summary": "5 of 22 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/data/datatilbehor/dvd-og-blu-ray/cd-dvd-etuier/dvd-omslag-enkelt-5-pk.-p19315",
+          "summary": "4 of 6 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/kablar-adaptrar/usb-c-kabel/usb-c-till-usb-c/linocell-premium-kevlar-usb-c-3.2-kabel-svart-3-m-p22996?outlet=c",
+          "summary": "5 of 12 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/data/datatilbehor/dvd-og-blu-ray/cd-dvd-etuier/dvd-omslag-dobbelt-5-pk.-p19316",
+          "summary": "4 of 6 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/el-verktyg/starkstrom/grenuttag/luxorparts-grenuttag-2-vags-2-pack-p67660?outlet=b",
+          "summary": "5 of 10 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/data/datatilbehor/dvd-og-blu-ray/cd-dvd-etuier/cd-lomme-dobbel-med-karbonpapp-25-pk.-p19419",
+          "summary": "4 of 19 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/natverk/natverkskablar/natverkskablar-i-fardiga-langder/luxorparts-utp-natverkskabel-cat.-6-vit-30-m-p68081?outlet=b",
+          "summary": "5 of 10 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/lyd-og-bilde/musikkspiller-og-radio/platespillere/plateetui/lp-omslag-100-pk.-p19122",
+          "summary": "4 of 6 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/iphone-tillbehor/iphone-horlurar/linocell-adapter-lightning-till-35-mm-p99186?outlet=b",
+          "summary": "5 of 12 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/lyd-og-bilde/musikkspiller-og-radio/platespillere/plateetui/lp-omslag-10-pk.-p19503",
+          "summary": "4 of 6 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/mobilladdare/samsung-laddare/linocell-usb-c-kabel-2.0-vit-1-m-p22829?outlet=b",
+          "summary": "5 of 7 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/lyd-og-bilde/musikkspiller-og-radio/platespillere/plateetui/inneromslag-til-lp-10-pk.-p19504",
+          "summary": "4 of 6 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/hem-fritid/fritid/dronare/tillbehor-till-dronare/dji-neo-dronarbatteri-p57989?outlet=a",
+          "summary": "5 of 18 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/lyd-og-bilde/musikkspiller-og-radio/platespillere/plateetui/ep-omslag-25-pk.-p19505",
+          "summary": "4 of 6 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/el-verktyg/elektronik/arduino/utvecklingskort/arduino-nano-esp32-utvecklingskort-p88444?outlet=b",
+          "summary": "5 of 18 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/sikkerhet-og-overvaking/brannvern/gasslarm/nexa-gassdetektor-for-230-v-eller-12-v-p21107",
+          "summary": "5 of 7 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/tv-spel-gaming/handkontroller/handkontroller-for-nintendo/8bitdo-usb-wireless-adapter-2-p62165?outlet=b",
+          "summary": "5 of 24 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/sikkerhet-og-overvaking/brannvern/branntepper/luxorparts-brannteppe-rod-120x120-cm-p21114",
+          "summary": "5 of 12 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/dator/tangentbord/tradlosa-tangentbord/plexgear-tradlost-kontorskit-mk108-p61231?outlet=b",
+          "summary": "5 of 12 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/sikkerhet-og-overvaking/brannvern/roykvarslere/luxorparts-tradlos-roykvarsler-2-pk.-p21130",
+          "summary": "8 of 19 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/natverk/tp-link-routrar/tp-link-archer-mr200-4g-router-ac750-p96380?outlet=a",
+          "summary": "6 of 19 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/sikkerhet-og-overvaking/laser/hengelas/hengelas-med-hoy-boyle-40-mm-p21137",
+          "summary": "4 of 6 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/ljud-bild/tv-tillbehor/tv-stativ/nikabe-v-base-golvstativ-for-tv-49-70-tum-svart-p30377?outlet=a",
+          "summary": "5 of 22 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/sikkerhet-og-overvaking/laser/hengelas/kombinasjonslas-20-mm-3-pk.-p21139",
+          "summary": "4 of 6 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/natverk/natverkskablar/natverkskablar-i-fardiga-langder/luxorparts-utp-natverkskabel-cat.-6-vit-50-m-p68082?outlet=b",
+          "summary": "5 of 10 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/hjem-fritid/fest/roykmaskiner-boblemaskiner/roykvaeske-1-l-p22284",
+          "summary": "4 of 6 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/mobilladdare/snabbladdare/linocell-magsafe-tradlos-qi2-snabbladdare-15-w-p66243?outlet=c",
+          "summary": "5 of 18 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/lyd-og-bilde/hodetelefoner-og-hodesett/hodetelefonstativ-tilbehor/ekstra-oreplugger-3-par-svart-p23204",
+          "summary": "4 of 9 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/hem-fritid/kropp-halsa/harvard/trimmer/remington-mb7050-har-och-skaggtrimmer-p64842?outlet=b",
+          "summary": "8 of 29 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/lyd-og-bilde/hodetelefoner-og-hodesett/hodetelefonstativ-tilbehor/ekstra-oreplugger-3-par-hvit-p23211",
+          "summary": "4 of 9 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/hem-fritid/kropp-halsa/blodtrycksmatare/luxorparts-blodtrycksmatare-for-overarm-p48920?outlet=b",
+          "summary": "5 of 10 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/lyd-og-bilde/hodetelefoner-og-hodesett/on-ear-hodetelefoner/hodetelefoner-p23324",
+          "summary": "4 of 11 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/ljud-bild/musikspelare-radio/dabfm-antenner/hama-aktiv-inomhusantenn-for-fm-dab-och-dab-p30046?outlet=b",
+          "summary": "5 of 20 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/lyd-og-bilde/mikrofoner/mikrofonbeskyttelse/mikrofonbeskyttelse-o12-14-mm-p24127",
+          "summary": "4 of 6 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/se/outlet/ljud-bild/foto-video/kameror/digitalkameror/kodak-pixpro-fz45-digitalkamera-16-mp-p24817?outlet=b",
+          "summary": "5 of 30 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.kjell.com/no/produkter/lyd-og-bilde/mikrofoner/mikrofonbeskyttelse/mikrofonbeskyttelse-o40-50-mm-p24131",
+          "summary": "4 of 6 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "lcp-not-lazy",
+          "pageUrl": "https://www.kjell.com/se",
+          "summary": "The first image on the page is lazy-loaded, delaying the likely LCP.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "lcp-not-lazy",
+          "pageUrl": "https://www.kjell.com/se/outlet",
+          "summary": "The first image on the page is lazy-loaded, delaying the likely LCP.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "lcp-not-lazy",
+          "pageUrl": "https://www.kjell.com/se/kameraguide",
+          "summary": "The first image on the page is lazy-loaded, delaying the likely LCP.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "lcp-not-lazy",
+          "pageUrl": "https://www.kjell.com/no",
+          "summary": "The first image on the page is lazy-loaded, delaying the likely LCP.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/kameraguide",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/no",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/ljud-bild/foto-video/gimbal/dji-osmo-mobile-7-gimbal-p60024?outlet=a",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/mobilladdare/usb-laddare/linocell-usb-c-laddare-med-pd-20-w-vit-p89300?outlet=b",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/kablar-adaptrar/usb-c-kabel/usb-c-till-usb-c/unisynk-usb4-kabel-usbc-till-usbc-240w-2m-p14001?outlet=a",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/ipad-tillbehor/tangentbord-for-ipad/linocell-premium-magnetiskt-tangentbordsfodral-for-ipad-10e-gen-och-ipad-a16-p22938?outlet=b",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/natverk/mobilt-bredband-och-routrar/4g-router/d-link-dwr-960w-4g-router-ac1200-p65308?outlet=b",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/tv-spel-gaming/handkontroller/handkontroller-till-mobilen/gxtrust-gxt-735-mylox-tradlos-mobil-handkontroll-svart-p29972?outlet=a",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/ljud-bild/musikspelare-radio/musikmottagare-sandare/linocell-fm-sandare-med-bluetooth-och-snabbladdning-p69634?outlet=b",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/dator/mac-tillbehor/plexgear-usb-c-till-magsafe-3-kabel-2-m-p65261?outlet=b",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/mobilladdare/snabbladdare/linocell-magsafe-tradlos-qi2-snabbladdare-15-w-p66243?outlet=a",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/iphone-tillbehor/iphone-horlurar/apple-earpods-med-lightning-kontakt-p22325?outlet=a",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/mobiltelefoner/knapptelefoner/doro-leva-l11-mobiltelefon-p66799?outlet=a",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/mobiltelefoner/smartphones/tcl-k70-se-64-gb-p60917?outlet=c",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/ljud-bild/tv-tillbehor/streaming-mediaspelare/chromecast/google-tv-streamer-4k-p24828?outlet=a",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/mobilskal-och-fodral/planboksfodral/ideal-of-sweden-magnetic-card-holder-korthallare-med-magsafe-black-p21363?outlet=b",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/dator/datorkomponenter/optiska-enheter/dvd-brannare/plexgear-extern-dvd-brannare-p90819?outlet=a",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/natverk/mesh/tp-link-deco-x10-ax1500-3-pack-p65411?outlet=a",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/natverk/wifi-forstarkare/repeater-for-tradlost-natverk/tp-link-re450-wifi-repeater-ac1750-p61260?outlet=b",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/hem-fritid/kropp-halsa/harvard/harfon/multistyler-7-i-1-harfon-p66700?outlet=a",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/sakerhet-overvakning/dorrklockor/smarta-dorrklockor/tp-link-tapo-d210-videodorrklocka-p66480?outlet=a",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/kablar-adaptrar/usb-c-kabel/usb-c-till-usb-c/linocell-premium-kevlar-usb-c-3.2-kabel-svart-3-m-p22996?outlet=c",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/el-verktyg/starkstrom/grenuttag/luxorparts-grenuttag-2-vags-2-pack-p67660?outlet=b",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/natverk/natverkskablar/natverkskablar-i-fardiga-langder/luxorparts-utp-natverkskabel-cat.-6-vit-30-m-p68081?outlet=b",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/iphone-tillbehor/iphone-horlurar/linocell-adapter-lightning-till-35-mm-p99186?outlet=b",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/mobilladdare/samsung-laddare/linocell-usb-c-kabel-2.0-vit-1-m-p22829?outlet=b",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/hem-fritid/fritid/dronare/tillbehor-till-dronare/dji-neo-dronarbatteri-p57989?outlet=a",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/el-verktyg/elektronik/arduino/utvecklingskort/arduino-nano-esp32-utvecklingskort-p88444?outlet=b",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/tv-spel-gaming/handkontroller/handkontroller-for-nintendo/8bitdo-usb-wireless-adapter-2-p62165?outlet=b",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/dator/tangentbord/tradlosa-tangentbord/plexgear-tradlost-kontorskit-mk108-p61231?outlet=b",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/natverk/tp-link-routrar/tp-link-archer-mr200-4g-router-ac750-p96380?outlet=a",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/ljud-bild/tv-tillbehor/tv-stativ/nikabe-v-base-golvstativ-for-tv-49-70-tum-svart-p30377?outlet=a",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/natverk/natverkskablar/natverkskablar-i-fardiga-langder/luxorparts-utp-natverkskabel-cat.-6-vit-50-m-p68082?outlet=b",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/mobilladdare/snabbladdare/linocell-magsafe-tradlos-qi2-snabbladdare-15-w-p66243?outlet=c",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/hem-fritid/kropp-halsa/harvard/trimmer/remington-mb7050-har-och-skaggtrimmer-p64842?outlet=b",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/hem-fritid/kropp-halsa/blodtrycksmatare/luxorparts-blodtrycksmatare-for-overarm-p48920?outlet=b",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/ljud-bild/musikspelare-radio/dabfm-antenner/hama-aktiv-inomhusantenn-for-fm-dab-och-dab-p30046?outlet=b",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "canonicalization",
+          "pageUrl": "https://www.kjell.com/se/outlet/ljud-bild/foto-video/kameror/digitalkameror/kodak-pixpro-fz45-digitalkamera-16-mp-p24817?outlet=b",
+          "summary": "No rel=canonical; the page does not state its own address.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "title-uniqueness",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/mobilladdare/snabbladdare/linocell-magsafe-tradlos-qi2-snabbladdare-15-w-p66243?outlet=a",
+          "summary": "Title is shared with 1 other crawled page(s).",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "title-uniqueness",
+          "pageUrl": "https://www.kjell.com/se/outlet/mobilt/mobilladdare/snabbladdare/linocell-magsafe-tradlos-qi2-snabbladdare-15-w-p66243?outlet=c",
+          "summary": "Title is shared with 1 other crawled page(s).",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "sitemap-canonical-agreement",
+          "pageUrl": null,
+          "summary": "40 sitemap entr(ies) canonicalize elsewhere.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "orphan-pages",
+          "pageUrl": null,
+          "summary": "40 page(s) are reachable only from the sitemap.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "host-redirect",
+          "pageUrl": null,
+          "summary": "4 host variant(s) take more than one hop to arrive.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "video-watch-page",
+          "pageUrl": "https://www.kjell.com/se/outlet/ljud-bild/foto-video/gimbal/dji-osmo-mobile-7-gimbal-p60024?outlet=a",
+          "summary": "The page carrying this video is noindex, so the video has no watch page.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "video-watch-page",
+          "pageUrl": "https://www.kjell.com/se/outlet/natverk/wifi-forstarkare/repeater-for-tradlost-natverk/tp-link-re450-wifi-repeater-ac1750-p61260?outlet=b",
+          "summary": "The page carrying this video is noindex, so the video has no watch page.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "video-watch-page",
+          "pageUrl": "https://www.kjell.com/se/outlet/tv-spel-gaming/handkontroller/handkontroller-for-nintendo/8bitdo-usb-wireless-adapter-2-p62165?outlet=b",
+          "summary": "The page carrying this video is noindex, so the video has no watch page.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "videoobject-schema",
+          "pageUrl": "https://www.kjell.com/se/outlet/ljud-bild/foto-video/gimbal/dji-osmo-mobile-7-gimbal-p60024?outlet=a",
+          "summary": "1 video(s) play on this page and none is described by VideoObject structured data.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "videoobject-schema",
+          "pageUrl": "https://www.kjell.com/se/outlet/natverk/wifi-forstarkare/repeater-for-tradlost-natverk/tp-link-re450-wifi-repeater-ac1750-p61260?outlet=b",
+          "summary": "1 video(s) play on this page and none is described by VideoObject structured data.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "videoobject-schema",
+          "pageUrl": "https://www.kjell.com/se/outlet/tv-spel-gaming/handkontroller/handkontroller-for-nintendo/8bitdo-usb-wireless-adapter-2-p62165?outlet=b",
+          "summary": "1 video(s) play on this page and none is described by VideoObject structured data.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "videoobject-schema",
+          "pageUrl": "https://www.kjell.com/no/produkter/sikkerhet-og-overvaking/brannvern/branntepper/luxorparts-brannteppe-rod-120x120-cm-p21114",
+          "summary": "1 video(s) play on this page and none is described by VideoObject structured data.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "videoobject-schema",
+          "pageUrl": "https://www.kjell.com/no/produkter/sikkerhet-og-overvaking/brannvern/roykvarslere/luxorparts-tradlos-roykvarsler-2-pk.-p21130",
+          "summary": "1 video(s) play on this page and none is described by VideoObject structured data.",
+          "outcome": "fail"
+        }
+      ]
+    }
+  ]
+}

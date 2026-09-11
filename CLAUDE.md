@@ -59,7 +59,7 @@ Key scripts:
 
 ## How it works
 
-1. **Crawl** (`@seo/crawler`) — breadth-first from seeds, respects robots.txt, extracts links and metadata, paced politeness delay, bounded by page/depth budget. What either budget left unfetched is recorded on `CrawlResult.notReached`, not dropped. It also makes the *auxiliary* requests that sit outside the walk — the four scheme/host spellings of the seed, and the root document's declared icons — and records them on `CrawlResult.auxiliary`. One more is not a request at all: a TLS handshake with the host the root document landed on, offering `h2` and `http/1.1` as a browser does, recorded on `CrawlResult.protocol`, because Node's `fetch` speaks HTTP/1.1 whatever the server offers and so no page fetched says anything about HTTP/2. Probes never fetch: politeness is owed to a host, and the crawl loop is the only thing that knows what was promised. Host variants are skipped for a seed that cannot have them (an IP, `localhost`, any single-label host), which is why they never fire against the fixture site.
+1. **Crawl** (`@seo/crawler`) — breadth-first from seeds, respects robots.txt, extracts links and metadata, paced politeness delay, bounded by page/depth budget. The page budget is spent across two lanes, one request for one: the walk (the seeds and whatever a link led to) and the sitemap URLs. A lane that runs dry gives the rest of the budget to the other, so a site with no sitemap is walked exactly as before and a site with a huge one no longer spends the whole budget on it. What either budget left unfetched is recorded on `CrawlResult.notReached`, not dropped. It also makes the *auxiliary* requests that sit outside the walk — the four scheme/host spellings of the seed, and the root document's declared icons — and records them on `CrawlResult.auxiliary`. One more is not a request at all: a TLS handshake with the host the root document landed on, offering `h2` and `http/1.1` as a browser does, recorded on `CrawlResult.protocol`, because Node's `fetch` speaks HTTP/1.1 whatever the server offers and so no page fetched says anything about HTTP/2. Probes never fetch: politeness is owed to a host, and the crawl loop is the only thing that knows what was promised. Host variants are skipped for a seed that cannot have them (an IP, `localhost`, any single-label host), which is why they never fire against the fixture site.
 2. **Extract** — parse each page's HTML; record head tags, links, hierarchy, structure.
 3. **Probe** (`@seo/probes`) — detectors observe the crawl result and emit evidence.
 4. **Persist** (`@seo/persistence`) — stream pages and probes into Postgres.
@@ -136,7 +136,7 @@ Key scripts:
 
 ### Guarantees the sink relies on
 
-- Pages are processed breadth-first from seeds.
+- Pages are processed breadth-first from seeds, interleaved with the sitemap lane — so a page is not always followed immediately by its own children, but every page still arrives after the page it was linked from.
 - `onPage` is awaited before a page's links are enqueued, so a parent always persists before its children.
 - A normalized URL is enqueued at most once, so there are no duplicates.
 

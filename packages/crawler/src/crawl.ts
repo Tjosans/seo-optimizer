@@ -368,14 +368,27 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
     : await loadSitemaps(robots, firstSeed, options, request);
   const sitemapUrls = sitemaps.urls;
 
-  const queue: QueueEntry[] = [];
+  /**
+   * Two lanes, spent one request for one.
+   *
+   * `walk` holds the seeds and everything a link led to; `listed` holds what
+   * the sitemaps declare. A single queue spends the whole page budget on
+   * whatever went into it first, and the sitemap URLs go in at depth 0 ahead
+   * of every link: on kjell.com, whose sitemap declares 24,000 URLs, an
+   * 80-page crawl fetched the seed and then 79 sitemap entries, and nothing a
+   * link leads to — a filter URL, an orphan, a page's click depth — was ever
+   * walked. The budget bounds requests; how it is divided decides which
+   * questions the audit can answer at all.
+   */
+  const walk: QueueEntry[] = [];
+  const listed: QueueEntry[] = [];
   const queued = new Set<string>();
   const blockedByRobots: string[] = [];
   // Kept apart from `queued` so a URL first seen too deep can still be walked
   // if a shallower path to it turns up later.
   const beyondDepth = new Set<string>();
 
-  const enqueue = (url: string, depth: number, from: string | null): void => {
+  const enqueue = (url: string, depth: number, from: string | null, lane: QueueEntry[] = walk): void => {
     const normalized = normalizeUrl(url);
     if (normalized === null) return;
     if (!isSameSite(normalized, firstSeed)) return;
@@ -390,11 +403,11 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
       return;
     }
     queued.add(normalized);
-    queue.push({ url, normalizedUrl: normalized, depth, discoveredFrom: from });
+    lane.push({ url, normalizedUrl: normalized, depth, discoveredFrom: from });
   };
 
   for (const seed of options.seeds) enqueue(seed, 0, null);
-  for (const url of sitemapUrls) enqueue(url, 0, null);
+  for (const url of sitemapUrls) enqueue(url, 0, null, listed);
 
   const auxiliary: AuxiliaryFetch[] = [];
   const pages: CrawledPage[] = [];
@@ -432,11 +445,26 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
     }
   }
 
-  while (queue.length > 0 && pages.length < options.maxPages) {
+  // Alternating, the walk first, so the seed is the first page fetched and a
+  // lane that runs dry hands what is left of the budget to the other.
+  let turn = 0;
+  const nextEntry = (): QueueEntry | undefined => {
+    const lanes = [walk, listed];
+    for (let step = 0; step < lanes.length; step += 1) {
+      const lane = lanes[(turn + step) % lanes.length];
+      if (lane !== undefined && lane.length > 0) {
+        turn = (turn + step + 1) % lanes.length;
+        return lane.shift();
+      }
+    }
+    return undefined;
+  };
+
+  while (pages.length < options.maxPages) {
     // Checked here and again inside the delay, so the longest a cancelled
     // crawl keeps going is the single request already in flight.
     stopIfCancelled(options.signal);
-    const entry = queue.shift();
+    const entry = nextEntry();
     if (entry === undefined) break;
     if (!first) await sleep(delayMs, options.signal);
     first = false;
@@ -508,7 +536,8 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
     sitemapVideos: sitemaps.videos,
     blockedByRobots,
     notReached: [
-      ...queue.map((entry) => entry.normalizedUrl),
+      ...walk.map((entry) => entry.normalizedUrl),
+      ...listed.map((entry) => entry.normalizedUrl),
       ...[...beyondDepth].filter(
         (url) =>
           !queued.has(url) &&

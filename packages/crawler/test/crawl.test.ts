@@ -192,6 +192,94 @@ describe('extract', () => {
     ]);
   });
 
+  it('divides the reading matter at its headings, leaving the menu, asides and footer out', () => {
+    const content = extract(
+      '<html><body>' +
+        '<header><nav><h2>Menu</h2><a href="/a">A</a></nav></header>' +
+        '<main>' +
+        '<h1>Choosing a bike</h1><p>Start with the frame size.</p>' +
+        '<h2>Which size?</h2>' +
+        '<h3>Small</h3><p>For riders under 165 cm.</p>' +
+        '<p>See <a href="https://example.org/study">the study</a> for details</p>' +
+        '<aside><h2>Related</h2><p>Other things</p></aside>' +
+        '</main>' +
+        '<footer><h2>Contact</h2></footer>' +
+        '</body></html>',
+      'https://example.com/',
+    ).content;
+    expect(content.root).toBe('main');
+    expect(content.sections).toEqual([
+      { heading: { level: 1, text: 'Choosing a bike' }, words: 5 },
+      { heading: { level: 2, text: 'Which size?' }, words: 0 },
+      { heading: { level: 3, text: 'Small' }, words: 10 },
+    ]);
+    expect(content.links).toEqual(['https://example.org/study']);
+  });
+
+  it('reads a lone article as the reading matter, keeping its own header', () => {
+    const extracted = extract(
+      '<html><body><header>Logo</header>' +
+        '<article><header><h1>Title</h1><p class="byline">By Ana Lind</p></header><p>Body text here.</p></article>' +
+        '</body></html>',
+      'https://example.com/',
+    );
+    expect(extracted.content.root).toBe('article');
+    expect(extracted.content.sections).toEqual([{ heading: { level: 1, text: 'Title' }, words: 6 }]);
+    expect(extracted.authorship.byline).toBe('By Ana Lind');
+  });
+
+  it('records text before the first heading as a section only when there is some', () => {
+    const sections = extract('<html><body><p>Lead in.</p><h2>Part</h2></body></html>', 'https://example.com/')
+      .content.sections;
+    expect(sections).toEqual([
+      { heading: null, words: 2 },
+      { heading: { level: 2, text: 'Part' }, words: 0 },
+    ]);
+  });
+
+  it('reads who a page says wrote it and when, outside structured data', () => {
+    const authorship = extract(
+      '<html><head>' +
+        '<meta name="author" content="Ana Lind">' +
+        '<meta property="article:author" content="https://example.com/ana">' +
+        '<meta property="article:published_time" content="2026-03-01T09:00:00Z">' +
+        '<meta property="article:modified_time" content="2026-04-01T09:00:00Z">' +
+        '</head><body>' +
+        '<nav><a class="author-index" href="/authors">Our authors</a></nav>' +
+        '<span class="post-author">Ana Lind</span>' +
+        '<time datetime="2026-03-01">1 March</time><time>2026-04-01</time>' +
+        '</body></html>',
+      'https://example.com/',
+    ).authorship;
+    expect(authorship).toEqual({
+      metaAuthor: 'Ana Lind',
+      byline: 'Ana Lind',
+      articleAuthor: 'https://example.com/ana',
+      publishedTime: '2026-03-01T09:00:00Z',
+      modifiedTime: '2026-04-01T09:00:00Z',
+      times: ['2026-03-01', '2026-04-01'],
+    });
+  });
+
+  it('keeps a byline’s words apart when they sit in adjacent elements', () => {
+    const byline = extract(
+      '<html><body><div class="byline"><time>22 minutes ago</time><span>Share</span><span>Ana Lind</span></div></body></html>',
+      'https://example.com/',
+    ).authorship.byline;
+    expect(byline).toBe('22 minutes ago Share Ana Lind');
+    const mixed = extract('<html><body><p class="byline">By <a href="/ana">Ana</a> Lind</p></body></html>', 'https://example.com/')
+      .authorship.byline;
+    expect(mixed).toBe('By Ana Lind');
+  });
+
+  it('prefers a rel="author" link over a class that merely mentions authors', () => {
+    const byline = extract(
+      '<html><body><div class="author-box">About the team</div><p>By <a rel="author" href="/ana">Ana Lind</a></p></body></html>',
+      'https://example.com/',
+    ).authorship.byline;
+    expect(byline).toBe('Ana Lind');
+  });
+
   it('counts unparseable JSON-LD instead of dropping it', () => {
     const extracted = extract(
       '<html><body><script type="application/ld+json">{ nope }</script></body></html>',

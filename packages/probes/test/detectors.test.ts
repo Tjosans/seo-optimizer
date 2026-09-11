@@ -1,6 +1,6 @@
 /**
  * The detectors added for corpus checks 1.6, 1.7, 1.9, 1.13, 1.14, 1.15, 2.7, 2.13,
- * 2.14, 2.17, 3.11 and 4.9.
+ * 2.14, 2.17, 3.9, 3.11 and 4.9.
  *
  * These run against hand-built pages rather than the fixture site, because each
  * one answers a question about a *shape* — a reciprocal hreflang cluster, a
@@ -1911,5 +1911,220 @@ describe('content-accessibility', () => {
 
   it('says nothing about an error page', () => {
     expect(check(page({ path: '/gone', status: 404 })).outcome).toBe('not-applicable');
+  });
+});
+
+// --- 3.9 answer-first-structure -------------------------------------------
+
+const words = (count: number): string => 'word '.repeat(count).trim();
+
+const articleLd = (node: Record<string, unknown> = {}): string =>
+  `<script type="application/ld+json">${JSON.stringify({ '@context': SCHEMA, '@type': 'BlogPosting', ...node })}</script>`;
+
+describe('answer-first-structure', () => {
+  const reading = (body: string, head = ''): CrawledPage =>
+    page({ path: '/guide', html: `<html lang="en"><head><title>Guide</title>${head}</head><body>${body}</body></html>` });
+
+  const check = (target: CrawledPage): Observation => runPage('answer-first-structure', target, [target]);
+
+  it('passes signposted reading matter whose questions are answered, and says what it cannot judge', () => {
+    const observation = check(
+      reading(
+        `<main><h1>Choosing a bike</h1><p>${words(120)}</p>` +
+          `<h2>Which frame size do I need?</h2><p>${words(150)}</p>` +
+          `<h2>Frame materials</h2><p>${words(150)} <a href="https://example.org/study">study</a></p></main>`,
+      ),
+    );
+    expect(observation.outcome).toBe('pass');
+    expect(observation.summary).toContain('is for a person');
+    expect(observation.data).toMatchObject({ subheadings: 2, questionHeadings: 1, outboundLinks: 1 });
+  });
+
+  it('leaves a short page alone unless it declares itself an article', () => {
+    expect(check(reading(`<h1>Contact</h1><p>${words(40)}</p>`)).outcome).toBe('not-applicable');
+    expect(check(reading(`<h1>News</h1><p>${words(40)}</p>`, articleLd())).outcome).toBe('pass');
+  });
+
+  it('asks a person about a wall of text under no subheading', () => {
+    const observation = check(reading(`<h1>Terms</h1><p>${words(700)}</p>`));
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toContain('700 words of reading matter under no subheading');
+  });
+
+  it('does not count the menu’s headings as signposts to the page', () => {
+    const observation = check(
+      reading(`<nav><h2>Shop</h2><h2>Help</h2></nav><main><h1>Terms</h1><p>${words(700)}</p></main>`),
+    );
+    expect(observation.outcome).toBe('warn');
+  });
+
+  it('asks a person about a question heading with nothing beneath it', () => {
+    const observation = check(
+      reading(
+        `<h1>Delivery</h1><p>${words(300)}</p>` +
+          `<h2>How long does delivery take?</h2><h2>Returns</h2><p>${words(50)}</p>`,
+      ),
+    );
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toContain('1 question heading(s) have no text before the next heading');
+    expect(observation.data?.['unanswered']).toEqual(['How long does delivery take?']);
+  });
+
+  it('counts a question answered by its subsections as answered', () => {
+    const observation = check(
+      reading(
+        `<h1>Sizes</h1><p>${words(300)}</p>` +
+          `<h2>Which size?</h2><h3>Small</h3><p>${words(40)}</p><h3>Large</h3><p>${words(40)}</p>`,
+      ),
+    );
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('reports a body cut at the size limit as unobservable', () => {
+    const cut = reading(`<h1>Guide</h1><p>${words(400)}</p>`);
+    const observation = check({ ...cut, fetch: { ...cut.fetch, truncated: true } });
+    expect(observation.outcome).toBe('error');
+  });
+});
+
+// --- 3.9 author-date-signals ----------------------------------------------
+
+describe('author-date-signals', () => {
+  interface ArticleSpec {
+    readonly node?: Record<string, unknown>;
+    readonly head?: string;
+    readonly body?: string;
+    readonly served?: string;
+    readonly truncated?: boolean;
+  }
+
+  const DATED = { author: { '@type': 'Person', name: 'Ana Lind' }, datePublished: '2026-03-01T09:00:00Z' };
+
+  const post = (path: string, { node = DATED, head = '', body = '<p>Text</p>', served, truncated = false }: ArticleSpec = {}): CrawledPage => {
+    const built = page({ path, html: `<html><head>${articleLd(node)}${head}</head><body>${body}</body></html>` });
+    const headers = served === undefined ? built.fetch.headers : { ...built.fetch.headers, date: served };
+    return { ...built, fetch: { ...built.fetch, headers, truncated } };
+  };
+
+  const check = (pages: readonly CrawledPage[]): Observation => runSite('author-date-signals', pages);
+
+  it('passes articles that say who wrote them and when, and says what it cannot judge', () => {
+    const observation = check([post('/a'), post('/b', { node: { ...DATED, datePublished: '2026-03-02T09:00:00Z' } })]);
+    expect(observation.outcome).toBe('pass');
+    expect(observation.summary).toContain('is for a person');
+    expect(observation.data?.['authorFrom']).toEqual({ 'structured data': 2 });
+  });
+
+  it('has nothing to say where no page declares an article', () => {
+    expect(check([page({ path: '/' })]).outcome).toBe('not-applicable');
+  });
+
+  it('finds an article in a graph, spelled as a full type URL, with its author given by reference', () => {
+    const graph = page({
+      path: '/news/1',
+      html:
+        '<html><head><script type="application/ld+json">' +
+        JSON.stringify({
+          '@context': SCHEMA,
+          '@graph': [
+            { '@type': 'WebPage', '@id': '/news/1#page' },
+            {
+              '@type': 'https://schema.org/NewsArticle',
+              author: { '@id': 'https://example.com/#/schema/person/ana' },
+              datePublished: '2026-03-01T09:00:00Z',
+            },
+          ],
+        }) +
+        '</script></head><body><p>Text</p></body></html>',
+    });
+    expect(check([graph]).outcome).toBe('pass');
+  });
+
+  it('takes an Open Graph article with a publication time as an article, but not og:type alone', () => {
+    const og = (path: string, head: string): CrawledPage =>
+      page({
+        path,
+        html: `<html><head><meta property="og:type" content="article">${head}</head><body><p class="byline">Ana Lind</p></body></html>`,
+      });
+    // Hugo's default spelling of a time, which is not ISO 8601 and is still a date.
+    const published = '<meta property="article:published_time" content="2026-09-09 10:00:00 +0000 UTC">';
+    const observation = check([og('/post', published)]);
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data?.['authorFrom']).toEqual({ byline: 1 });
+    expect(check([og('/contact', '')]).outcome).toBe('not-applicable');
+  });
+
+  it('does not ask for an author on an Open Graph article that structured data does not call one', () => {
+    // What a static-site template writes on a dated product page: Smashing Magazine's ebook bundles.
+    const bundle = page({
+      path: '/ebooks/bundle',
+      html:
+        '<html><head><meta property="og:type" content="article">' +
+        '<meta property="article:published_time" content="2026-01-10T09:00:00Z"></head><body><p>Buy</p></body></html>',
+    });
+    const observation = check([bundle, post('/a')]);
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data?.['articles']).toBe(2);
+  });
+
+  it('fails an article modified before it was published, but not by a timezone’s worth', () => {
+    const backwards = check([post('/a', { node: { ...DATED, dateModified: '2026-01-01T09:00:00Z' } })]);
+    expect(backwards.outcome).toBe('fail');
+    expect(backwards.summary).toContain('modified before they were published');
+    const zoned = check([post('/a', { node: { ...DATED, dateModified: '2026-03-01T03:00:00-05:00' } })]);
+    expect(zoned.outcome).toBe('pass');
+  });
+
+  it('fails a declared date that is not a date', () => {
+    const observation = check([post('/a', { node: { ...DATED, dateModified: '{{ post.updated }}' } })]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('1 declared date(s) are not dates');
+  });
+
+  it('fails a date later than the server’s own clock, and does not guess without one', () => {
+    const node = { ...DATED, datePublished: '2026-12-24T09:00:00Z' };
+    const future = check([post('/a', { node, served: 'Fri, 11 Sep 2026 18:00:00 GMT' })]);
+    expect(future.outcome).toBe('fail');
+    expect(future.summary).toContain("later than the server's own clock");
+    expect(check([post('/a', { node })]).outcome).toBe('pass');
+  });
+
+  it('asks a person about an article that names no author, and accepts a visible byline', () => {
+    const node = { datePublished: '2026-03-01T09:00:00Z' };
+    const anonymous = check([post('/a', { node })]);
+    expect(anonymous.outcome).toBe('warn');
+    expect(anonymous.summary).toContain('1 of 1 article(s) typed in structured data name no author anywhere');
+    const bylined = check([post('/a', { node, body: '<p class="byline">By Ana Lind</p>' })]);
+    expect(bylined.outcome).toBe('pass');
+    expect(bylined.data?.['authorFrom']).toEqual({ byline: 1 });
+  });
+
+  it('asks a person about an article that carries no date, and accepts a <time> element', () => {
+    const node = { author: 'Ana Lind' };
+    expect(check([post('/a', { node })]).outcome).toBe('warn');
+    expect(check([post('/a', { node, body: '<time datetime="2026-03-01">1 March</time>' })]).outcome).toBe('pass');
+  });
+
+  it('asks a person about one modified time stamped on most articles, but not about stories sharing a date', () => {
+    const stamped = ['/a', '/b', '/c', '/d', '/e'].map((path) =>
+      post(path, { node: { ...DATED, dateModified: '2026-09-10T03:12:44Z' } }),
+    );
+    const observation = check(stamped);
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toContain('5 of 5 article(s) declare the same modified date, 2026-09-10T03:12:44Z');
+
+    const sameDay = ['/a', '/b', '/c', '/d', '/e'].map((path) =>
+      post(path, { node: { ...DATED, datePublished: '2026-09-11' } }),
+    );
+    expect(check(sameDay).outcome).toBe('pass');
+    expect(check(stamped.slice(0, 4)).outcome).toBe('pass');
+  });
+
+  it('skips an article cut at the size limit, and reports only-cut articles as unobservable', () => {
+    const cut = post('/long', { node: { datePublished: '2026-03-01T09:00:00Z' }, truncated: true });
+    expect(check([cut]).outcome).toBe('error');
+    const observation = check([cut, post('/a')]);
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data?.['cutAtSizeLimit']).toBe(1);
   });
 });

@@ -284,7 +284,7 @@
       Every major page
   notes: >-
     v4.3: narrows byline/date requirements to content where readers reasonably expect authorship or freshness. See Sources: helpful content.
-  automation: automated
+  automation: assisted
   remediationClass: content
   detectors: ["answer-first-structure", "author-date-signals"]
   sources:

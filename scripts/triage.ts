@@ -31,7 +31,14 @@
  * before the change — its detector did not exist — so no delivered verdict
  * moves with it.
  *
- * Tiers claim what CAN be automated, not what is built: 42 automated rows are
+ * Amended 2026-09-11, signed off by the maintainer: 3.9 moved to `assisted`
+ * under the same rule. Its "Done when" asks that content *answers* its query,
+ * that claims *needing* support carry sources, and that bylines and dates
+ * appear where readers would *reasonably expect* them — three editorial
+ * judgements, where markup shows only that headings, bylines and dates exist.
+ * Neither of its detectors existed before the change, so no verdict moves.
+ *
+ * Tiers claim what CAN be automated, not what is built: 41 automated rows are
  * not yet fully coverable by the probe registry. That gap belongs to the
  * detector roadmap, not to this table.
  */
@@ -101,7 +108,7 @@ export const TRIAGE: Readonly<Record<string, TriageEntry>> = {
   '3.6': ['attested', 'content', []],
   '3.7': ['assisted', 'content', ['launch-content-completeness']],
   '3.8': ['attested', 'content', []],
-  '3.9': ['automated', 'content', ['answer-first-structure', 'author-date-signals']],
+  '3.9': ['assisted', 'content', ['answer-first-structure', 'author-date-signals']],
   '3.10': ['assisted', 'content', ['cannibalization']],
   '3.11': ['assisted', 'content', ['content-accessibility']],
   '3.12': ['assisted', 'content', ['locale-content-parity']],

@@ -138,6 +138,62 @@ export interface ExtractedHeading {
   readonly text: string;
 }
 
+/**
+ * One stretch of a page's reading matter, from a heading to the next heading
+ * of any level.
+ */
+export interface ExtractedSection {
+  /** The heading that opens the section; null for text before the first heading. */
+  readonly heading: ExtractedHeading | null;
+  /** Words of text up to the next heading, the heading's own words excluded. */
+  readonly words: number;
+}
+
+/**
+ * What a reader came to the page for, divided at its headings.
+ *
+ * The reading matter is the main landmark when the page declares one, else a
+ * lone `<article>`, else the body — in every case without navigation, asides,
+ * forms, and any header or footer that belongs to the page rather than to an
+ * article. Headings in the menu are not signposts to anything on this page,
+ * which is why `headings` alone cannot say how the text is organised.
+ */
+export interface ExtractedContent {
+  /** Which element was read as the reading matter. */
+  readonly root: 'main' | 'article' | 'body';
+  /** In document order. Text before the first heading is a section only when there is some. */
+  readonly sections: readonly ExtractedSection[];
+  /** Absolute URLs of the links inside the reading matter, in document order. */
+  readonly links: readonly string[];
+}
+
+/**
+ * Who a page says wrote it and when, from everywhere except structured data,
+ * which is in `jsonLd`.
+ *
+ * Recorded side by side because each is read by someone different — the meta
+ * tag by tools, the Open Graph properties by social cards, the byline by
+ * readers — and they disagree more often than they should.
+ */
+export interface ExtractedAuthorship {
+  /** `<meta name="author">`. */
+  readonly metaAuthor: string | null;
+  /**
+   * Visible byline text: the first of `rel="author"`, `itemprop="author"`, or
+   * an element whose class names a byline or an author, outside navigation.
+   * Cut at 120 characters, since an author box may hold a whole biography.
+   */
+  readonly byline: string | null;
+  /** The `article:author` Open Graph property. */
+  readonly articleAuthor: string | null;
+  /** The `article:published_time` Open Graph property, as written. */
+  readonly publishedTime: string | null;
+  /** The `article:modified_time` Open Graph property, as written. */
+  readonly modifiedTime: string | null;
+  /** Each `<time>` element's `datetime`, else its text, in document order. */
+  readonly times: readonly string[];
+}
+
 export interface Hreflang {
   readonly hreflang: string;
   /** Absolute URL, resolved against the document's base. */
@@ -181,12 +237,42 @@ export interface Extracted {
   readonly tables: readonly ExtractedTable[];
   /** Landmark elements present, for the semantic-html detector. */
   readonly landmarks: readonly string[];
+  /** The reading matter, divided at its headings. */
+  readonly content: ExtractedContent;
+  /** Bylines and dates outside structured data. */
+  readonly authorship: ExtractedAuthorship;
   readonly text: string;
   readonly wordCount: number;
 }
 
 const attr = (value: string | undefined): string | null => (value === undefined ? null : value);
 const clean = (value: string): string => value.replace(/\s+/g, ' ').trim();
+const countWords = (value: string): number => {
+  const text = clean(value);
+  return text === '' ? 0 : text.split(' ').length;
+};
+
+/** A domhandler node, as much of it as the reading-matter walk needs. */
+interface WalkNode {
+  readonly type: string;
+  readonly name?: string;
+  readonly data?: string;
+  readonly attribs?: Readonly<Record<string, string>>;
+  readonly children?: readonly WalkNode[];
+}
+
+/** Every text node under a node, in document order. */
+const textNodes = (node: WalkNode): string[] =>
+  node.type === 'text' ? [node.data ?? ''] : (node.children ?? []).flatMap(textNodes);
+
+/** Inside the reading matter, but not part of it. */
+const NOT_READING_MATTER = [
+  'nav', 'aside', 'form', 'dialog',
+  '[role="navigation"]', '[role="complementary"]', '[role="search"]', '[aria-hidden="true"]',
+].join(', ');
+
+/** Where a visible byline is, in rough order of reliability. */
+const BYLINE_SELECTORS = ['[rel~="author"]', '[itemprop="author"]', '[class*="byline" i]', '[class*="author" i]'];
 
 const LANDMARKS = ['header', 'nav', 'main', 'article', 'aside', 'footer', 'section'];
 
@@ -404,6 +490,59 @@ export function extract(html: string, pageUrl: string): Extracted {
   $('script, style, noscript, template').remove();
   const text = clean($('body').text());
 
+  const main = $('main, [role="main"]').first();
+  const articles = $('article');
+  const [rootKind, rootNode]: [ExtractedContent['root'], Cheerio<AnyNode>] =
+    main.length > 0 ? ['main', main] : articles.length === 1 ? ['article', articles] : ['body', $('body')];
+  const reading = rootNode.clone();
+  reading.find(NOT_READING_MATTER).remove();
+  // An article's own header holds its headline and byline; the page's holds the logo.
+  reading.find('header, footer').filter((_i, element) => $(element).closest('article').length === 0).remove();
+
+  const sections: { heading: ExtractedHeading | null; words: number }[] = [{ heading: null, words: 0 }];
+  const contentLinks: string[] = [];
+  const walk = (nodes: readonly WalkNode[]): void => {
+    for (const node of nodes) {
+      if (node.type === 'text') {
+        const current = sections[sections.length - 1];
+        if (current !== undefined) current.words += countWords(node.data ?? '');
+        continue;
+      }
+      if (node.type !== 'tag') continue;
+      const name = (node.name ?? '').toLowerCase();
+      if (/^h[1-6]$/.test(name)) {
+        const heading = { level: Number(name.slice(1)), text: clean($(node as unknown as AnyNode).text()) };
+        sections.push({ heading, words: 0 });
+        continue;
+      }
+      if (name === 'a' && node.attribs?.['href'] !== undefined) {
+        const url = resolveUrl(node.attribs['href'], base);
+        if (url !== null) contentLinks.push(url);
+      }
+      walk(node.children ?? []);
+    }
+  };
+  walk(((reading.get(0) as unknown as WalkNode | undefined)?.children) ?? []);
+  if (sections[0]?.words === 0) sections.shift();
+
+  let byline: string | null = null;
+  for (const selector of BYLINE_SELECTORS) {
+    $('body')
+      .find(selector)
+      .each((_i, element) => {
+        if (byline !== null || $(element).closest('nav').length > 0) return;
+        // Joined with spaces: a byline is usually a name, a date and a share
+        // button in adjacent elements, and `.text()` would run them together.
+        const said = clean(textNodes(element as unknown as WalkNode).join(' '));
+        if (said !== '') byline = said.slice(0, 120);
+      });
+    if (byline !== null) break;
+  }
+  const times = $('time')
+    .map((_i, element) => clean($(element).attr('datetime') ?? $(element).text()))
+    .get()
+    .filter((value: string) => value !== '');
+
   return {
     title: titleText === '' ? null : clean(titleText),
     metaDescription: meta('meta[name="description"]'),
@@ -427,6 +566,15 @@ export function extract(html: string, pageUrl: string): Extracted {
     breadcrumbs,
     tables,
     landmarks: LANDMARKS.filter((tag) => $(tag).length > 0),
+    content: { root: rootKind, sections, links: contentLinks },
+    authorship: {
+      metaAuthor: meta('meta[name="author"]'),
+      byline,
+      articleAuthor: meta('meta[property="article:author"]'),
+      publishedTime: meta('meta[property="article:published_time"]'),
+      modifiedTime: meta('meta[property="article:modified_time"]'),
+      times,
+    },
     text,
     wordCount: text === '' ? 0 : text.split(' ').length,
   };

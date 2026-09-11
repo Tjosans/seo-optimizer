@@ -23,7 +23,7 @@ const NO_HTML = 'No HTML was parsed for this response.';
  * description of that node's subject, not a second thing the page claims to
  * be, and judging it as one would ask a `PostalAddress` for a headline.
  */
-function jsonLdNodes(blocks: readonly unknown[]): Record<string, unknown>[] {
+export function jsonLdNodes(blocks: readonly unknown[]): Record<string, unknown>[] {
   const nodes: Record<string, unknown>[] = [];
   const visit = (node: unknown): void => {
     if (Array.isArray(node)) { node.forEach(visit); return; }
@@ -37,7 +37,7 @@ function jsonLdNodes(blocks: readonly unknown[]): Record<string, unknown>[] {
 }
 
 /** The `@type` values one node declares. A node may declare several. */
-const typesOf = (node: Record<string, unknown>): string[] =>
+export const typesOf = (node: Record<string, unknown>): string[] =>
   [node['@type']].flat().filter((type): type is string => typeof type === 'string');
 
 /** Collect @type values from a JSON-LD block, graph nodes included. */

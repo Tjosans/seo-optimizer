@@ -2,7 +2,7 @@
 
 ## Status
 Current phase: Phase 4 — Orchestration & Scaling
-Last updated: 2026-09-08
+Last updated: 2026-09-11
 
 ## Phase 0 — Foundation
 - [x] Create monorepo structure with TypeScript workspace packages
@@ -54,6 +54,9 @@ Last updated: 2026-09-08
 
 - [x] Spend the sitemap budget across every sitemap a site declares, not on whichever it declared first (@seo/crawler: a lane per declared sitemap, read round-robin)
 - [x] Mark a response body the crawler had to cut, so a size limit of ours is never reported as a defect of theirs (@seo/crawler: `FetchResult.truncated` and `SitemapFetch.truncated`; @seo/probes: `video-sitemap` and `index-bloat` report `error`; `npm run analyze` counts fails and errors apart)
+- [x] Read a sitemap to the protocol's 50 MB ceiling by parsing it as it streams, so a large sitemap is read rather than reported unobservable (@seo/crawler: `createSitemapParser`, `SITEMAP_MAX_BYTES`, `FetchOptions.onText`; IGN's 2.14 now grades and 2.1 is held on a real warning, where both were `probe-error`)
+- [ ] Read gzipped sitemaps (`.xml.gz` served as `application/gzip`/`application/x-gzip`) — today the body is non-textual, so the document is recorded as a 200 with no URLs
+- [ ] Make `maxBytes` stop the read for a page body too — the buffered path downloads the whole response before cutting it, so the "protects against tarpits" promise on `FetchOptions.maxBytes` only holds for streamed sitemaps
 - [x] Prototype URL analyzer with snapshot comparison (npm run analyze / npm run compare) so engine changes can be measured against live sites
 
 ## Phase 5 — Rendered Crawl
@@ -83,6 +86,9 @@ Last updated: 2026-09-08
 ## Blocked
 
 ## Decisions
+- 2026-09-11: raised the body limit for sitemaps alone, to sitemaps.org's 50 MB, which the 2026-09-08 decision declined to do for bodies in general: a page limit is our guess and raising it only moves the cliff, but this ceiling is the protocol's, so a sitemap read up to it has been read as far as any consumer is promised. Found by `npm run analyze` against ign.com, whose 4–7 MB quarterly video sitemaps left 2.14 and 2.1 at `probe-error`
+- 2026-09-11: parsed sitemaps as a stream of SAX events rather than buffering them for cheerio, because a DOM of a 50 MB file costs several times that in memory for a result that is only a list; what the parser holds is now the entry it is inside
+- 2026-09-11: dropped the entry a cut severed instead of returning it, since a severed `<loc>` is half a URL that went into the crawl frontier and a severed video entry is a field "missing" by our cut; the document is still marked truncated, because what was read is still partial
 - 2026-09-08: replaced the sleeps that decided a retry had not fired with assertions on the queue’s own state — the job is out of the queue and the queue is idle, so no later moment can run it — because a bare sleep raced the queue’s own timers (a 50ms backoff against vitest’s 50ms waitFor poll) and failed once in five runs. Waiting on the retrying event rather than on state === queued also removed a second ambiguity: a job reads as queued both before its first attempt and while it waits out a backoff
 - 2026-09-08: counted a `<video>` element as a video whether or not the markup says where its media comes from, after `npm run analyze` against euronews.com found eight pages with `<video class="js-native-video">` and no `src` — the source is assigned in script. Deriving "there is a video here" from a URL rather than from the element made all three detectors silent on exactly the pages that most needed them, and the site's 2.14 came back a false pass
 - 2026-09-08: kept the markup-vs-player comparison on the URLs the markup does state, since a player sourced in script names no video to disagree about; it is the *count* that a sourceless player contributes, which is what "plays more videos than it describes" needs

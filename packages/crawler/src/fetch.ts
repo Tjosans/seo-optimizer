@@ -65,6 +65,16 @@ export interface FetchOptions {
   readonly keepBytes?: boolean;
   /** Ceiling on a kept binary body. Defaults to 512 KB. */
   readonly maxAssetBytes?: number;
+  /**
+   * Hand a textual body over as it arrives, instead of keeping it.
+   *
+   * For a document fetched only to be parsed into something far smaller — a
+   * sitemap — the whole body held as one string is the expensive part. With
+   * this set, each decoded chunk goes to the callback, `body` comes back
+   * empty, and `maxBytes` stops the read where it stands rather than after the
+   * whole response has arrived; `byteLength` then counts what was read.
+   */
+  readonly onText?: (chunk: string) => void;
 }
 
 const DEFAULTS = {
@@ -83,6 +93,42 @@ const headersToObject = (headers: Headers): Record<string, string> => {
 
 /** Only these bodies are worth reading; anything else is measured, not parsed. */
 const TEXTUAL = /^(text\/|application\/(xhtml\+xml|xml|json|ld\+json|rss\+xml))/;
+
+/**
+ * Read a body chunk by chunk into `onText`, stopping at `maxBytes`.
+ *
+ * The chunk that crosses the limit is delivered up to the limit and no
+ * further, and the rest of the response is cancelled rather than downloaded to
+ * be thrown away. A multi-byte character severed by the cut is left undecoded:
+ * the document is marked truncated either way, and a replacement character at
+ * the end of it would be one more thing that looks like the site's.
+ */
+async function streamText(
+  response: Response,
+  maxBytes: number,
+  onText: (chunk: string) => void,
+): Promise<{ byteLength: number; truncated: boolean }> {
+  let byteLength = 0;
+  if (response.body === null) return { byteLength, truncated: false };
+
+  const decoder = new TextDecoder();
+  const reader = response.body.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const room = maxBytes - byteLength;
+    byteLength += value.byteLength;
+    if (value.byteLength > room) {
+      onText(decoder.decode(value.subarray(0, room), { stream: true }));
+      await reader.cancel();
+      return { byteLength, truncated: true };
+    }
+    onText(decoder.decode(value, { stream: true }));
+  }
+  const tail = decoder.decode();
+  if (tail !== '') onText(tail);
+  return { byteLength, truncated: false };
+}
 
 export async function fetchPage(url: string, options: FetchOptions): Promise<FetchResult> {
   const timeoutMs = options.timeoutMs ?? DEFAULTS.timeoutMs;
@@ -157,13 +203,18 @@ export async function fetchPage(url: string, options: FetchOptions): Promise<Fet
     let truncated = false;
     let bytes: Uint8Array | undefined;
     try {
-      const buffer = await response.arrayBuffer();
-      byteLength = buffer.byteLength;
-      if (contentType === null || TEXTUAL.test(contentType)) {
-        truncated = byteLength > maxBytes;
-        body = new TextDecoder().decode(truncated ? buffer.slice(0, maxBytes) : buffer);
-      } else if (options.keepBytes === true && byteLength <= maxAssetBytes) {
-        bytes = new Uint8Array(buffer);
+      const textual = contentType === null || TEXTUAL.test(contentType);
+      if (textual && options.onText !== undefined) {
+        ({ byteLength, truncated } = await streamText(response, maxBytes, options.onText));
+      } else {
+        const buffer = await response.arrayBuffer();
+        byteLength = buffer.byteLength;
+        if (textual) {
+          truncated = byteLength > maxBytes;
+          body = new TextDecoder().decode(truncated ? buffer.slice(0, maxBytes) : buffer);
+        } else if (options.keepBytes === true && byteLength <= maxAssetBytes) {
+          bytes = new Uint8Array(buffer);
+        }
       }
     } catch (cause) {
       clearTimeout(timer);

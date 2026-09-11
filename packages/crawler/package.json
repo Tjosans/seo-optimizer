@@ -8,6 +8,7 @@
   "exports": { ".": "./dist/index.js" },
   "dependencies": {
     "@seo/core": "*",
-    "cheerio": "^1.0.0"
+    "cheerio": "^1.0.0",
+    "htmlparser2": "^10.1.0"
   }
 }

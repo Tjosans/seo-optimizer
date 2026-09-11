@@ -10,12 +10,14 @@
  * a database, so the same crawl can back a stored audit, a CI check or a test.
  */
 
-import { extract, extractSitemapUrls } from './extract.js';
-import type { Extracted, SitemapVideo } from './extract.js';
+import { extract } from './extract.js';
+import type { Extracted } from './extract.js';
 import { fetchPage } from './fetch.js';
 import type { FetchResult } from './fetch.js';
 import { ALLOW_ALL, crawlDelayMs, isAllowed, parseRobots } from './robots.js';
 import type { Robots } from './robots.js';
+import { SITEMAP_MAX_BYTES, createSitemapParser } from './sitemap.js';
+import type { SitemapVideo } from './sitemap.js';
 import { isSameSite, normalizeUrl } from './url.js';
 
 export interface CrawledPage {
@@ -124,12 +126,14 @@ export interface SitemapFetch {
   /** `<url>` entries the document declared. */
   readonly urlCount: number;
   /**
-   * Whether the document was cut at the body limit before it was parsed.
+   * Whether the document ran past what the crawl would read of it.
    *
-   * A sitemap is one of the few responses large enough for this to happen —
-   * TED's video sitemap is 10 MB — and a cut one parses without complaint,
-   * ending in a severed entry that looks exactly like a site that forgot a
-   * field. Every detector reading these entries has to know.
+   * Sitemaps are read up to the protocol's own 50 MB ceiling, so this is now
+   * a file out of spec rather than one merely larger than a page. The entry
+   * the cut severed is dropped, but the counts above still describe only the
+   * part that was read: "absent from the sitemap" is not a claim anything may
+   * make about a truncated one, and every detector reading these entries has
+   * to know.
    */
   readonly truncated: boolean;
   /** Of those, how many carried a `<video:video>` extension. */
@@ -280,11 +284,20 @@ async function loadSitemaps(
     if (next === undefined || seen.has(next)) continue;
     seen.add(next);
 
+    // Parsed as it arrives, up to the protocol's own ceiling. A fetch that
+    // returns its body instead of streaming it — a test double, a replayed
+    // crawl — is parsed the same way afterwards.
+    const parser = createSitemapParser();
     const result = await request(next, {
       userAgent: options.userAgent,
+      maxBytes: SITEMAP_MAX_BYTES,
+      onText: (chunk) => parser.write(chunk),
       ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
     });
-    if (result.status !== 200 || result.body === '') {
+    if (result.body !== '') parser.write(result.body);
+    const parsed = parser.end(!result.truncated);
+
+    if (result.status !== 200) {
       documents.push({
         url: next,
         status: result.status,
@@ -295,7 +308,6 @@ async function loadSitemaps(
       continue;
     }
 
-    const parsed = extractSitemapUrls(result.body);
     for (const url of parsed.urls) {
       const normalized = normalizeUrl(url);
       if (normalized !== null) urls.add(normalized);

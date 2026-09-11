@@ -148,7 +148,7 @@ Video is the third, and the only one where the three detectors split by *artefac
 
 ## Testing
 
-Unit tests (no database needed): `packages/corpus/test/{corpus,provenance,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,robots,url}.test.ts`, `packages/probes/test/{probes,detectors,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store,lease}.test.ts`, `packages/grader/test/grade.test.ts`, `packages/scheduler/test/retry.test.ts`.
+Unit tests (no database needed): `packages/corpus/test/{corpus,provenance,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,robots,sitemap,url}.test.ts`, `packages/probes/test/{probes,detectors,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store,lease}.test.ts`, `packages/grader/test/grade.test.ts`, `packages/scheduler/test/retry.test.ts`.
 
 Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/{scheduler,recovery,cancel,flags,ai-policy}.test.ts`, `packages/job-store/test/postgres.test.ts`, `packages/grader/test/record.test.ts`.
 
@@ -180,7 +180,7 @@ It is bypassable with `--no-verify` and is a convenience, not the gate — the r
 packages/
   core/src/{check,state,readiness,site}.ts
   corpus/src/{load,flags}.ts
-  crawler/src/{crawl,extract,fetch,robots,url}.ts
+  crawler/src/{crawl,extract,fetch,robots,sitemap,url}.ts
   db/src/{schema,enums,client}.ts  +  migrations/0000-0006
   persistence/src/{crawl-sink,map,probe-results}.ts
   probes/src/{registry,types,matrix}.ts  +  src/probes/*.ts
@@ -203,7 +203,7 @@ scripts/{compile-corpus,probe-matrix,triage}.ts
 3. **Integration tests skip silently** when `DATABASE_URL` is unset. Run `npm run stack:up` before trusting a green test run.
 4. **The pre-push hook is opt-in** and must be enabled in each clone. It is a local convenience; the real gate is the server-side ruleset on `master`.
 5. **Response bodies are external by design.** The schema stores hashes and keys only; the content-addressing store does not exist yet (see Phase 6).
-6. **A body over 5 MB is cut, and says so.** `fetchPage` truncates a textual body at `maxBytes` and sets `FetchResult.truncated`; `CrawlResult.sitemaps` carries the same flag per document. A cut sitemap parses cleanly and ends in a severed entry that reads exactly like a site that forgot a field — TED's video sitemap is 10 MB and produced precisely that false defect — so any detector reading a large document must check the flag and report `error`, never `fail`.
+6. **A body over its limit is cut, and says so.** `fetchPage` truncates a textual body at `maxBytes` (5 MB for a page) and sets `FetchResult.truncated`. Sitemaps are different: they are streamed through `createSitemapParser` (@seo/crawler `sitemap.ts`) and read up to `SITEMAP_MAX_BYTES`, the protocol's own 50 MB ceiling, so IGN's 4–7 MB quarterly files and TED's 10 MB one are read whole. A sitemap past that is out of spec and still marked on `CrawlResult.sitemaps`; the entry the cut severed is dropped, but what was read is still partial, so any detector reading a large document must check the flag and report `error`, never `fail`.
 
 ## What to pick up next
 

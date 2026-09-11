@@ -1,5 +1,5 @@
 /**
- * The detectors added for corpus checks 1.6, 1.9, 1.13, 1.14, 1.15, 2.7, 2.13,
+ * The detectors added for corpus checks 1.6, 1.7, 1.9, 1.13, 1.14, 1.15, 2.7, 2.13,
  * 2.14, 2.17 and 4.9.
  *
  * These run against hand-built pages rather than the fixture site, because each
@@ -49,6 +49,7 @@ const page = ({ path, html = '<html><body><p>page</p></body></html>', status = 2
       contentType: 'text/html',
       ttfbMs: 1,
       totalMs: 2,
+      error: null,
     },
     extracted: status === 200 ? extract(html, url) : null,
   };
@@ -1769,5 +1770,74 @@ describe('a <video> with no src attribute', () => {
     const observation = runVideoPage('videoobject-schema', target, videoSite([target]));
     expect(observation.outcome).toBe('warn');
     expect(observation.summary).toMatch(/2 video\(s\) play here and 1 are described/);
+  });
+});
+
+// --- 1.7 http-version ------------------------------------------------------
+
+describe('http-version', () => {
+  const ALPN_H2 = { origin: ORIGIN, alpn: 'h2', tlsVersion: 'TLSv1.3', error: null };
+
+  const root = (headers: Record<string, string> = {}, url = `${ORIGIN}/`): CrawledPage => {
+    const home = page({ path: '/', depth: 0 });
+    return { ...home, fetch: { ...home.fetch, finalUrl: url, headers: { ...home.fetch.headers, ...headers } } };
+  };
+
+  const runVersion = (target: CrawledPage, protocol?: CrawlResult['protocol']): Observation => {
+    const site = siteOf([target]);
+    return siteProbe('http-version').run({
+      ...site,
+      crawl: { ...site.crawl, ...(protocol === undefined ? {} : { protocol }) },
+    });
+  };
+
+  it('passes a host that negotiates HTTP/2', () => {
+    const observation = runVersion(root(), ALPN_H2);
+    expect(observation.outcome).toBe('pass');
+    expect(observation.summary).toBe('Negotiates HTTP/2.');
+  });
+
+  it('says so when HTTP/3 is advertised as well', () => {
+    const observation = runVersion(root({ 'alt-svc': 'h3=":443"; ma=86400, h3-29=":443"' }), ALPN_H2);
+    expect(observation.summary).toBe('Negotiates HTTP/2 and advertises HTTP/3.');
+  });
+
+  it('passes HTTP/3 advertised in Alt-Svc even where the handshake chose HTTP/1.1', () => {
+    const observation = runVersion(root({ 'alt-svc': 'h3=":443"' }), { ...ALPN_H2, alpn: 'http/1.1' });
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('does not mistake another Alt-Svc offer for HTTP/3', () => {
+    const observation = runVersion(root({ 'alt-svc': 'h2="alt.example.com:443"' }), { ...ALPN_H2, alpn: 'http/1.1' });
+    expect(observation.outcome).toBe('warn');
+  });
+
+  it('holds a host that offers HTTP/1.1 alone', () => {
+    const observation = runVersion(root(), { ...ALPN_H2, alpn: 'http/1.1' });
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toContain('chose http/1.1 over h2');
+  });
+
+  it('holds a host that negotiates no protocol at all', () => {
+    const observation = runVersion(root(), { ...ALPN_H2, alpn: null });
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toContain('negotiated no protocol at all');
+  });
+
+  it('holds a site served over plain HTTP, where HTTP/2 is not on offer', () => {
+    const observation = runVersion(root({}, 'http://example.com/'));
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toContain('plain HTTP');
+  });
+
+  // Absent is not HTTP/1.1; it is not knowing.
+  it('reports a crawl that recorded no handshake as unobservable, not as HTTP/1.1', () => {
+    expect(runVersion(root()).outcome).toBe('error');
+  });
+
+  it('reports a failed handshake as unobservable', () => {
+    const observation = runVersion(root(), { ...ALPN_H2, alpn: null, tlsVersion: null, error: 'ECONNRESET' });
+    expect(observation.outcome).toBe('error');
+    expect(observation.summary).toContain('ECONNRESET');
   });
 });

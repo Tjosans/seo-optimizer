@@ -59,7 +59,7 @@ Key scripts:
 
 ## How it works
 
-1. **Crawl** (`@seo/crawler`) — breadth-first from seeds, respects robots.txt, extracts links and metadata, paced politeness delay, bounded by page/depth budget. What either budget left unfetched is recorded on `CrawlResult.notReached`, not dropped. It also makes the *auxiliary* requests that sit outside the walk — the four scheme/host spellings of the seed, and the root document's declared icons — and records them on `CrawlResult.auxiliary`. Probes never fetch: politeness is owed to a host, and the crawl loop is the only thing that knows what was promised. Host variants are skipped for a seed that cannot have them (an IP, `localhost`, any single-label host), which is why they never fire against the fixture site.
+1. **Crawl** (`@seo/crawler`) — breadth-first from seeds, respects robots.txt, extracts links and metadata, paced politeness delay, bounded by page/depth budget. What either budget left unfetched is recorded on `CrawlResult.notReached`, not dropped. It also makes the *auxiliary* requests that sit outside the walk — the four scheme/host spellings of the seed, and the root document's declared icons — and records them on `CrawlResult.auxiliary`. One more is not a request at all: a TLS handshake with the host the root document landed on, offering `h2` and `http/1.1` as a browser does, recorded on `CrawlResult.protocol`, because Node's `fetch` speaks HTTP/1.1 whatever the server offers and so no page fetched says anything about HTTP/2. Probes never fetch: politeness is owed to a host, and the crawl loop is the only thing that knows what was promised. Host variants are skipped for a seed that cannot have them (an IP, `localhost`, any single-label host), which is why they never fire against the fixture site.
 2. **Extract** — parse each page's HTML; record head tags, links, hierarchy, structure.
 3. **Probe** (`@seo/probes`) — detectors observe the crawl result and emit evidence.
 4. **Persist** (`@seo/persistence`) — stream pages and probes into Postgres.
@@ -131,7 +131,7 @@ Key scripts:
 - A machine may **fail** a check; only an `automated` check may be **passed** by one. `assisted` means the engine proposes and a person confirms.
 - A detector that is unimplemented, errored, or observed nothing leaves the check `not-started` / `unknown`. Missing evidence is never good news, and never bad news either.
 - Scope comes from `sites.flags`: an empty profile leaves conditional checks at `review`; a filled-in one narrows non-matching checks to `no` with a written rationale.
-- Only 50 of the corpus's 128 detectors exist, so today 22 of 43 automated checks can be graded end to end and most audits come back mostly ungraded. That is the honest answer, not a bug. `npm run probes:matrix` prints the current figure; do not quote one from memory.
+- Only 51 of the corpus's 128 detectors exist, so today 23 of 43 automated checks can be graded end to end and most audits come back mostly ungraded. That is the honest answer, not a bug. `npm run probes:matrix` prints the current figure; do not quote one from memory.
 - A row a human attested is never overwritten by a re-grade, and it counts in the frozen readiness.
 
 ### Guarantees the sink relies on
@@ -160,7 +160,7 @@ Faceted navigation is the fourth, split into crawl and index. `parameter-crawl-s
 
 ## Testing
 
-Unit tests (no database needed): `packages/corpus/test/{corpus,provenance,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,fetch,robots,sitemap,url}.test.ts`, `packages/probes/test/{probes,detectors,facets,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store,lease}.test.ts`, `packages/grader/test/grade.test.ts`, `packages/scheduler/test/{retry,lane}.test.ts`.
+Unit tests (no database needed): `packages/corpus/test/{corpus,provenance,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,fetch,protocol,robots,sitemap,url}.test.ts`, `packages/probes/test/{probes,detectors,facets,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store,lease}.test.ts`, `packages/grader/test/grade.test.ts`, `packages/scheduler/test/{retry,lane}.test.ts`.
 
 Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/{scheduler,recovery,cancel,flags,ai-policy}.test.ts`, `packages/job-store/test/postgres.test.ts`, `packages/grader/test/record.test.ts`.
 
@@ -192,7 +192,7 @@ It is bypassable with `--no-verify` and is a convenience, not the gate — the r
 packages/
   core/src/{check,state,readiness,site}.ts
   corpus/src/{load,flags}.ts
-  crawler/src/{crawl,extract,fetch,robots,sitemap,url}.ts
+  crawler/src/{crawl,extract,fetch,protocol,robots,sitemap,url}.ts
   db/src/{schema,enums,client}.ts  +  migrations/0000-0006
   persistence/src/{crawl-sink,map,probe-results}.ts
   probes/src/{registry,types,matrix}.ts  +  src/probes/*.ts
@@ -200,7 +200,7 @@ packages/
   job-store/src/postgres.ts
   scheduler/src/{scheduler,run-audit,retry,lane,types}.ts
   grader/src/{grade,scope,record,types}.ts
-  testkit/src/fixture-site.ts
+  testkit/src/{fixture-site,tls-server}.ts
 corpus/
   source/v4.4.tsv                  # immutable workbook export
   v4.4/phase-0.yaml … phase-7.yaml # compiled checks (97)
@@ -219,4 +219,4 @@ scripts/{compile-corpus,probe-matrix,triage}.ts
 
 ## What to pick up next
 
-`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; lease expiry (@seo/job-store, @seo/queue) is in, so a second worker can share a queue namespace, and lanes hold across workers, so two of them never crawl one host together; what remains is detector coverage — 78 of the corpus's 128 detectors are unimplemented, which is the single thing most limiting what an audit can say. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.
+`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; lease expiry (@seo/job-store, @seo/queue) is in, so a second worker can share a queue namespace, and lanes hold across workers, so two of them never crawl one host together; what remains is detector coverage — 77 of the corpus's 128 detectors are unimplemented, which is the single thing most limiting what an audit can say. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.

@@ -1,0 +1,3551 @@
+{
+  "schema": 1,
+  "label": "content-detectors",
+  "startedAt": "2026-09-11T19:16:45.339Z",
+  "durationMs": 91195,
+  "corpusVersion": "4.4",
+  "detectorsImplemented": 54,
+  "settings": {
+    "maxPages": 25,
+    "maxDepth": 2,
+    "requestDelayMs": 400,
+    "timeoutMs": 15000,
+    "flags": []
+  },
+  "sites": [
+    {
+      "url": "https://www.smashingmagazine.com/2026/09/death-button-why-best-interface-is-no-interface/",
+      "origin": "https://www.smashingmagazine.com",
+      "ok": true,
+      "error": null,
+      "crawl": {
+        "pages": 25,
+        "htmlPages": 25,
+        "nonOkPages": 1,
+        "transportFailures": 0,
+        "blockedByRobots": 2,
+        "notReached": 8127,
+        "sitemapUrls": 7884,
+        "robotsTxt": true,
+        "medianTtfbMs": 231,
+        "durationMs": 31075
+      },
+      "observations": {
+        "total": 750,
+        "pass": 431,
+        "fail": 62,
+        "warn": 69,
+        "notApplicable": 188,
+        "error": 0,
+        "detectorsFiring": 54
+      },
+      "checks": {
+        "total": 97,
+        "inScope": 58,
+        "graded": 14,
+        "passed": 3,
+        "failed": 7,
+        "inProgress": 4,
+        "notStarted": 83,
+        "byBasis": {
+          "detectors-missing": 38,
+          "attested-only": 6,
+          "scope-undecided": 39,
+          "verified-fail": 7,
+          "held-by-warning": 3,
+          "verified-pass": 3,
+          "awaiting-confirmation": 1
+        }
+      },
+      "readiness": {
+        "decision": "HOLD",
+        "gatesOutstanding": 33,
+        "gatesFailed": 7,
+        "applicabilityDecisionsOutstanding": 21,
+        "violations": []
+      },
+      "verdicts": [
+        {
+          "checkId": "0.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (competitor-serp-baseline)"
+        },
+        {
+          "checkId": "0.2",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (keyword-intent-map)"
+        },
+        {
+          "checkId": "0.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (url-inventory-builder)"
+        },
+        {
+          "checkId": "0.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": true,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "0.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (brand-entity-consistency)"
+        },
+        {
+          "checkId": "0.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged ai-policy, and this site's profile is empty"
+        },
+        {
+          "checkId": "0.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged multilingual, and this site's profile is empty"
+        },
+        {
+          "checkId": "0.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged migration, and this site's profile is empty"
+        },
+        {
+          "checkId": "0.9",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": true,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "1.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 2 of 2 detectors are not implemented (raw-rendered-parity, rendering-strategy-classifier)"
+        },
+        {
+          "checkId": "1.2",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 2 of 75 observations failed (heading-outline)"
+        },
+        {
+          "checkId": "1.3",
+          "status": "in-progress",
+          "coverage": "unknown",
+          "basis": "held-by-warning",
+          "launchGate": true,
+          "summary": "held: 5 of 27 observations warned — short of a defect, but not something a machine will clear"
+        },
+        {
+          "checkId": "1.4",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 2 of 76 observations failed (http-status, soft-404)"
+        },
+        {
+          "checkId": "1.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 2 of 2 detectors are not implemented (lab-perf-budget, lcp-element-strategy)"
+        },
+        {
+          "checkId": "1.6",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 1 of 51 observations failed (host-redirect)"
+        },
+        {
+          "checkId": "1.7",
+          "status": "in-progress",
+          "coverage": "unknown",
+          "basis": "held-by-warning",
+          "launchGate": false,
+          "summary": "held: 1 of 52 observations warned — short of a defect, but not something a machine will clear"
+        },
+        {
+          "checkId": "1.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (staging-protection)"
+        },
+        {
+          "checkId": "1.9",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged media, and this site's profile is empty"
+        },
+        {
+          "checkId": "1.10",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (ci-seo-guards)"
+        },
+        {
+          "checkId": "1.11",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (ci-extended-checks)"
+        },
+        {
+          "checkId": "1.12",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged faceted-nav, and this site's profile is empty"
+        },
+        {
+          "checkId": "1.13",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged pagination, and this site's profile is empty"
+        },
+        {
+          "checkId": "1.14",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged multilingual, and this site's profile is empty"
+        },
+        {
+          "checkId": "1.15",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged ecommerce, and this site's profile is empty"
+        },
+        {
+          "checkId": "1.16",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged non-html-files, and this site's profile is empty"
+        },
+        {
+          "checkId": "1.17",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": true,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "1.18",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (domain-expiry-rdap)"
+        },
+        {
+          "checkId": "1.19",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged experiments, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.1",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 2 of 4 observations failed (sitemap-canonical-agreement, sitemap-validity)"
+        },
+        {
+          "checkId": "2.2",
+          "status": "passed",
+          "coverage": "verified",
+          "basis": "verified-pass",
+          "launchGate": true,
+          "summary": "verified: 25 of 25 observations passed"
+        },
+        {
+          "checkId": "2.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged image-search, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (gsc-property-ownership)"
+        },
+        {
+          "checkId": "2.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged analytics, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged consent, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged structured-data, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.8",
+          "status": "passed",
+          "coverage": "verified",
+          "basis": "verified-pass",
+          "launchGate": false,
+          "summary": "verified: 25 of 25 observations passed"
+        },
+        {
+          "checkId": "2.9",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged ai-policy, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.10",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged indexnow, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.11",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged ecommerce, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.12",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged local-business, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.13",
+          "status": "passed",
+          "coverage": "verified",
+          "basis": "verified-pass",
+          "launchGate": false,
+          "summary": "verified: 1 of 1 observations passed"
+        },
+        {
+          "checkId": "2.14",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged video, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.15",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged paywall, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.16",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged publisher, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.17",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged hierarchical, and this site's profile is empty"
+        },
+        {
+          "checkId": "3.1",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 5 of 50 observations failed (primary-heading, title-uniqueness)"
+        },
+        {
+          "checkId": "3.2",
+          "status": "in-progress",
+          "coverage": "unknown",
+          "basis": "held-by-warning",
+          "launchGate": false,
+          "summary": "held: 10 of 25 observations warned — short of a defect, but not something a machine will clear"
+        },
+        {
+          "checkId": "3.3",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 1 of 3 observations failed (orphan-pages)"
+        },
+        {
+          "checkId": "3.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (trust-pages-presence)"
+        },
+        {
+          "checkId": "3.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (content-helpfulness)"
+        },
+        {
+          "checkId": "3.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged ymyl, and this site's profile is empty"
+        },
+        {
+          "checkId": "3.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (launch-content-completeness)"
+        },
+        {
+          "checkId": "3.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": false,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "3.9",
+          "status": "in-progress",
+          "coverage": "unknown",
+          "basis": "awaiting-confirmation",
+          "launchGate": false,
+          "summary": "proposed: 26 observations, none failed; this check needs a human to confirm"
+        },
+        {
+          "checkId": "3.10",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (cannibalization)"
+        },
+        {
+          "checkId": "3.11",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 24 of 25 observations failed (content-accessibility)"
+        },
+        {
+          "checkId": "3.12",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged multilingual, and this site's profile is empty"
+        },
+        {
+          "checkId": "3.13",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged ugc, and this site's profile is empty"
+        },
+        {
+          "checkId": "4.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 3 of 3 detectors are not implemented (raw-rendered-crawl-diff, broken-links, metadata-completeness)"
+        },
+        {
+          "checkId": "4.2",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (indexability-matrix-reconciliation)"
+        },
+        {
+          "checkId": "4.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (mobile-journey-qa)"
+        },
+        {
+          "checkId": "4.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 2 of 2 detectors are not implemented (axe-accessibility, manual-a11y-evaluation)"
+        },
+        {
+          "checkId": "4.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (template-lab-perf)"
+        },
+        {
+          "checkId": "4.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged structured-data, and this site's profile is empty"
+        },
+        {
+          "checkId": "4.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged analytics, consent, and this site's profile is empty"
+        },
+        {
+          "checkId": "4.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged migration, and this site's profile is empty"
+        },
+        {
+          "checkId": "4.9",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged multilingual, and this site's profile is empty"
+        },
+        {
+          "checkId": "4.10",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged ecommerce, and this site's profile is empty"
+        },
+        {
+          "checkId": "4.11",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (prelaunch-baseline-snapshot)"
+        },
+        {
+          "checkId": "4.12",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": true,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "5.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (production-smoke-test)"
+        },
+        {
+          "checkId": "5.2",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged migration, and this site's profile is empty"
+        },
+        {
+          "checkId": "5.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (production-crawl-verify)"
+        },
+        {
+          "checkId": "5.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 2 of 2 detectors are not implemented (sitemap-submit, url-inspection)"
+        },
+        {
+          "checkId": "5.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 2 of 2 detectors are not implemented (availability-canary, indexability-canary)"
+        },
+        {
+          "checkId": "5.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged analytics, and this site's profile is empty"
+        },
+        {
+          "checkId": "5.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": true,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "5.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged bing, and this site's profile is empty"
+        },
+        {
+          "checkId": "6.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (indexation-review)"
+        },
+        {
+          "checkId": "6.2",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (field-cwv-monitor)"
+        },
+        {
+          "checkId": "6.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (reporting-anomaly-thresholds)"
+        },
+        {
+          "checkId": "6.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged ai-reporting, and this site's profile is empty"
+        },
+        {
+          "checkId": "6.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (security-manual-actions)"
+        },
+        {
+          "checkId": "6.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged migration, and this site's profile is empty"
+        },
+        {
+          "checkId": "6.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged analytics, and this site's profile is empty"
+        },
+        {
+          "checkId": "6.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (backlink-monitor)"
+        },
+        {
+          "checkId": "6.9",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged ecommerce, multilingual, and this site's profile is empty"
+        },
+        {
+          "checkId": "7.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (monitoring-incident-sla)"
+        },
+        {
+          "checkId": "7.2",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (content-decay)"
+        },
+        {
+          "checkId": "7.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (quarterly-regression-crawl)"
+        },
+        {
+          "checkId": "7.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (release-regression-review)"
+        },
+        {
+          "checkId": "7.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (digital-pr-tracking)"
+        },
+        {
+          "checkId": "7.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (offpage-reputation-governance)"
+        },
+        {
+          "checkId": "7.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (a11y-regression-sampling)"
+        },
+        {
+          "checkId": "7.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged large-site, js-heavy, marketplace, and this site's profile is empty"
+        },
+        {
+          "checkId": "7.9",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged structured-data, multilingual, merchant-feed, and this site's profile is empty"
+        },
+        {
+          "checkId": "7.10",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (security-dependency-maintenance)"
+        }
+      ],
+      "probeFailures": [
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.smashingmagazine.com/2026/09/death-button-why-best-interface-is-no-interface/",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.smashingmagazine.com/ebook-bundles/smashing-library/",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name; 1 link(s) are named only \"click\" or similar.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.smashingmagazine.com/ebook-bundles/accessibility-ebook-bundle-3-ebooks/",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name; 1 link(s) are named only \"click\" or similar.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.smashingmagazine.com/ebook-bundles/business-ebook-bundle-8-ebooks/",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name; 1 link(s) are named only \"click\" or similar.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.smashingmagazine.com/ebook-bundles/content-strategy-ebook-bundle-3-ebooks/",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name; 1 link(s) are named only \"click\" or similar.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.smashingmagazine.com/ebook-bundles/front-end-ebook-bundle-4-ebooks/",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name; 1 link(s) are named only \"click\" or similar.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.smashingmagazine.com/ebook-bundles/ux-ebook-bundle-12-ebooks/",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name; 1 link(s) are named only \"click\" or similar.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.smashingmagazine.com/ebook-bundles/web-design-ebook-bundle-10-ebooks/",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name; 1 link(s) are named only \"click\" or similar.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.smashingmagazine.com/author/alex-williams/",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name; 3 link(s) are named only \"read more\" or similar.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.smashingmagazine.com/articles/",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name; 10 link(s) are named only \"read more\" or similar.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.smashingmagazine.com/2026/09/building-ux-roi-case-survives-boardroom/",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.smashingmagazine.com/",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.smashingmagazine.com/category/ai/",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name; 10 link(s) are named only \"read more\" or similar.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.smashingmagazine.com/author/carrie-webster/",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name; 11 link(s) are named only \"read more\" or similar.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.smashingmagazine.com/category/design/",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name; 10 link(s) are named only \"read more\" or similar.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.smashingmagazine.com/category/ux/",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name; 10 link(s) are named only \"read more\" or similar.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.smashingmagazine.com/author/newsletter-team/",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name; 423 link(s) are named only \"read more\" or similar.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.smashingmagazine.com/the-smashing-newsletter/smashing-newsletter-issue-575/",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.smashingmagazine.com/person-of-the-week/tom-greenwood/",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.smashingmagazine.com/the-smashing-newsletter/smashing-newsletter-issue-574/",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.smashingmagazine.com/author/cosima-mielke/",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name; 180 link(s) are named only \"read more\" or similar.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.smashingmagazine.com/2026/08/desktop-wallpaper-calendars-september-2026/",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.smashingmagazine.com/category/wallpapers/",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name; 10 link(s) are named only \"read more\" or similar.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.smashingmagazine.com/person-of-the-week/tey-bannerman/",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "http-status",
+          "pageUrl": "https://www.smashingmagazine.com/person-of-the-week/",
+          "summary": "Client error 404.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "heading-outline",
+          "pageUrl": "https://www.smashingmagazine.com/articles/",
+          "summary": "No <h1> on the page.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "heading-outline",
+          "pageUrl": "https://www.smashingmagazine.com/person-of-the-week/",
+          "summary": "No <h1> on the page.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "primary-heading",
+          "pageUrl": "https://www.smashingmagazine.com/articles/",
+          "summary": "No <h1> to carry the page subject.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "primary-heading",
+          "pageUrl": "https://www.smashingmagazine.com/",
+          "summary": "The <h1> is empty or near-empty.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "primary-heading",
+          "pageUrl": "https://www.smashingmagazine.com/person-of-the-week/",
+          "summary": "No <h1> to carry the page subject.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "soft-404",
+          "pageUrl": "https://www.smashingmagazine.com/author/newsletter-team/",
+          "summary": "Returns 200 while telling the reader the page does not exist.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.smashingmagazine.com/2026/09/death-button-why-best-interface-is-no-interface/",
+          "summary": "1 of 18 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.smashingmagazine.com/ebook-bundles/smashing-library/",
+          "summary": "8 of 29 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.smashingmagazine.com/ebook-bundles/accessibility-ebook-bundle-3-ebooks/",
+          "summary": "3 of 24 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.smashingmagazine.com/ebook-bundles/business-ebook-bundle-8-ebooks/",
+          "summary": "3 of 24 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.smashingmagazine.com/ebook-bundles/content-strategy-ebook-bundle-3-ebooks/",
+          "summary": "3 of 24 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.smashingmagazine.com/ebook-bundles/front-end-ebook-bundle-4-ebooks/",
+          "summary": "3 of 24 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.smashingmagazine.com/ebook-bundles/ux-ebook-bundle-12-ebooks/",
+          "summary": "3 of 24 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.smashingmagazine.com/ebook-bundles/web-design-ebook-bundle-10-ebooks/",
+          "summary": "3 of 24 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.smashingmagazine.com/author/alex-williams/",
+          "summary": "1 of 5 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.smashingmagazine.com/articles/",
+          "summary": "1 of 11 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.smashingmagazine.com/2026/09/building-ux-roi-case-survives-boardroom/",
+          "summary": "1 of 12 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.smashingmagazine.com/",
+          "summary": "1 of 25 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.smashingmagazine.com/category/ai/",
+          "summary": "1 of 11 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.smashingmagazine.com/author/carrie-webster/",
+          "summary": "1 of 13 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.smashingmagazine.com/category/design/",
+          "summary": "1 of 11 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.smashingmagazine.com/category/ux/",
+          "summary": "1 of 11 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.smashingmagazine.com/author/newsletter-team/",
+          "summary": "2 of 426 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.smashingmagazine.com/the-smashing-newsletter/smashing-newsletter-issue-575/",
+          "summary": "2 of 12 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.smashingmagazine.com/person-of-the-week/tom-greenwood/",
+          "summary": "1 of 2 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.smashingmagazine.com/person-of-the-week/",
+          "summary": "1 of 2 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.smashingmagazine.com/the-smashing-newsletter/smashing-newsletter-issue-574/",
+          "summary": "2 of 14 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.smashingmagazine.com/author/cosima-mielke/",
+          "summary": "1 of 182 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.smashingmagazine.com/2026/08/desktop-wallpaper-calendars-september-2026/",
+          "summary": "31 of 41 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.smashingmagazine.com/category/wallpapers/",
+          "summary": "1 of 11 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.smashingmagazine.com/person-of-the-week/tey-bannerman/",
+          "summary": "1 of 2 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "title-uniqueness",
+          "pageUrl": "https://www.smashingmagazine.com/person-of-the-week/tom-greenwood/",
+          "summary": "Title is shared with 1 other crawled page(s).",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "title-uniqueness",
+          "pageUrl": "https://www.smashingmagazine.com/person-of-the-week/tey-bannerman/",
+          "summary": "Title is shared with 1 other crawled page(s).",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "sitemap-validity",
+          "pageUrl": null,
+          "summary": "Sitemap lists 0 off-site and 1 non-200 URL(s).",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "sitemap-canonical-agreement",
+          "pageUrl": null,
+          "summary": "4 sitemap entr(ies) canonicalize elsewhere.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "orphan-pages",
+          "pageUrl": null,
+          "summary": "10 page(s) are reachable only from the sitemap.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "host-redirect",
+          "pageUrl": null,
+          "summary": "1 host variant(s) take more than one hop to arrive.",
+          "outcome": "fail"
+        }
+      ]
+    },
+    {
+      "url": "https://wordpress.org/news/2026/08/mary-lou/",
+      "origin": "https://wordpress.org",
+      "ok": true,
+      "error": null,
+      "crawl": {
+        "pages": 25,
+        "htmlPages": 25,
+        "nonOkPages": 0,
+        "transportFailures": 0,
+        "blockedByRobots": 0,
+        "notReached": 27044,
+        "sitemapUrls": 18811,
+        "robotsTxt": true,
+        "medianTtfbMs": 145,
+        "durationMs": 33624
+      },
+      "observations": {
+        "total": 750,
+        "pass": 438,
+        "fail": 36,
+        "warn": 110,
+        "notApplicable": 166,
+        "error": 0,
+        "detectorsFiring": 54
+      },
+      "checks": {
+        "total": 97,
+        "inScope": 58,
+        "graded": 14,
+        "passed": 2,
+        "failed": 10,
+        "inProgress": 2,
+        "notStarted": 83,
+        "byBasis": {
+          "detectors-missing": 38,
+          "attested-only": 6,
+          "scope-undecided": 39,
+          "verified-fail": 10,
+          "verified-pass": 2,
+          "held-by-warning": 1,
+          "awaiting-confirmation": 1
+        }
+      },
+      "readiness": {
+        "decision": "HOLD",
+        "gatesOutstanding": 32,
+        "gatesFailed": 7,
+        "applicabilityDecisionsOutstanding": 21,
+        "violations": []
+      },
+      "verdicts": [
+        {
+          "checkId": "0.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (competitor-serp-baseline)"
+        },
+        {
+          "checkId": "0.2",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (keyword-intent-map)"
+        },
+        {
+          "checkId": "0.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (url-inventory-builder)"
+        },
+        {
+          "checkId": "0.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": true,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "0.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (brand-entity-consistency)"
+        },
+        {
+          "checkId": "0.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged ai-policy, and this site's profile is empty"
+        },
+        {
+          "checkId": "0.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged multilingual, and this site's profile is empty"
+        },
+        {
+          "checkId": "0.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged migration, and this site's profile is empty"
+        },
+        {
+          "checkId": "0.9",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": true,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "1.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 2 of 2 detectors are not implemented (raw-rendered-parity, rendering-strategy-classifier)"
+        },
+        {
+          "checkId": "1.2",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 1 of 75 observations failed (heading-outline)"
+        },
+        {
+          "checkId": "1.3",
+          "status": "passed",
+          "coverage": "verified",
+          "basis": "verified-pass",
+          "launchGate": true,
+          "summary": "verified: 27 of 27 observations passed"
+        },
+        {
+          "checkId": "1.4",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 1 of 76 observations failed (internal-search-indexability)"
+        },
+        {
+          "checkId": "1.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 2 of 2 detectors are not implemented (lab-perf-budget, lcp-element-strategy)"
+        },
+        {
+          "checkId": "1.6",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 1 of 51 observations failed (host-redirect)"
+        },
+        {
+          "checkId": "1.7",
+          "status": "in-progress",
+          "coverage": "unknown",
+          "basis": "held-by-warning",
+          "launchGate": false,
+          "summary": "held: 49 of 52 observations warned — short of a defect, but not something a machine will clear"
+        },
+        {
+          "checkId": "1.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (staging-protection)"
+        },
+        {
+          "checkId": "1.9",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged media, and this site's profile is empty"
+        },
+        {
+          "checkId": "1.10",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (ci-seo-guards)"
+        },
+        {
+          "checkId": "1.11",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (ci-extended-checks)"
+        },
+        {
+          "checkId": "1.12",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged faceted-nav, and this site's profile is empty"
+        },
+        {
+          "checkId": "1.13",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged pagination, and this site's profile is empty"
+        },
+        {
+          "checkId": "1.14",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged multilingual, and this site's profile is empty"
+        },
+        {
+          "checkId": "1.15",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged ecommerce, and this site's profile is empty"
+        },
+        {
+          "checkId": "1.16",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged non-html-files, and this site's profile is empty"
+        },
+        {
+          "checkId": "1.17",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": true,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "1.18",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (domain-expiry-rdap)"
+        },
+        {
+          "checkId": "1.19",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged experiments, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.1",
+          "status": "passed",
+          "coverage": "verified",
+          "basis": "verified-pass",
+          "launchGate": true,
+          "summary": "verified: 4 of 4 observations passed"
+        },
+        {
+          "checkId": "2.2",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 5 of 25 observations failed (image-alt-quality)"
+        },
+        {
+          "checkId": "2.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged image-search, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (gsc-property-ownership)"
+        },
+        {
+          "checkId": "2.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged analytics, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged consent, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged structured-data, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.8",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": false,
+          "summary": "failed: 7 of 25 observations failed (social-metadata)"
+        },
+        {
+          "checkId": "2.9",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged ai-policy, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.10",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged indexnow, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.11",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged ecommerce, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.12",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged local-business, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.13",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": false,
+          "summary": "failed: 1 of 1 observations failed (favicon-site-name)"
+        },
+        {
+          "checkId": "2.14",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged video, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.15",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged paywall, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.16",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged publisher, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.17",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged hierarchical, and this site's profile is empty"
+        },
+        {
+          "checkId": "3.1",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 1 of 50 observations failed (primary-heading)"
+        },
+        {
+          "checkId": "3.2",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": false,
+          "summary": "failed: 1 of 25 observations failed (meta-description)"
+        },
+        {
+          "checkId": "3.3",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 1 of 3 observations failed (orphan-pages)"
+        },
+        {
+          "checkId": "3.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (trust-pages-presence)"
+        },
+        {
+          "checkId": "3.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (content-helpfulness)"
+        },
+        {
+          "checkId": "3.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged ymyl, and this site's profile is empty"
+        },
+        {
+          "checkId": "3.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (launch-content-completeness)"
+        },
+        {
+          "checkId": "3.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": false,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "3.9",
+          "status": "in-progress",
+          "coverage": "unknown",
+          "basis": "awaiting-confirmation",
+          "launchGate": false,
+          "summary": "proposed: 26 observations, none failed; this check needs a human to confirm"
+        },
+        {
+          "checkId": "3.10",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (cannibalization)"
+        },
+        {
+          "checkId": "3.11",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 5 of 25 observations failed (content-accessibility)"
+        },
+        {
+          "checkId": "3.12",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged multilingual, and this site's profile is empty"
+        },
+        {
+          "checkId": "3.13",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged ugc, and this site's profile is empty"
+        },
+        {
+          "checkId": "4.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 3 of 3 detectors are not implemented (raw-rendered-crawl-diff, broken-links, metadata-completeness)"
+        },
+        {
+          "checkId": "4.2",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (indexability-matrix-reconciliation)"
+        },
+        {
+          "checkId": "4.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (mobile-journey-qa)"
+        },
+        {
+          "checkId": "4.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 2 of 2 detectors are not implemented (axe-accessibility, manual-a11y-evaluation)"
+        },
+        {
+          "checkId": "4.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (template-lab-perf)"
+        },
+        {
+          "checkId": "4.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged structured-data, and this site's profile is empty"
+        },
+        {
+          "checkId": "4.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged analytics, consent, and this site's profile is empty"
+        },
+        {
+          "checkId": "4.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged migration, and this site's profile is empty"
+        },
+        {
+          "checkId": "4.9",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged multilingual, and this site's profile is empty"
+        },
+        {
+          "checkId": "4.10",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged ecommerce, and this site's profile is empty"
+        },
+        {
+          "checkId": "4.11",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (prelaunch-baseline-snapshot)"
+        },
+        {
+          "checkId": "4.12",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": true,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "5.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (production-smoke-test)"
+        },
+        {
+          "checkId": "5.2",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged migration, and this site's profile is empty"
+        },
+        {
+          "checkId": "5.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (production-crawl-verify)"
+        },
+        {
+          "checkId": "5.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 2 of 2 detectors are not implemented (sitemap-submit, url-inspection)"
+        },
+        {
+          "checkId": "5.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 2 of 2 detectors are not implemented (availability-canary, indexability-canary)"
+        },
+        {
+          "checkId": "5.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged analytics, and this site's profile is empty"
+        },
+        {
+          "checkId": "5.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": true,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "5.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged bing, and this site's profile is empty"
+        },
+        {
+          "checkId": "6.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (indexation-review)"
+        },
+        {
+          "checkId": "6.2",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (field-cwv-monitor)"
+        },
+        {
+          "checkId": "6.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (reporting-anomaly-thresholds)"
+        },
+        {
+          "checkId": "6.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged ai-reporting, and this site's profile is empty"
+        },
+        {
+          "checkId": "6.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (security-manual-actions)"
+        },
+        {
+          "checkId": "6.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged migration, and this site's profile is empty"
+        },
+        {
+          "checkId": "6.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged analytics, and this site's profile is empty"
+        },
+        {
+          "checkId": "6.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (backlink-monitor)"
+        },
+        {
+          "checkId": "6.9",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged ecommerce, multilingual, and this site's profile is empty"
+        },
+        {
+          "checkId": "7.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (monitoring-incident-sla)"
+        },
+        {
+          "checkId": "7.2",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (content-decay)"
+        },
+        {
+          "checkId": "7.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (quarterly-regression-crawl)"
+        },
+        {
+          "checkId": "7.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (release-regression-review)"
+        },
+        {
+          "checkId": "7.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (digital-pr-tracking)"
+        },
+        {
+          "checkId": "7.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (offpage-reputation-governance)"
+        },
+        {
+          "checkId": "7.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (a11y-regression-sampling)"
+        },
+        {
+          "checkId": "7.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged large-site, js-heavy, marketplace, and this site's profile is empty"
+        },
+        {
+          "checkId": "7.9",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged structured-data, multilingual, merchant-feed, and this site's profile is empty"
+        },
+        {
+          "checkId": "7.10",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (security-dependency-maintenance)"
+        }
+      ],
+      "probeFailures": [
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://wordpress.org/enterprise/media/",
+          "summary": "Barriers to reading this page without images, sound or styling: 86 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://wordpress.org/enterprise/integrations/",
+          "summary": "Barriers to reading this page without images, sound or styling: 61 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://wordpress.org/enterprise/ecommerce/",
+          "summary": "Barriers to reading this page without images, sound or styling: 48 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://wordpress.org/enterprise/education/",
+          "summary": "Barriers to reading this page without images, sound or styling: 84 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://wordpress.org/enterprise/content-marketing/",
+          "summary": "Barriers to reading this page without images, sound or styling: 28 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "internal-search-indexability",
+          "pageUrl": null,
+          "summary": "1 internal search URL(s) are indexable.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "heading-outline",
+          "pageUrl": "https://wordpress.org/search/",
+          "summary": "No <h1> on the page.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "primary-heading",
+          "pageUrl": "https://wordpress.org/search/",
+          "summary": "No <h1> to carry the page subject.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-alt-quality",
+          "pageUrl": "https://wordpress.org/enterprise/media/",
+          "summary": "86 of 87 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-alt-quality",
+          "pageUrl": "https://wordpress.org/enterprise/integrations/",
+          "summary": "61 of 62 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-alt-quality",
+          "pageUrl": "https://wordpress.org/enterprise/ecommerce/",
+          "summary": "48 of 49 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-alt-quality",
+          "pageUrl": "https://wordpress.org/enterprise/education/",
+          "summary": "84 of 85 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-alt-quality",
+          "pageUrl": "https://wordpress.org/enterprise/content-marketing/",
+          "summary": "28 of 29 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://wordpress.org/about/privacy/cookies/",
+          "summary": "1 of 2 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://wordpress.org/download/",
+          "summary": "2 of 3 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://wordpress.org/enterprise/media/",
+          "summary": "86 of 87 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://wordpress.org/enterprise/integrations/",
+          "summary": "61 of 62 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://wordpress.org/enterprise/ecommerce/",
+          "summary": "48 of 49 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://wordpress.org/enterprise/education/",
+          "summary": "84 of 85 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://wordpress.org/enterprise/content-marketing/",
+          "summary": "28 of 29 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://wordpress.org/mobile/",
+          "summary": "2 of 4 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "lcp-not-lazy",
+          "pageUrl": "https://wordpress.org/40-percent-of-web/",
+          "summary": "The first image on the page is lazy-loaded, delaying the likely LCP.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "meta-description",
+          "pageUrl": "https://wordpress.org/news/2026/08/mary-lou/",
+          "summary": "No meta description.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "social-metadata",
+          "pageUrl": "https://wordpress.org/enterprise/media/",
+          "summary": "No Open Graph metadata at all.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "social-metadata",
+          "pageUrl": "https://wordpress.org/enterprise/integrations/",
+          "summary": "No Open Graph metadata at all.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "social-metadata",
+          "pageUrl": "https://wordpress.org/enterprise/ecommerce/",
+          "summary": "No Open Graph metadata at all.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "social-metadata",
+          "pageUrl": "https://wordpress.org/enterprise/education/",
+          "summary": "No Open Graph metadata at all.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "social-metadata",
+          "pageUrl": "https://wordpress.org/enterprise/content-marketing/",
+          "summary": "No Open Graph metadata at all.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "social-metadata",
+          "pageUrl": "https://wordpress.org/40-percent-of-web/",
+          "summary": "No Open Graph metadata at all.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "social-metadata",
+          "pageUrl": "https://wordpress.org/hosting/",
+          "summary": "No Open Graph metadata at all.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "orphan-pages",
+          "pageUrl": null,
+          "summary": "8 page(s) are reachable only from the sitemap.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "hreflang-implementation",
+          "pageUrl": null,
+          "summary": "46 hreflang value(s) name a locale that does not exist: \"ceb\" names the language \"ceb\", which is not an ISO 639-1 code.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "host-redirect",
+          "pageUrl": null,
+          "summary": "1 host variant(s) take more than one hop to arrive.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "favicon-site-name",
+          "pageUrl": null,
+          "summary": "Pages disagree about the site name: WordPress News / WordPress.org.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "videoobject-schema",
+          "pageUrl": "https://wordpress.org/news/2026/08/mary-lou/",
+          "summary": "1 video(s) play on this page and none is described by VideoObject structured data.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "video-sitemap",
+          "pageUrl": null,
+          "summary": "815 of 823 video sitemap entr(ies) are unusable.",
+          "outcome": "fail"
+        }
+      ]
+    },
+    {
+      "url": "https://www.bbc.com/news/articles/clyjqvjzlwno",
+      "origin": "https://www.bbc.com",
+      "ok": true,
+      "error": null,
+      "crawl": {
+        "pages": 25,
+        "htmlPages": 25,
+        "nonOkPages": 0,
+        "transportFailures": 0,
+        "blockedByRobots": 851,
+        "notReached": 224853,
+        "sitemapUrls": 227625,
+        "robotsTxt": true,
+        "medianTtfbMs": 31,
+        "durationMs": 26489
+      },
+      "observations": {
+        "total": 750,
+        "pass": 414,
+        "fail": 75,
+        "warn": 74,
+        "notApplicable": 187,
+        "error": 0,
+        "detectorsFiring": 54
+      },
+      "checks": {
+        "total": 97,
+        "inScope": 58,
+        "graded": 14,
+        "passed": 1,
+        "failed": 9,
+        "inProgress": 4,
+        "notStarted": 83,
+        "byBasis": {
+          "detectors-missing": 38,
+          "attested-only": 6,
+          "scope-undecided": 39,
+          "verified-fail": 9,
+          "held-by-warning": 3,
+          "verified-pass": 1,
+          "awaiting-confirmation": 1
+        }
+      },
+      "readiness": {
+        "decision": "HOLD",
+        "gatesOutstanding": 33,
+        "gatesFailed": 7,
+        "applicabilityDecisionsOutstanding": 21,
+        "violations": []
+      },
+      "verdicts": [
+        {
+          "checkId": "0.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (competitor-serp-baseline)"
+        },
+        {
+          "checkId": "0.2",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (keyword-intent-map)"
+        },
+        {
+          "checkId": "0.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (url-inventory-builder)"
+        },
+        {
+          "checkId": "0.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": true,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "0.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (brand-entity-consistency)"
+        },
+        {
+          "checkId": "0.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged ai-policy, and this site's profile is empty"
+        },
+        {
+          "checkId": "0.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged multilingual, and this site's profile is empty"
+        },
+        {
+          "checkId": "0.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged migration, and this site's profile is empty"
+        },
+        {
+          "checkId": "0.9",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": true,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "1.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 2 of 2 detectors are not implemented (raw-rendered-parity, rendering-strategy-classifier)"
+        },
+        {
+          "checkId": "1.2",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 2 of 75 observations failed (heading-outline)"
+        },
+        {
+          "checkId": "1.3",
+          "status": "in-progress",
+          "coverage": "unknown",
+          "basis": "held-by-warning",
+          "launchGate": true,
+          "summary": "held: 1 of 27 observations warned — short of a defect, but not something a machine will clear"
+        },
+        {
+          "checkId": "1.4",
+          "status": "passed",
+          "coverage": "verified",
+          "basis": "verified-pass",
+          "launchGate": true,
+          "summary": "verified: 75 of 76 observations passed, 1 found no subject"
+        },
+        {
+          "checkId": "1.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 2 of 2 detectors are not implemented (lab-perf-budget, lcp-element-strategy)"
+        },
+        {
+          "checkId": "1.6",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 1 of 51 observations failed (host-redirect)"
+        },
+        {
+          "checkId": "1.7",
+          "status": "in-progress",
+          "coverage": "unknown",
+          "basis": "held-by-warning",
+          "launchGate": false,
+          "summary": "held: 1 of 52 observations warned — short of a defect, but not something a machine will clear"
+        },
+        {
+          "checkId": "1.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (staging-protection)"
+        },
+        {
+          "checkId": "1.9",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged media, and this site's profile is empty"
+        },
+        {
+          "checkId": "1.10",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (ci-seo-guards)"
+        },
+        {
+          "checkId": "1.11",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (ci-extended-checks)"
+        },
+        {
+          "checkId": "1.12",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged faceted-nav, and this site's profile is empty"
+        },
+        {
+          "checkId": "1.13",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged pagination, and this site's profile is empty"
+        },
+        {
+          "checkId": "1.14",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged multilingual, and this site's profile is empty"
+        },
+        {
+          "checkId": "1.15",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged ecommerce, and this site's profile is empty"
+        },
+        {
+          "checkId": "1.16",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged non-html-files, and this site's profile is empty"
+        },
+        {
+          "checkId": "1.17",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": true,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "1.18",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (domain-expiry-rdap)"
+        },
+        {
+          "checkId": "1.19",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged experiments, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.1",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 1 of 4 observations failed (sitemap-validity)"
+        },
+        {
+          "checkId": "2.2",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 21 of 25 observations failed (image-alt-quality)"
+        },
+        {
+          "checkId": "2.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged image-search, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (gsc-property-ownership)"
+        },
+        {
+          "checkId": "2.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged analytics, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged consent, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged structured-data, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.8",
+          "status": "in-progress",
+          "coverage": "unknown",
+          "basis": "held-by-warning",
+          "launchGate": false,
+          "summary": "held: 24 of 25 observations warned — short of a defect, but not something a machine will clear"
+        },
+        {
+          "checkId": "2.9",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged ai-policy, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.10",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged indexnow, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.11",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged ecommerce, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.12",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged local-business, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.13",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": false,
+          "summary": "failed: 1 of 1 observations failed (favicon-site-name)"
+        },
+        {
+          "checkId": "2.14",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged video, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.15",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged paywall, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.16",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged publisher, and this site's profile is empty"
+        },
+        {
+          "checkId": "2.17",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged hierarchical, and this site's profile is empty"
+        },
+        {
+          "checkId": "3.1",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 8 of 50 observations failed (primary-heading, title-uniqueness)"
+        },
+        {
+          "checkId": "3.2",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": false,
+          "summary": "failed: 7 of 25 observations failed (meta-description)"
+        },
+        {
+          "checkId": "3.3",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 1 of 3 observations failed (orphan-pages)"
+        },
+        {
+          "checkId": "3.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (trust-pages-presence)"
+        },
+        {
+          "checkId": "3.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (content-helpfulness)"
+        },
+        {
+          "checkId": "3.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged ymyl, and this site's profile is empty"
+        },
+        {
+          "checkId": "3.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (launch-content-completeness)"
+        },
+        {
+          "checkId": "3.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": false,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "3.9",
+          "status": "in-progress",
+          "coverage": "unknown",
+          "basis": "awaiting-confirmation",
+          "launchGate": false,
+          "summary": "proposed: 26 observations, none failed; this check needs a human to confirm"
+        },
+        {
+          "checkId": "3.10",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (cannibalization)"
+        },
+        {
+          "checkId": "3.11",
+          "status": "failed",
+          "coverage": "verified",
+          "basis": "verified-fail",
+          "launchGate": true,
+          "summary": "failed: 12 of 25 observations failed (content-accessibility)"
+        },
+        {
+          "checkId": "3.12",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged multilingual, and this site's profile is empty"
+        },
+        {
+          "checkId": "3.13",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged ugc, and this site's profile is empty"
+        },
+        {
+          "checkId": "4.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 3 of 3 detectors are not implemented (raw-rendered-crawl-diff, broken-links, metadata-completeness)"
+        },
+        {
+          "checkId": "4.2",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (indexability-matrix-reconciliation)"
+        },
+        {
+          "checkId": "4.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (mobile-journey-qa)"
+        },
+        {
+          "checkId": "4.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 2 of 2 detectors are not implemented (axe-accessibility, manual-a11y-evaluation)"
+        },
+        {
+          "checkId": "4.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (template-lab-perf)"
+        },
+        {
+          "checkId": "4.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged structured-data, and this site's profile is empty"
+        },
+        {
+          "checkId": "4.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged analytics, consent, and this site's profile is empty"
+        },
+        {
+          "checkId": "4.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged migration, and this site's profile is empty"
+        },
+        {
+          "checkId": "4.9",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged multilingual, and this site's profile is empty"
+        },
+        {
+          "checkId": "4.10",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged ecommerce, and this site's profile is empty"
+        },
+        {
+          "checkId": "4.11",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (prelaunch-baseline-snapshot)"
+        },
+        {
+          "checkId": "4.12",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": true,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "5.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (production-smoke-test)"
+        },
+        {
+          "checkId": "5.2",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged migration, and this site's profile is empty"
+        },
+        {
+          "checkId": "5.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 1 of 1 detectors are not implemented (production-crawl-verify)"
+        },
+        {
+          "checkId": "5.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 2 of 2 detectors are not implemented (sitemap-submit, url-inspection)"
+        },
+        {
+          "checkId": "5.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": true,
+          "summary": "not graded: 2 of 2 detectors are not implemented (availability-canary, indexability-canary)"
+        },
+        {
+          "checkId": "5.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": true,
+          "summary": "scope undecided: the check applies to sites flagged analytics, and this site's profile is empty"
+        },
+        {
+          "checkId": "5.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "attested-only",
+          "launchGate": true,
+          "summary": "no machine can verify this check; it needs a human attestation"
+        },
+        {
+          "checkId": "5.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged bing, and this site's profile is empty"
+        },
+        {
+          "checkId": "6.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (indexation-review)"
+        },
+        {
+          "checkId": "6.2",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (field-cwv-monitor)"
+        },
+        {
+          "checkId": "6.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (reporting-anomaly-thresholds)"
+        },
+        {
+          "checkId": "6.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged ai-reporting, and this site's profile is empty"
+        },
+        {
+          "checkId": "6.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (security-manual-actions)"
+        },
+        {
+          "checkId": "6.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged migration, and this site's profile is empty"
+        },
+        {
+          "checkId": "6.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged analytics, and this site's profile is empty"
+        },
+        {
+          "checkId": "6.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (backlink-monitor)"
+        },
+        {
+          "checkId": "6.9",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged ecommerce, multilingual, and this site's profile is empty"
+        },
+        {
+          "checkId": "7.1",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (monitoring-incident-sla)"
+        },
+        {
+          "checkId": "7.2",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (content-decay)"
+        },
+        {
+          "checkId": "7.3",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (quarterly-regression-crawl)"
+        },
+        {
+          "checkId": "7.4",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (release-regression-review)"
+        },
+        {
+          "checkId": "7.5",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (digital-pr-tracking)"
+        },
+        {
+          "checkId": "7.6",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (offpage-reputation-governance)"
+        },
+        {
+          "checkId": "7.7",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (a11y-regression-sampling)"
+        },
+        {
+          "checkId": "7.8",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged large-site, js-heavy, marketplace, and this site's profile is empty"
+        },
+        {
+          "checkId": "7.9",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "scope-undecided",
+          "launchGate": false,
+          "summary": "scope undecided: the check applies to sites flagged structured-data, multilingual, merchant-feed, and this site's profile is empty"
+        },
+        {
+          "checkId": "7.10",
+          "status": "not-started",
+          "coverage": "unknown",
+          "basis": "detectors-missing",
+          "launchGate": false,
+          "summary": "not graded: 1 of 1 detectors are not implemented (security-dependency-maintenance)"
+        }
+      ],
+      "probeFailures": [
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.bbc.com/arts",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.bbc.com/audio",
+          "summary": "Barriers to reading this page without images, sound or styling: 2 link(s) have no accessible name.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.bbc.com/audio/category/business",
+          "summary": "Barriers to reading this page without images, sound or styling: 2 link(s) have no accessible name.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.bbc.com/audio/category/comedy",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.bbc.com/audio/category/history",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.bbc.com/audio/category/news",
+          "summary": "Barriers to reading this page without images, sound or styling: 2 link(s) have no accessible name.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.bbc.com/audio/category/science",
+          "summary": "Barriers to reading this page without images, sound or styling: 2 link(s) have no accessible name.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.bbc.com/audio/category/society-and-culture",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.bbc.com/audio/category/sport",
+          "summary": "Barriers to reading this page without images, sound or styling: 2 link(s) have no accessible name.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.bbc.com/audio/category/true-crime",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.bbc.com/audio/schedules/bbc_radio_fourfm",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "content-accessibility",
+          "pageUrl": "https://www.bbc.com/audio/schedules/bbc_world_service",
+          "summary": "Barriers to reading this page without images, sound or styling: 1 link(s) have no accessible name.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "heading-outline",
+          "pageUrl": "https://www.bbc.com/audio/schedules/bbc_radio_fourfm",
+          "summary": "No <h1> on the page.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "heading-outline",
+          "pageUrl": "https://www.bbc.com/audio/schedules/bbc_world_service",
+          "summary": "No <h1> on the page.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "primary-heading",
+          "pageUrl": "https://www.bbc.com/audio/schedules/bbc_radio_fourfm",
+          "summary": "No <h1> to carry the page subject.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "primary-heading",
+          "pageUrl": "https://www.bbc.com/audio/schedules/bbc_world_service",
+          "summary": "No <h1> to carry the page subject.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-alt-quality",
+          "pageUrl": "https://www.bbc.com/news/articles/clyjqvjzlwno",
+          "summary": "16 of 32 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-alt-quality",
+          "pageUrl": "https://www.bbc.com/arts",
+          "summary": "35 of 68 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-alt-quality",
+          "pageUrl": "https://www.bbc.com/arts/arts-in-motion",
+          "summary": "76 of 152 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-alt-quality",
+          "pageUrl": "https://www.bbc.com/audio",
+          "summary": "57 of 114 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-alt-quality",
+          "pageUrl": "https://www.bbc.com/audio/categories",
+          "summary": "8 of 16 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-alt-quality",
+          "pageUrl": "https://www.bbc.com/audio/category/business",
+          "summary": "32 of 64 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-alt-quality",
+          "pageUrl": "https://www.bbc.com/audio/category/comedy",
+          "summary": "26 of 52 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-alt-quality",
+          "pageUrl": "https://www.bbc.com/audio/category/history",
+          "summary": "30 of 60 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-alt-quality",
+          "pageUrl": "https://www.bbc.com/audio/category/news",
+          "summary": "43 of 86 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-alt-quality",
+          "pageUrl": "https://www.bbc.com/audio/category/science",
+          "summary": "32 of 64 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-alt-quality",
+          "pageUrl": "https://www.bbc.com/audio/category/society-and-culture",
+          "summary": "66 of 132 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-alt-quality",
+          "pageUrl": "https://www.bbc.com/audio/category/sport",
+          "summary": "40 of 80 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-alt-quality",
+          "pageUrl": "https://www.bbc.com/audio/category/true-crime",
+          "summary": "35 of 70 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-alt-quality",
+          "pageUrl": "https://www.bbc.com/audio/play/live/bbc_radio_fourfm",
+          "summary": "12 of 24 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-alt-quality",
+          "pageUrl": "https://www.bbc.com/audio/play/live/bbc_world_service",
+          "summary": "12 of 24 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-alt-quality",
+          "pageUrl": "https://www.bbc.com/audio/schedules/bbc_radio_fourfm",
+          "summary": "13 of 26 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-alt-quality",
+          "pageUrl": "https://www.bbc.com/audio/schedules/bbc_world_service",
+          "summary": "13 of 26 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-alt-quality",
+          "pageUrl": "https://www.bbc.com/audio/stations",
+          "summary": "28 of 56 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-alt-quality",
+          "pageUrl": "https://www.bbc.com/business",
+          "summary": "74 of 148 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-alt-quality",
+          "pageUrl": "https://www.bbc.com/business/c-suite",
+          "summary": "24 of 48 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-alt-quality",
+          "pageUrl": "https://www.bbc.com/business/executive-lounge",
+          "summary": "8 of 16 image(s) have no alt attribute.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.bbc.com/news/articles/clyjqvjzlwno",
+          "summary": "32 of 32 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.bbc.com/arts",
+          "summary": "68 of 68 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.bbc.com/arts/arts-in-motion",
+          "summary": "152 of 152 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.bbc.com/audio",
+          "summary": "114 of 114 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.bbc.com/audio/categories",
+          "summary": "16 of 16 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.bbc.com/audio/category/business",
+          "summary": "64 of 64 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.bbc.com/audio/category/comedy",
+          "summary": "52 of 52 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.bbc.com/audio/category/history",
+          "summary": "60 of 60 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.bbc.com/audio/category/news",
+          "summary": "86 of 86 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.bbc.com/audio/category/science",
+          "summary": "64 of 64 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.bbc.com/audio/category/society-and-culture",
+          "summary": "132 of 132 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.bbc.com/audio/category/sport",
+          "summary": "80 of 80 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.bbc.com/audio/category/true-crime",
+          "summary": "70 of 70 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.bbc.com/audio/play/live/bbc_radio_fourfm",
+          "summary": "24 of 24 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.bbc.com/audio/play/live/bbc_world_service",
+          "summary": "24 of 24 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.bbc.com/audio/schedules/bbc_radio_fourfm",
+          "summary": "26 of 26 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.bbc.com/audio/schedules/bbc_world_service",
+          "summary": "26 of 26 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.bbc.com/audio/stations",
+          "summary": "56 of 56 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.bbc.com/business",
+          "summary": "148 of 148 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.bbc.com/business/c-suite",
+          "summary": "48 of 48 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "image-dimensions",
+          "pageUrl": "https://www.bbc.com/business/executive-lounge",
+          "summary": "16 of 16 image(s) declare no width/height.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "meta-description",
+          "pageUrl": "https://www.bbc.com/arts",
+          "summary": "No meta description.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "meta-description",
+          "pageUrl": "https://www.bbc.com/arts/arts-in-motion",
+          "summary": "No meta description.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "meta-description",
+          "pageUrl": "https://www.bbc.com/audio/category",
+          "summary": "No meta description.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "meta-description",
+          "pageUrl": "https://www.bbc.com/audio/play",
+          "summary": "No meta description.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "meta-description",
+          "pageUrl": "https://www.bbc.com/audio/play/live",
+          "summary": "No meta description.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "meta-description",
+          "pageUrl": "https://www.bbc.com/audio/schedules",
+          "summary": "No meta description.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "meta-description",
+          "pageUrl": "https://www.bbc.com/business/executive-lounge",
+          "summary": "No meta description.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "title-uniqueness",
+          "pageUrl": "https://www.bbc.com/arts/arts-in-motion",
+          "summary": "Title is shared with 5 other crawled page(s).",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "title-uniqueness",
+          "pageUrl": "https://www.bbc.com/audio/category",
+          "summary": "Title is shared with 5 other crawled page(s).",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "title-uniqueness",
+          "pageUrl": "https://www.bbc.com/audio/play",
+          "summary": "Title is shared with 5 other crawled page(s).",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "title-uniqueness",
+          "pageUrl": "https://www.bbc.com/audio/play/live",
+          "summary": "Title is shared with 5 other crawled page(s).",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "title-uniqueness",
+          "pageUrl": "https://www.bbc.com/audio/schedules",
+          "summary": "Title is shared with 5 other crawled page(s).",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "title-uniqueness",
+          "pageUrl": "https://www.bbc.com/business/executive-lounge",
+          "summary": "Title is shared with 5 other crawled page(s).",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "sitemap-validity",
+          "pageUrl": null,
+          "summary": "Sitemap lists 2202 off-site and 0 non-200 URL(s).",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "orphan-pages",
+          "pageUrl": null,
+          "summary": "6 page(s) are reachable only from the sitemap.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "host-redirect",
+          "pageUrl": null,
+          "summary": "1 host variant(s) take more than one hop to arrive.",
+          "outcome": "fail"
+        },
+        {
+          "probeId": "favicon-site-name",
+          "pageUrl": null,
+          "summary": "No page declares a site name via og:site_name or WebSite/Organization schema.",
+          "outcome": "fail"
+        }
+      ]
+    }
+  ]
+}

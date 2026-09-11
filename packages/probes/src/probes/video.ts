@@ -442,7 +442,7 @@ export const videoSitemap: SiteProbe = {
     const cut = crawl.sitemaps.filter((document) => document.truncated && document.videoCount > 0);
     if (cut.length > 0) {
       return errored(
-        `${cut.length} sitemap(s) carrying video entries were too large to read in full, so ` +
+        `${cut.length} sitemap(s) carrying video entries could not be read in full, so ` +
           'the entries cannot be judged.',
         { samples: cut.slice(0, 5) },
       );

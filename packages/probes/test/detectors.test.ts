@@ -1702,7 +1702,7 @@ describe('a truncated sitemap', () => {
       }),
     );
     expect(observation.outcome).toBe('error');
-    expect(observation.summary).toMatch(/too large to read in full/);
+    expect(observation.summary).toMatch(/could not be read in full/);
   });
 
   // Without the flag this is a fail: an entry with no description and no way
@@ -1728,7 +1728,7 @@ describe('a truncated sitemap', () => {
       }),
     );
     expect(observation.outcome).toBe('error');
-    expect(observation.summary).toMatch(/too large to read in full/);
+    expect(observation.summary).toMatch(/could not be read in full/);
   });
 });
 

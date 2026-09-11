@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { gzipSync } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { crawl, createSitemapParser, extractSitemapUrls, fetchPage } from '@seo/crawler';
 
@@ -117,19 +118,22 @@ const BIG_SITEMAP =
 
 let server: Server;
 let origin: string;
+/** The sitemap robots.txt declares, so each test can pick the file it reads. */
+let declared = '/sitemap-videos.xml';
 
 beforeAll(async () => {
   server = createServer((request, response) => {
     if (request.url === '/robots.txt') {
       response.writeHead(200, { 'content-type': 'text/plain' });
-      response.end(`User-agent: *\nAllow: /\nSitemap: ${origin}/sitemap-videos.xml\n`);
+      response.end(`User-agent: *\nAllow: /\nSitemap: ${origin}${declared}\n`);
       return;
     }
-    if (request.url === '/sitemap-videos.xml') {
-      response.writeHead(200, { 'content-type': 'application/xml' });
+    if (request.url === '/sitemap-videos.xml' || request.url === '/sitemap-videos.xml.gz') {
+      const gzipped = request.url.endsWith('.gz');
+      response.writeHead(200, { 'content-type': gzipped ? 'application/x-gzip' : 'application/xml' });
       // Written in pieces, as a real server would, so the client reads it as a
       // stream of chunks rather than one buffer.
-      const bytes = Buffer.from(BIG_SITEMAP);
+      const bytes = gzipped ? gzipSync(BIG_SITEMAP) : Buffer.from(BIG_SITEMAP);
       for (let i = 0; i < bytes.length; i += 256_000) response.write(bytes.subarray(i, i + 256_000));
       response.end();
       return;
@@ -165,6 +169,25 @@ describe('a video sitemap larger than the page body limit', () => {
     expect(result.sitemapVideos).toHaveLength(ENTRIES);
     expect(result.sitemapVideos.at(-1)?.loc).toBe(`https://videos.test/watch/${ENTRIES - 1}`);
     expect(result.sitemapVideos.every((video) => video.title !== null && video.description !== null)).toBe(true);
+  });
+
+  it('is read to the end when it is published gzipped', async () => {
+    declared = '/sitemap-videos.xml.gz';
+    try {
+      const result = await crawl({
+        seeds: [`${origin}/`],
+        userAgent: 'seo-optimizer/0.1 (+test)',
+        maxPages: 1,
+        maxDepth: 0,
+        auxiliary: false,
+      });
+      expect(result.sitemaps).toEqual([
+        { url: `${origin}/sitemap-videos.xml.gz`, status: 200, urlCount: ENTRIES, videoCount: ENTRIES, truncated: false },
+      ]);
+      expect(result.sitemapVideos).toHaveLength(ENTRIES);
+    } finally {
+      declared = '/sitemap-videos.xml';
+    }
   });
 
   it('streams its body rather than returning it', async () => {

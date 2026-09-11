@@ -8,6 +8,10 @@
  */
 
 import * as cheerio from 'cheerio';
+import type { Cheerio } from 'cheerio';
+
+/** domhandler's node type, reached through cheerio rather than depended on directly. */
+type AnyNode = Parameters<typeof cheerio.contains>[0];
 import { resolveUrl } from './url.js';
 
 export interface ExtractedLink {
@@ -16,8 +20,33 @@ export interface ExtractedLink {
   /** The href exactly as authored, kept for reporting relative-path defects. */
   readonly href: string;
   readonly anchorText: string;
+  /**
+   * What a screen reader announces for the link, approximated from markup:
+   * `aria-label`, else the text of the elements `aria-labelledby` names, else
+   * the text inside plus the alt of any image inside, else `title`. Empty when
+   * none of those says anything — a link nobody can tell the purpose of.
+   */
+  readonly name: string;
   readonly rel: string | null;
   readonly nofollow: boolean;
+}
+
+/**
+ * A `<table>`, reduced to what decides whether a screen reader can read it.
+ *
+ * A data table is navigated cell by cell, and each cell is announced with the
+ * headers of its row and column. Without header cells there is nothing to
+ * announce, so a grid of prices becomes a stream of numbers.
+ */
+export interface ExtractedTable {
+  /** Rows belonging to this table, not to one nested inside it. */
+  readonly rows: number;
+  /** The widest of those rows, in cells. */
+  readonly columns: number;
+  /** Any `<th>`, a `scope` or `headers` attribute, or a header role. */
+  readonly hasHeaders: boolean;
+  /** `role="presentation"` or `role="none"`: a table used for layout, and saying so. */
+  readonly presentational: boolean;
 }
 
 export interface ExtractedImage {
@@ -28,6 +57,12 @@ export interface ExtractedImage {
   readonly height: string | null;
   readonly loading: string | null;
   readonly hasSrcset: boolean;
+  /**
+   * Whether the image needs no `alt`: it is hidden from assistive technology
+   * (`aria-hidden="true"`, `role="presentation"` or `role="none"`), or it is
+   * named some other way (`aria-label`, `aria-labelledby`, `title`).
+   */
+  readonly altExempt: boolean;
 }
 
 /**
@@ -142,6 +177,8 @@ export interface Extracted {
   readonly frames: readonly ExtractedFrame[];
   /** Visible breadcrumb trails, in document order. Empty when none is present. */
   readonly breadcrumbs: readonly ExtractedBreadcrumb[];
+  /** `<table>` elements, in document order, nested ones included. */
+  readonly tables: readonly ExtractedTable[];
   /** Landmark elements present, for the semantic-html detector. */
   readonly landmarks: readonly string[];
   readonly text: string;
@@ -176,6 +213,30 @@ export function extract(html: string, pageUrl: string): Extracted {
     return value === undefined ? null : clean(value);
   };
 
+  /** An element's accessible name, in the order the accessible-name algorithm tries. */
+  const nameOf = (node: Cheerio<AnyNode>): string => {
+    const label = clean(node.attr('aria-label') ?? '');
+    if (label !== '') return label;
+    const labelledBy = (node.attr('aria-labelledby') ?? '').split(/\s+/).filter((id) => id !== '');
+    const referenced = clean(
+      labelledBy
+        .map((id) => $(`[id="${id.replace(/["\\]/g, '\\$&')}"]`).first().text())
+        .join(' '),
+    );
+    if (referenced !== '') return referenced;
+    const inner = clean(
+      [
+        node.text(),
+        ...node
+          .find('img[alt], [role="img"][aria-label]')
+          .map((_i, image) => $(image).attr('alt') ?? $(image).attr('aria-label') ?? '')
+          .get(),
+      ].join(' '),
+    );
+    if (inner !== '') return inner;
+    return clean(node.attr('title') ?? '');
+  };
+
   const links: ExtractedLink[] = [];
   $('a[href]').each((_, element) => {
     const href = $(element).attr('href') ?? '';
@@ -186,6 +247,7 @@ export function extract(html: string, pageUrl: string): Extracted {
       url,
       href,
       anchorText: clean($(element).text()),
+      name: nameOf($(element)),
       rel,
       nofollow: rel !== null && /\bnofollow\b/i.test(rel),
     });
@@ -193,8 +255,16 @@ export function extract(html: string, pageUrl: string): Extracted {
 
   const images: ExtractedImage[] = [];
   $('img').each((_, element) => {
-    const src = $(element).attr('src');
+    const node = $(element);
+    const src = node.attr('src');
+    const role = (node.attr('role') ?? '').trim().toLowerCase();
+    const altExempt =
+      node.closest('[aria-hidden="true"]').length > 0 ||
+      role === 'presentation' ||
+      role === 'none' ||
+      ['aria-label', 'aria-labelledby', 'title'].some((name) => clean(node.attr(name) ?? '') !== '');
     images.push({
+      altExempt,
       src: src === undefined ? null : resolveUrl(src, base),
       alt: attr($(element).attr('alt')),
       width: attr($(element).attr('width')),
@@ -266,6 +336,21 @@ export function extract(html: string, pageUrl: string): Extracted {
       .filter((text) => text !== '');
     if (links.length === 0 && labels.length === 0) return;
     breadcrumbs.push({ links, labels: [...new Set(labels)] });
+  });
+
+  const tables: ExtractedTable[] = [];
+  $('table').each((_, element) => {
+    const table = $(element);
+    const rows = table.find('tr').filter((_i, row) => $(row).closest('table').get(0) === element);
+    const widths = rows.map((_i, row) => $(row).children('td, th').length).get() as number[];
+    const role = (table.attr('role') ?? '').trim().toLowerCase();
+    tables.push({
+      rows: rows.length,
+      columns: Math.max(0, ...widths),
+      hasHeaders:
+        table.find('th, [scope], [headers], [role="columnheader"], [role="rowheader"]').length > 0,
+      presentational: role === 'presentation' || role === 'none',
+    });
   });
 
   const headings: ExtractedHeading[] = [];
@@ -340,6 +425,7 @@ export function extract(html: string, pageUrl: string): Extracted {
     media,
     frames,
     breadcrumbs,
+    tables,
     landmarks: LANDMARKS.filter((tag) => $(tag).length > 0),
     text,
     wordCount: text === '' ? 0 : text.split(' ').length,

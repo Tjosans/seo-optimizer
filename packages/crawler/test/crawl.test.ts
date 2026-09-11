@@ -140,6 +140,58 @@ describe('extract', () => {
     expect(extracted.links[0]?.url).toBe('https://example.com/docs/a');
   });
 
+  it('names a link the way a screen reader would', () => {
+    const links = extract(
+      '<html><body>' +
+        '<a href="/a" aria-label="Basket, 2 items"><svg></svg></a>' +
+        '<span id="t">Returns policy</span><a href="/b" aria-labelledby="t">Read</a>' +
+        '<a href="/c"><img src="/logo.png" alt="Home"></a>' +
+        '<a href="/d" title="Our shop on Instagram"><i class="icon"></i></a>' +
+        '<a href="/e"><img src="/x.png"></a>' +
+        '<a href="/f">Delivery <b>times</b></a>' +
+        '</body></html>',
+      'https://example.com/',
+    ).links.map((link) => link.name);
+    expect(links).toEqual([
+      'Basket, 2 items',
+      'Returns policy',
+      'Home',
+      'Our shop on Instagram',
+      '',
+      'Delivery times',
+    ]);
+  });
+
+  it('marks an image that needs no alt: hidden from assistive technology, or named another way', () => {
+    const images = extract(
+      '<html><body>' +
+        '<img src="/1.png">' +
+        '<img src="/2.png" role="presentation">' +
+        '<div aria-hidden="true"><img src="/3.png"></div>' +
+        '<img src="/4.png" aria-label="Chart of sales">' +
+        '</body></html>',
+      'https://example.com/',
+    ).images.map((image) => image.altExempt);
+    expect(images).toEqual([false, true, true, true]);
+  });
+
+  it('reads a table’s shape and headers, not counting a table nested inside it', () => {
+    const tables = extract(
+      '<html><body>' +
+        '<table><tr><th>Size</th><th>Price</th></tr><tr><td>S</td><td>10</td></tr></table>' +
+        '<table><tr><td>a</td><td>b</td><td>c</td></tr><tr><td>' +
+        '<table role="presentation"><tr><td>x</td></tr></table>' +
+        '</td><td>e</td></tr></table>' +
+        '</body></html>',
+      'https://example.com/',
+    ).tables;
+    expect(tables).toEqual([
+      { rows: 2, columns: 2, hasHeaders: true, presentational: false },
+      { rows: 2, columns: 3, hasHeaders: false, presentational: false },
+      { rows: 1, columns: 1, hasHeaders: false, presentational: true },
+    ]);
+  });
+
   it('counts unparseable JSON-LD instead of dropping it', () => {
     const extracted = extract(
       '<html><body><script type="application/ld+json">{ nope }</script></body></html>',

@@ -352,7 +352,7 @@
     source: >-
       Every launch content release
   notes: ""
-  automation: automated
+  automation: assisted
   remediationClass: content
   detectors: ["content-accessibility"]
   sources: []

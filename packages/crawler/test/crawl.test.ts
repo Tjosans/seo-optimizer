@@ -478,3 +478,97 @@ describe('a site declaring more sitemaps than the budget can read', () => {
     expect(read.filter((url) => url.includes('videos-')).length).toBe(2);
   });
 });
+
+describe('a site whose sitemap is larger than the page budget', () => {
+  const ORIGIN = 'https://shop.example';
+  const LISTED = Array.from({ length: 50 }, (_, i) => `${ORIGIN}/listed/${i}`);
+  const LINKS = Array.from({ length: 10 }, (_, i) => `${ORIGIN}/linked/${i}`);
+
+  const body = (url: string): string | null => {
+    if (url === `${ORIGIN}/robots.txt`) return `Sitemap: ${ORIGIN}/sitemap.xml\n`;
+    if (url === `${ORIGIN}/sitemap.xml`) {
+      return `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${LISTED.map(
+        (loc) => `<url><loc>${loc}</loc></url>`,
+      ).join('')}</urlset>`;
+    }
+    if (url === `${ORIGIN}/`) {
+      return `<html><body>${LINKS.map((href) => `<a href="${href}">go</a>`).join('')}</body></html>`;
+    }
+    if (LISTED.includes(url) || LINKS.includes(url)) return '<html><body><p>page</p></body></html>';
+    return null;
+  };
+
+  const fetchImpl = async (url: string): Promise<FetchResult> => {
+    const content = body(url);
+    return {
+      requestedUrl: url,
+      finalUrl: url,
+      status: content === null ? 404 : 200,
+      headers: {},
+      redirectChain: [],
+      body: content ?? '',
+      byteLength: content?.length ?? 0,
+      truncated: false,
+      contentType: url.endsWith('.xml') ? 'application/xml' : 'text/html',
+      ttfbMs: 1,
+      totalMs: 1,
+      error: null,
+    };
+  };
+
+  const run = (maxPages: number, followSitemaps = true): Promise<CrawlResult> =>
+    crawl({
+      seeds: [`${ORIGIN}/`],
+      userAgent: 'seo-optimizer/0.1 (+test)',
+      maxPages,
+      maxDepth: 2,
+      auxiliary: false,
+      followSitemaps,
+      fetchImpl: fetchImpl as unknown as typeof fetchPage,
+    });
+
+  const kind = (crawled: CrawlResult, prefix: string): string[] =>
+    crawled.pages.map((page) => page.normalizedUrl).filter((url) => url.startsWith(`${ORIGIN}/${prefix}/`));
+
+  it('spends the budget on both lanes, where one queue spent it all on the sitemap', () => {
+    return run(9).then((crawled) => {
+      expect(crawled.pages[0]?.normalizedUrl).toBe(`${ORIGIN}/`);
+      // Eight pages after the seed, alternating: four from each lane.
+      expect(kind(crawled, 'linked')).toHaveLength(4);
+      expect(kind(crawled, 'listed')).toHaveLength(4);
+    });
+  });
+
+  it('gives the whole budget to the walk when the site declares no sitemap', async () => {
+    const crawled = await run(6, false);
+    expect(kind(crawled, 'linked')).toHaveLength(5);
+    expect(kind(crawled, 'listed')).toHaveLength(0);
+  });
+
+  it('leaves what neither lane reached in notReached, from both', async () => {
+    const crawled = await run(5);
+    const unreached = new Set(crawled.notReached);
+    expect(crawled.notReached.length).toBe(LISTED.length + LINKS.length - 4);
+    expect(unreached.has(`${ORIGIN}/listed/49`)).toBe(true);
+    expect(unreached.has(`${ORIGIN}/linked/9`)).toBe(true);
+  });
+
+  // The sink resolves a page's parent from pages it has already written, so
+  // interleaving the lanes must not let a child arrive before its parent.
+  it('still hands a page to onPage after the page it was linked from', async () => {
+    const seen: string[] = [];
+    await crawl({
+      seeds: [`${ORIGIN}/`],
+      userAgent: 'seo-optimizer/0.1 (+test)',
+      maxPages: 12,
+      maxDepth: 2,
+      auxiliary: false,
+      fetchImpl: fetchImpl as unknown as typeof fetchPage,
+      onPage: (page) => {
+        if (page.discoveredFrom !== null) expect(seen).toContain(page.discoveredFrom);
+        seen.push(page.normalizedUrl);
+      },
+    });
+    expect(seen.length).toBe(12);
+  });
+});

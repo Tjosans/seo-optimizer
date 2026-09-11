@@ -158,7 +158,16 @@ export interface CrawlResult {
   readonly sitemapVideos: readonly SitemapVideoEntry[];
   /** In-scope URLs left unfetched because robots.txt disallowed them. */
   readonly blockedByRobots: readonly string[];
-  /** In-scope URLs discovered but not fetched, because a budget ran out. */
+  /**
+   * In-scope URLs discovered but not fetched, because a budget ran out —
+   * the page budget, or the depth budget.
+   *
+   * Both, because both are limits of ours rather than facts about the site.
+   * A URL linked one click past `maxDepth` used to vanish without trace, which
+   * is exactly where filter URLs that stack onto each other go: a crawl that
+   * reported nothing left over there was describing its own horizon as the
+   * site's edge. Robots-disallowed URLs are in `blockedByRobots` instead.
+   */
   readonly notReached: readonly string[];
   /** Requests made outside the walk, for questions the walk cannot answer. */
   readonly auxiliary: readonly AuxiliaryFetch[];
@@ -349,13 +358,19 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
   const queue: QueueEntry[] = [];
   const queued = new Set<string>();
   const blockedByRobots: string[] = [];
+  // Kept apart from `queued` so a URL first seen too deep can still be walked
+  // if a shallower path to it turns up later.
+  const beyondDepth = new Set<string>();
 
   const enqueue = (url: string, depth: number, from: string | null): void => {
     const normalized = normalizeUrl(url);
     if (normalized === null) return;
     if (!isSameSite(normalized, firstSeed)) return;
     if (queued.has(normalized)) return;
-    if (depth > options.maxDepth) return;
+    if (depth > options.maxDepth) {
+      beyondDepth.add(normalized);
+      return;
+    }
     if (options.respectRobots !== false && !isAllowed(robots, options.userAgent, normalized)) {
       queued.add(normalized);
       blockedByRobots.push(normalized);
@@ -465,7 +480,14 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
     sitemaps: sitemaps.documents,
     sitemapVideos: sitemaps.videos,
     blockedByRobots,
-    notReached: queue.map((entry) => entry.normalizedUrl),
+    notReached: [
+      ...queue.map((entry) => entry.normalizedUrl),
+      ...[...beyondDepth].filter(
+        (url) =>
+          !queued.has(url) &&
+          (options.respectRobots === false || isAllowed(robots, options.userAgent, url)),
+      ),
+    ],
     auxiliary,
   };
 }

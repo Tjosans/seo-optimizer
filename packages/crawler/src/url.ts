@@ -20,6 +20,15 @@ const TRACKING_PARAMS = new Set([
   'mc_cid', 'mc_eid', 'igshid', 'ref_src',
 ]);
 
+/**
+ * Whether a query key names a campaign rather than a document.
+ *
+ * Exported because normalization hides exactly these, and a detector asking
+ * whether a site puts them on its own links has to read the raw href.
+ */
+export const isTrackingParam = (key: string): boolean =>
+  TRACKING_PARAMS.has(key.toLowerCase()) || /^utm_/i.test(key);
+
 const DEFAULT_PORTS: Readonly<Record<string, string>> = { 'http:': '80', 'https:': '443' };
 
 export interface NormalizeOptions {

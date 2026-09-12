@@ -255,6 +255,39 @@ describe.skipIf(!url)('two workers sharing a namespace', () => {
     expect(await a.renew(['a1'])).toEqual(['a1']);
   });
 
+  it('hands an abandoned job to a worker already running, without anyone restarting', async () => {
+    const { queue, a, b } = pair();
+    await a.save(job('a1', { state: 'running', attempt: 1 }));
+    await expire(queue, 'a1');
+
+    const [taken] = await b.adopt();
+    expect(taken).toMatchObject({ id: 'a1', attempt: 1, state: 'queued' });
+    expect(await ownerOf(queue, 'a1')).toBe('worker-b');
+    // Written back as queued, so the dead worker's row stops holding the lane.
+    const [row] = await db.select({ state: jobs.state }).from(jobs).where(and(eq(jobs.queue, queue), eq(jobs.id, 'a1')));
+    expect(row?.state).toBe('queued');
+  });
+
+  it('adopts nothing that a live claim still covers, and nothing of its own', async () => {
+    const { queue, a, b } = pair();
+    await a.save(job('a1'));
+    await b.save(job('b1'));
+    await expire(queue, 'b1');
+
+    // a1 is held and stays held; b1 is worker B's own, stale claim or not.
+    expect(await b.adopt()).toEqual([]);
+    expect(await ownerOf(queue, 'a1')).toBe('worker-a');
+    expect(await ownerOf(queue, 'b1')).toBe('worker-b');
+  });
+
+  it('adopts nothing in a namespace with one owner, where no work is abandoned', async () => {
+    const queue = `test-adopt-single-${crypto.randomUUID()}`;
+    namespaces.push(queue);
+    const store = new PostgresJobStore<Payload>({ db, queue, owner: 'worker-a' });
+    await store.save(job('a1'));
+    expect(await store.adopt()).toEqual([]);
+  });
+
   it('renews a claim it still holds, expired or not', async () => {
     const { queue, a, b } = pair();
     await a.save(job('a1'));

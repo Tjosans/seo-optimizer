@@ -70,7 +70,7 @@ import { and, asc, eq, gte, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm
 import type { SQL } from 'drizzle-orm';
 import { jobs } from '@seo/db';
 import type { Database } from '@seo/db';
-import { JobLeaseLostError } from '@seo/queue';
+import { ADOPTION_BATCH, JobLeaseLostError } from '@seo/queue';
 import type { JobStore, StoredJob } from '@seo/queue';
 import { hostname } from 'node:os';
 
@@ -213,6 +213,79 @@ export class PostgresJobStore<TPayload> implements JobStore<TPayload> {
         lane: row.lane,
         priority: row.priority,
         state: row.state,
+        attempt: row.attempt,
+        enqueuedAt: row.enqueuedAt,
+        nextAttemptAt: row.nextAttemptAt,
+        error: row.error,
+      }));
+    });
+  }
+
+  /**
+   * Claim and return the jobs in this namespace that no live worker holds any
+   * more, oldest first, up to a beat's worth.
+   *
+   * The rows `load` would take, minus this worker's own: a claim that has aged
+   * out by the database's clock, or a row nobody ever claimed. Excluding our
+   * own is what makes this safe to call while running — they are already this
+   * queue's to track, and the write below would stamp a job we are running as
+   * `queued`, which would drop its lane for every other worker.
+   *
+   * Nothing without `leaseMs`: a namespace with one owner has no abandoned
+   * work in it, only work that owner has not got to yet.
+   *
+   * Otherwise the shape is `load`'s — one transaction, `SKIP LOCKED`, written
+   * back as `queued` — because it is the same act at a different moment.
+   */
+  async adopt(): Promise<readonly StoredJob<TPayload>[]> {
+    const leaseMs = this.#leaseMs;
+    if (leaseMs === undefined) return [];
+
+    return this.#db.transaction(async (tx) => {
+      const rows = await tx
+        .select()
+        .from(jobs)
+        .where(
+          and(
+            eq(jobs.queue, this.#queue),
+            inArray(jobs.state, [...OUTSTANDING]),
+            or(isNull(jobs.owner), ne(jobs.owner, this.#owner)),
+            or(
+              isNull(jobs.leasedAt),
+              lt(jobs.leasedAt, sql`now() - make_interval(secs => ${leaseMs / 1000})`),
+            ),
+          ),
+        )
+        .orderBy(asc(jobs.enqueuedAt))
+        .limit(ADOPTION_BATCH)
+        .for('update', { skipLocked: true });
+
+      if (rows.length === 0) return [];
+
+      await tx
+        .update(jobs)
+        .set({
+          owner: this.#owner,
+          leasedAt: sql`now()`,
+          updatedAt: sql`now()`,
+          state: 'queued',
+        })
+        .where(
+          and(
+            eq(jobs.queue, this.#queue),
+            inArray(
+              jobs.id,
+              rows.map((row) => row.id),
+            ),
+          ),
+        );
+
+      return rows.map((row) => ({
+        id: row.id,
+        payload: this.#revive(row.payload),
+        lane: row.lane,
+        priority: row.priority,
+        state: 'queued' as const,
         attempt: row.attempt,
         enqueuedAt: row.enqueuedAt,
         nextAttemptAt: row.nextAttemptAt,

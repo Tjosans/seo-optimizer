@@ -309,6 +309,51 @@ describe.skipIf(!url)('an audit across a restart', () => {
       await survivor.close();
     });
 
+    it('takes on an abandoned audit while already running, with nothing restarted', async () => {
+      // The survivor comes up to an empty backlog: the other worker is alive
+      // and holding its own work. Before this, that was the end of it — the
+      // abandoned audit would have waited for somebody to restart a process.
+      const survivor = new AuditScheduler({
+        db,
+        corpus,
+        crawl: BUDGET,
+        store: worker('worker-b'),
+        heartbeatMs: 50,
+      });
+      expect(await survivor.recover()).toBe(0);
+
+      // A worker that beats slower than its own lease is one that is about to
+      // lose it, which is what dying looks like from the table.
+      const dying = new AuditScheduler({
+        db,
+        corpus,
+        crawl: BUDGET,
+        store: worker('worker-a'),
+        heartbeatMs: LEASE_MS * 2,
+        paused: true,
+      });
+      const submitted = await dying.submit({ siteId, corpusVersion: '4.4' });
+      await abandon(submitted.auditId);
+
+      const deadline = Date.now() + 20_000;
+      let row = await auditRow(submitted.auditId);
+      while (row?.status !== 'complete') {
+        if (Date.now() > deadline) throw new Error(`timed out with the audit ${row?.status}`);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        row = await auditRow(submitted.auditId);
+      }
+      expect(row?.readiness).not.toBeNull();
+
+      // Settled by its new owner, and gone from the namespace both share.
+      const [left] = await db
+        .select({ id: jobs.id })
+        .from(jobs)
+        .where(and(eq(jobs.queue, queue), eq(jobs.id, submitted.auditId)));
+      expect(left).toBeUndefined();
+
+      await survivor.close();
+    });
+
     it('crawls one site on one worker at a time, whichever was handed the audit', async () => {
       // A namespace of its own, so nothing an earlier test left running can
       // hold the lane and turn this into a test of lease expiry.

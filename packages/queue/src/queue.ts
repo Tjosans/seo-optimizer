@@ -362,29 +362,44 @@ export class JobQueue<TPayload, TResult = void> {
     const stored = await this.#store.load();
     const restored: Job<TPayload>[] = [];
     for (const job of stored) {
-      if (this.#byId.has(job.id)) continue;
-
-      const entry = this.#newEntry({
-        id: job.id,
-        payload: job.payload,
-        lane: job.lane,
-        priority: job.priority,
-        enqueuedAt: job.enqueuedAt,
-        attempt: job.attempt,
-        notBefore: job.nextAttemptAt,
-        error: job.error,
-      });
-      // It came out of the store, so it is already in it. Marking it stored
-      // rather than writing it back keeps recovery a read.
-      entry.durability = 'stored';
-      if (job.nextAttemptAt !== null) {
-        entry.dueAt = Math.max(Date.now(), job.nextAttemptAt.getTime());
-      }
-
-      this.#admit(entry);
-      restored.push(snapshot(entry));
+      const entry = this.#restore(job);
+      if (entry !== undefined) restored.push(snapshot(entry));
     }
+    // Even when it recovered nothing: a worker that comes up to an empty
+    // backlog is exactly the one that should be watching for an abandoned one.
+    this.#scheduleHeartbeat();
     return restored;
+  }
+
+  /**
+   * Put a stored job back in this queue, or nothing when it is already here.
+   *
+   * Shared by `recover` on the way up and by adoption on the beat: both are
+   * the same act, taking a job the store is holding and making it this
+   * process's to schedule.
+   */
+  #restore(job: StoredJob<TPayload>): Entry<TPayload, TResult> | undefined {
+    if (this.#byId.has(job.id)) return undefined;
+
+    const entry = this.#newEntry({
+      id: job.id,
+      payload: job.payload,
+      lane: job.lane,
+      priority: job.priority,
+      enqueuedAt: job.enqueuedAt,
+      attempt: job.attempt,
+      notBefore: job.nextAttemptAt,
+      error: job.error,
+    });
+    // It came out of the store, so it is already in it. Marking it stored
+    // rather than writing it back keeps this a read.
+    entry.durability = 'stored';
+    if (job.nextAttemptAt !== null) {
+      entry.dueAt = Math.max(Date.now(), job.nextAttemptAt.getTime());
+    }
+
+    this.#admit(entry);
+    return entry;
   }
 
   /** Everything the queue would write down for `entry` as it stands. */
@@ -654,21 +669,32 @@ export class JobQueue<TPayload, TResult = void> {
   }
 
   /**
-   * Keep one timer running while there is anything to renew.
+   * Keep one timer running while there is anything to renew — or anything to
+   * take over.
    *
    * Scheduled after each beat rather than on an interval, so a slow store
-   * cannot stack renewals on top of each other, and stopped the moment nothing
-   * is outstanding, so an idle queue holds nothing open.
+   * cannot stack renewals on top of each other.
+   *
+   * A queue holding nothing used to stop beating entirely, which is the whole
+   * of why a dead worker's backlog waited for a restart: the workers best
+   * placed to take it on were the idle ones, and an idle one had no timer
+   * left. It keeps watching now, but softly — the watch timer is unref'd, so a
+   * process with nothing of its own outstanding still exits when it is done
+   * rather than being held open by a queue looking for other people's work.
    */
   #scheduleHeartbeat(): void {
     if (this.#heartbeatTimer !== undefined) return;
     if (this.#heartbeatMs === undefined || this.#closed) return;
-    if (this.#held().length === 0) return;
+    const holding = this.#held().length > 0;
+    const watching = this.#store?.adopt !== undefined && !this.#paused;
+    if (!holding && !watching) return;
 
-    this.#heartbeatTimer = setTimeout(() => {
+    const timer = setTimeout(() => {
       this.#heartbeatTimer = undefined;
       void this.#beat();
     }, this.#heartbeatMs);
+    if (!holding) timer.unref?.();
+    this.#heartbeatTimer = timer;
   }
 
   /**
@@ -691,8 +717,43 @@ export class JobQueue<TPayload, TResult = void> {
         // deliberately ignored; the next beat tries again
       }
     }
+    await this.#adopt();
     this.#scheduleHeartbeat();
     this.#pump();
+  }
+
+  /**
+   * Take on the work of a worker that has stopped.
+   *
+   * A lease expiring is the store saying nobody alive holds this job any more.
+   * Until now the only thing that acted on it was `recover`, which runs once
+   * on the way up — so a worker that died at noon left its backlog sitting
+   * there until somebody restarted a process, with healthy workers watching
+   * the same table and doing nothing about it. Asking on the beat closes that
+   * gap: the job moves to a live worker at the speed of a heartbeat.
+   *
+   * Not while paused, because a paused queue would take work it has no
+   * intention of running and hold it — renewed, and so invisible to every
+   * other worker — for as long as it stays paused.
+   *
+   * A throw is left for the next beat, like a renewal's. Nothing is lost by
+   * not adopting this time round; the job stays abandoned and is still there
+   * to take.
+   */
+  async #adopt(): Promise<void> {
+    const adopt = this.#store?.adopt?.bind(this.#store);
+    if (adopt === undefined || this.#heartbeatMs === undefined) return;
+    if (this.#paused || this.#closed) return;
+
+    try {
+      for (const job of await adopt()) {
+        const entry = this.#restore(job);
+        if (entry === undefined) continue;
+        this.#emit({ type: 'adopted', job: snapshot(entry) });
+      }
+    } catch {
+      // deliberately ignored; the next beat tries again
+    }
   }
 
   /**

@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { JobLeaseLostError, JobQueue, MemoryJobStore } from '@seo/queue';
+import { ADOPTION_BATCH, JobLeaseLostError, JobQueue, MemoryJobStore } from '@seo/queue';
 import type { StoredJob } from '@seo/queue';
 
 const LEASE_MS = 1_000;
@@ -411,5 +411,119 @@ describe('a lane two workers share', () => {
     expect(handler).not.toHaveBeenCalled();
     // Gone from the store, and worker A's row untouched.
     expect(other.snapshot().map((j) => j.id)).toEqual(['a1']);
+  });
+});
+
+describe('work a worker left behind when it stopped', () => {
+  it('is taken by a live worker at the next beat, with no restart anywhere', async () => {
+    const { store, clock } = leased('worker-a');
+    const dead = store.withOwner('worker-dead');
+    await dead.save(job('d1'));
+
+    const ran: string[] = [];
+    const events: string[] = [];
+    const queue = new JobQueue<string>({
+      concurrency: 1,
+      store,
+      heartbeatMs: HEARTBEAT_MS,
+      onEvent: (event) => events.push(event.type),
+      handler: (payload) => {
+        ran.push(payload);
+      },
+    });
+
+    // Nothing to recover: the other worker was alive and holding it.
+    expect(await queue.recover()).toEqual([]);
+    expect(queue.queued).toBe(0);
+
+    clock.ms += LEASE_MS + 1;
+    await until(() => ran.length === 1, 'the abandoned job to run here');
+    expect(ran).toEqual(['payload for d1']);
+    expect(events).toContain('adopted');
+    await queue.close();
+  });
+
+  it('keeps the attempt count it already had, so a job cannot be retried forever by being passed on', async () => {
+    const { store, clock } = leased('worker-a');
+    const dead = store.withOwner('worker-dead');
+    await dead.save({ ...job('d1'), state: 'running', attempt: 2 });
+    clock.ms += LEASE_MS + 1;
+
+    const [taken] = await store.adopt();
+    expect(taken).toMatchObject({ id: 'd1', attempt: 2, state: 'queued' });
+    // And the row says queued too, so it stops holding its lane while it waits.
+    expect(store.snapshot().map((stored) => stored.state)).toEqual(['queued']);
+  });
+
+  it('is left alone while the worker holding it is still saying so', async () => {
+    const { store, clock } = leased('worker-a');
+    const busy = store.withOwner('worker-b');
+    await busy.save(job('b1'));
+
+    const handler = vi.fn();
+    const queue = new JobQueue<string>({ concurrency: 1, store, heartbeatMs: HEARTBEAT_MS, handler });
+    await queue.recover();
+
+    // What a live worker's own heartbeat does, for longer than a lease.
+    for (let i = 0; i < 4; i += 1) {
+      clock.ms += LEASE_MS / 2;
+      await busy.renew(['b1']);
+      await new Promise((resolve) => setTimeout(resolve, HEARTBEAT_MS * 2));
+    }
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(queue.queued).toBe(0);
+    await queue.close();
+  });
+
+  it('is not taken by a paused worker, which would hold it without running it', async () => {
+    const { store, clock } = leased('worker-a');
+    const dead = store.withOwner('worker-dead');
+    await dead.save(job('d1'));
+
+    const ran: string[] = [];
+    const queue = new JobQueue<string>({
+      concurrency: 1,
+      store,
+      heartbeatMs: HEARTBEAT_MS,
+      paused: true,
+      handler: (payload) => {
+        ran.push(payload);
+      },
+    });
+    await queue.recover();
+
+    clock.ms += LEASE_MS + 1;
+    await new Promise((resolve) => setTimeout(resolve, HEARTBEAT_MS * 6));
+    expect(queue.queued).toBe(0);
+    expect(store.snapshot()[0]?.state).toBe('queued');
+
+    queue.resume();
+    await until(() => ran.length === 1, 'the job to run once the queue is going again');
+    await queue.close();
+  });
+
+  it('comes over a beat at a time, so two live workers divide it', async () => {
+    const { store, clock } = leased('worker-a');
+    const dead = store.withOwner('worker-dead');
+    for (let i = 0; i < ADOPTION_BATCH + 5; i += 1) await dead.save(job(`d${i}`));
+    clock.ms += LEASE_MS + 1;
+
+    const other = store.withOwner('worker-c');
+    expect(await store.adopt()).toHaveLength(ADOPTION_BATCH);
+    expect(await other.adopt()).toHaveLength(5);
+    expect(await store.adopt()).toEqual([]);
+  });
+
+  it('is never this worker’s own rows, and never anything at all without a lease', async () => {
+    const { store, clock } = leased('worker-a');
+    await store.save(job('a1'));
+    clock.ms += LEASE_MS + 1;
+    // Ours, however stale the claim: the queue is already tracking it, and
+    // rewriting it here would stamp a running job as queued.
+    expect(await store.adopt()).toEqual([]);
+
+    const alone = new MemoryJobStore<string>([job('s1')]);
+    expect(await alone.adopt()).toEqual([]);
   });
 });

@@ -81,7 +81,12 @@ export type JobEvent<TPayload> =
   | { readonly type: 'cancelled'; readonly job: Job<TPayload> }
   | { readonly type: 'lease-lost'; readonly job: Job<TPayload> }
   /** Its lane is running on another worker; the job waits a beat and asks again. */
-  | { readonly type: 'lane-held'; readonly job: Job<TPayload> };
+  | { readonly type: 'lane-held'; readonly job: Job<TPayload> }
+  /**
+   * Taken on from a worker that stopped renewing its claim. The job is queued
+   * here now, with the attempt count it already had.
+   */
+  | { readonly type: 'adopted'; readonly job: Job<TPayload> };
 
 /** Rejection reason for a job cancelled before or during its run. */
 export class JobCancelledError extends Error {

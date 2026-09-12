@@ -119,6 +119,30 @@ export interface JobStore<TPayload> {
    */
   acquire?(job: StoredJob<TPayload>): Promise<boolean>;
   /**
+   * Take over the jobs no live worker holds any more, oldest first.
+   *
+   * Optional, and the counterpart to `load`. `load` runs once, on the way up,
+   * and answers "what was left for me": a worker starting takes what is free.
+   * This answers the same question of a worker already running, and it exists
+   * because the first question is only asked at startup — a worker that dies
+   * at noon leaves its backlog sitting until somebody restarts something, even
+   * with three healthy workers on the same namespace watching the table.
+   *
+   * A job is free when no live claim covers it: the claim has aged out, or
+   * there never was one. This owner's own rows are never returned, whatever
+   * their claim says, because they are already this queue's to track and
+   * rewriting them here would stamp a running job as queued. Without leases
+   * nothing is ever abandoned — the namespace has one owner — so an
+   * implementation returns nothing.
+   *
+   * Like `load`, what comes back is claimed and written down as `queued`: it is
+   * the new owner's to schedule, and a row still reading `running` would hold
+   * its lane against everyone. At most `ADOPTION_BATCH` at a time, so two live
+   * workers divide a dead one's backlog instead of whichever woke first taking
+   * all of it.
+   */
+  adopt?(): Promise<readonly StoredJob<TPayload>[]>;
+  /**
    * Every outstanding job id in this namespace, whoever holds it.
    *
    * Optional, and deliberately not a claim: it is how a caller tells "nothing
@@ -128,6 +152,16 @@ export interface JobStore<TPayload> {
    */
   outstanding?(): Promise<readonly string[]>;
 }
+
+/**
+ * How many abandoned jobs one worker takes on in a single beat.
+ *
+ * A cap rather than the whole backlog, so two live workers each take a share
+ * of a dead one's work instead of the first to wake claiming all of it. It
+ * costs nothing in recovery time: a worker can only run `concurrency` at once,
+ * and the rest would sit in its memory either way.
+ */
+export const ADOPTION_BATCH = 25;
 
 /** What a store remembers about who holds a job, and since when. */
 interface Lease {
@@ -270,6 +304,29 @@ export class MemoryJobStore<TPayload> implements JobStore<TPayload> {
       this.#claim(id);
     }
     return Promise.resolve(lost);
+  }
+
+  /** Whether nothing alive holds this job: the claim aged out, or there never was one. */
+  #abandoned(id: string): boolean {
+    if (this.#leaseMs === undefined) return false;
+    const lease = this.#leases.get(id);
+    if (lease === undefined) return true;
+    if (lease.owner === this.#owner) return false;
+    return this.#now() - lease.leasedAt >= this.#leaseMs;
+  }
+
+  adopt(): Promise<readonly StoredJob<TPayload>[]> {
+    if (this.#leaseMs === undefined) return Promise.resolve([]);
+    const taken = [...this.#jobs.values()]
+      .filter((job) => this.#abandoned(job.id))
+      .sort((a, b) => a.enqueuedAt.getTime() - b.enqueuedAt.getTime())
+      .slice(0, ADOPTION_BATCH)
+      .map((job) => ({ ...job, state: 'queued' as const }));
+    for (const job of taken) {
+      this.#claim(job.id);
+      this.#jobs.set(job.id, job);
+    }
+    return Promise.resolve(taken);
   }
 
   outstanding(): Promise<readonly string[]> {

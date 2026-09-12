@@ -96,7 +96,7 @@ Key scripts:
 - Losing a lease is not a failure of the work. The queue aborts the job's signal, settles it `failed` with `JobLeaseLostError`, does not retry it, and writes nothing further to the store — the row is the new owner's. `runAudit` leaves the `audits` row alone for the same reason: the audit is still running, just not here.
 - `reconcile` asks the store what is outstanding for *anyone* before it writes a row off, so a second worker's audits are never closed out from under it.
 - Two workers handed audits of one site crawl it one at a time — see "What a lane is" above.
-- A worker only claims abandoned jobs in `recover()`, once, on the way up. A dead worker's backlog waits for the next worker to start (ROADMAP Phase 4).
+- A worker takes on abandoned work twice over: `recover()` on the way up, and `JobStore.adopt` on every heartbeat thereafter. A claim that has aged out means nobody alive holds that job — a live worker renews its whole backlog, queued jobs included — so a worker that dies at noon has its work picked up by a healthy worker within a heartbeat instead of waiting for someone to restart a process. At most `ADOPTION_BATCH` (25) per beat, so two live workers divide a dead one's backlog; never a worker's own rows, because rewriting those would stamp a running job as queued and drop its lane; and never while paused, because a paused worker would hold the work without running it. A queue holding nothing of its own keeps beating to watch for this, on an unref'd timer that does not keep the process alive. @seo/scheduler puts an adopted audit's row back to `pending` when the `adopted` event arrives, which is `recover`'s reset by another route.
 
 ### What cancelling does
 

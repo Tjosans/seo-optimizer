@@ -165,9 +165,35 @@ export class AuditScheduler {
       ...(options.store === undefined ? {} : { store: options.store }),
       ...(options.heartbeatMs === undefined ? {} : { heartbeatMs: options.heartbeatMs }),
       ...(options.onStoreError === undefined ? {} : { onStoreError: options.onStoreError }),
-      ...(options.onEvent === undefined ? {} : { onEvent: options.onEvent }),
+      onEvent: (event) => {
+        if (event.type === 'adopted') this.#adopted(event.job);
+        options.onEvent?.(event);
+      },
       ...(options.paused === undefined ? {} : { paused: options.paused }),
     });
+  }
+
+  /**
+   * Put an adopted audit's row back to `pending`.
+   *
+   * The queue took this job on from a worker that stopped renewing its claim,
+   * so its row still says whatever that worker last wrote — `running`, most
+   * often, describing a crawl that is not happening anywhere. This is
+   * `recover`'s reset arriving by another route, for a worker that was already
+   * up when the other one died.
+   *
+   * Best-effort, like every store write after the create: the row is cosmetic
+   * next to the job itself, the audit will overwrite it the moment it starts,
+   * and a failed update must not stop this process taking on the work.
+   */
+  #adopted(job: Job<AuditJob>): void {
+    void this.#db
+      .update(audits)
+      .set({ status: 'pending', startedAt: null, finishedAt: null })
+      .where(eq(audits.id, job.payload.auditId))
+      .catch(() => {
+        // deliberately ignored; the audit's own run writes this row next
+      });
   }
 
   /** Audits waiting for a slot. */

@@ -1,0 +1,548 @@
+# Corpus v5.0 - phase 3: 3 — Content & trust
+# Bootstrapped by scripts/compile-corpus.ts from corpus/source/v5.0.tsv.
+# This file is the source of record now: edit it directly. The compiler
+# refuses to overwrite an existing version, so these edits are safe.
+
+- id: "3.1"
+  phase: 3
+  phaseLabel: "3 — Content & trust"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Page titles and primary headings
+  whatToDo: >-
+    Write unique, accurate titles and clear primary headings for priority URLs. Match the page intent and avoid arbitrary character-count rules or keyword repetition.
+  doneWhen: >-
+    Every priority URL has an accurate, distinct title and primary heading; no title or heading is empty, misleading or duplicated by template error.
+  owners: ["content", "seo"]
+  ownerSource: >-
+    Content / SEO
+  tools: >-
+    Screaming Frog; SERP preview
+  cadence:
+    triggers: ["every-publish"]
+    source: >-
+      Every page publish
+  notes: >-
+    Purpose: relevance/ranking consideration. v4: meta descriptions split into a separate P1 row. Source IDs: SRC104.
+  automation: automated
+  remediationClass: content
+  detectors: ["title-uniqueness", "primary-heading"]
+  sources:
+    - id: "SRC104"
+      topic: "Title links in Search"
+      url: "https://developers.google.com/search/docs/appearance/title-link"
+      usedFor: >-
+        3.1: descriptive distinct titles, a clear main visual heading, avoiding keyword repetition and boilerplate. Search title links are generated automatically; the page does not impose a fixed character limit.
+      verified: "2026-09-10"
+- id: "3.2"
+  phase: 3
+  phaseLabel: "3 — Content & trust"
+  priority: P1
+  profile: core
+  launchGate: false
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Meta descriptions and search snippets
+  whatToDo: >-
+    Write accurate, useful descriptions for priority pages. Accept that search engines may rewrite snippets; prioritize clarity and conversion value over fixed length.
+  doneWhen: >-
+    Priority pages have non-misleading descriptions and no systemic blank or duplicated template output.
+  owners: ["content", "seo"]
+  ownerSource: >-
+    Content / SEO
+  tools: >-
+    Crawler; SERP preview
+  cadence:
+    triggers: []
+    source: >-
+      Every priority page publish
+  notes: >-
+    Purpose: optional enhancement. Source IDs: SRC105.
+  automation: automated
+  remediationClass: content
+  detectors: ["meta-description"]
+  sources:
+    - id: "SRC105"
+      topic: "Meta descriptions and snippets"
+      url: "https://developers.google.com/search/docs/appearance/snippet"
+      usedFor: >-
+        3.2: accurate page-specific descriptions; Google may select page content and vary snippets by query. Snippet truncation is display-dependent, with no fixed meta-description length limit.
+      verified: "2026-09-10"
+- id: "3.3"
+  phase: 3
+  phaseLabel: "3 — Content & trust"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Contextual internal linking & topical coverage
+  whatToDo: >-
+    Link related pages using descriptive anchors when it naturally benefits the reader. Ensure priority pages are reachable in few clicks.
+  doneWhen: >-
+    Priority pages reachable in few clicks; no important orphans; natural anchor text.
+  owners: ["developer", "content"]
+  ownerSource: >-
+    Content + developer
+  tools: >-
+    Screaming Frog; IA map
+  cadence:
+    triggers: ["every-publish"]
+    source: >-
+      Every content release
+  notes: >-
+    Purpose: indexing/discovery; relevance/ranking consideration. Replaces forced 'topic clusters' with natural contextual linking. Source IDs: SRC103.
+  automation: automated
+  remediationClass: content
+  detectors: ["internal-linking", "click-depth", "orphan-pages"]
+  sources:
+    - id: "SRC103"
+      topic: "Crawlable links and anchor text"
+      url: "https://developers.google.com/search/docs/crawling-indexing/links-crawlable"
+      usedFor: >-
+        1.2 / 3.3: crawlable anchors and href attributes, descriptive contextual links and links to important pages. Few clicks is a project usability target, not a numeric Google rule.
+      verified: "2026-09-10"
+- id: "3.4"
+  phase: 3
+  phaseLabel: "3 — Content & trust"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Trust, contact and required legal/consumer pages
+  whatToDo: >-
+    Publish accurate About and contact information plus the privacy, terms, company, returns, accessibility or consumer-information pages required by the approved 0.9 scope. Add real authors and sources where responsibility matters.
+  doneWhen: >-
+    Required pages are accurate, accessible, owned and linked from appropriate locations; claims have accountable people or organizations.
+  owners: ["business", "content", "legal"]
+  ownerSource: >-
+    Business + legal + content
+  tools: >-
+    Site footer QA
+  cadence:
+    triggers: []
+    source: >-
+      Launch + when details change
+  notes: >-
+    Purpose: legal/accessibility; security/governance. Source IDs: SRC014; SRC033.
+  automation: assisted
+  remediationClass: content
+  detectors: ["trust-pages-presence"]
+  sources:
+    - id: "SRC014"
+      topic: "WCAG 2.2"
+      url: "https://www.w3.org/TR/WCAG22/"
+      usedFor: >-
+        0.9, 4.4: declared target and conformance requirements, including full pages/processes, supported use and non-interference; qualified scope determines obligations.
+      verified: "2026-09-09"
+    - id: "SRC033"
+      topic: "Helpful content"
+      url: "https://developers.google.com/search/docs/fundamentals/creating-helpful-content"
+      usedFor: >-
+        0.2,3.5,3.10: real user purpose, original value, supported claims and contextual authorship/creation transparency; formatting alone does not establish quality.
+      verified: "2026-09-09"
+- id: "3.5"
+  phase: 3
+  phaseLabel: "3 — Content & trust"
+  priority: P1
+  profile: core
+  launchGate: false
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Original content, clear answers and accountable authorship
+  whatToDo: >-
+    Publish original content that meets the page's real user need with useful specifics, limits and first-hand evidence where relevant. Make answers easy to find with descriptive headings and appropriate structure. Support material claims and retain context. Show accurate authorship/review responsibility and meaningful publication/update dates where readers reasonably expect them; do not add boilerplate bylines or dates to every transactional page.
+  doneWhen: >-
+    Priority content serves its stated purpose clearly and offers useful original value. Material claims have appropriate support, with consequential claims reviewed under 3.6. Authorship and dates are accurate where needed. A formatting change or AI-generated text alone does not establish quality. Applicable batch publishing is assessed separately under 3.9.
+  owners: ["content"]
+  ownerSource: >-
+    Content
+  tools: >-
+    Editorial review
+  cadence:
+    triggers: ["on-change"]
+    source: >-
+      Before publication; after material content changes; periodic editorial review
+  notes: >-
+    Purpose: relevance/ranking consideration; security/governance. E01. Merges the previous answer-formatting requirements from 3.9. This general editorial control is P1/nongating; consequential-claim, batch and public-content risks retain their specific gates. Source: Helpful content. Source IDs: SRC033.
+  automation: assisted
+  remediationClass: content
+  detectors: ["content-helpfulness", "answer-first-structure", "author-date-signals"]
+  sources:
+    - id: "SRC033"
+      topic: "Helpful content"
+      url: "https://developers.google.com/search/docs/fundamentals/creating-helpful-content"
+      usedFor: >-
+        0.2,3.5,3.10: real user purpose, original value, supported claims and contextual authorship/creation transparency; formatting alone does not establish quality.
+      verified: "2026-09-09"
+- id: "3.6"
+  phase: 3
+  phaseLabel: "3 — Content & trust"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: false
+    any: ["ymyl"]
+    source: >-
+      YMYL, regulated, product or consequential factual claims
+  task: >-
+    Editorial evidence, fact-check and approval trail
+  whatToDo: >-
+    Record primary sources, reviewer, approval date, material limitations and next review date for consequential claims. Use qualified legal, medical, financial or technical review when the subject requires it.
+  doneWhen: >-
+    Launch claims are supportable and current; evidence and approvals are findable; unsupported testimonials, comparisons or guarantees are removed.
+  owners: ["subject-expert", "business", "content", "legal"]
+  ownerSource: >-
+    Content + subject expert + business/legal
+  tools: >-
+    Editorial checklist; source log
+  cadence:
+    triggers: []
+    source: >-
+      Before publish; at expiry or material change
+  notes: >-
+    Purpose: legal/accessibility; security/governance. Source IDs: SRC033.
+  automation: attested
+  remediationClass: content
+  detectors: []
+  sources:
+    - id: "SRC033"
+      topic: "Helpful content"
+      url: "https://developers.google.com/search/docs/fundamentals/creating-helpful-content"
+      usedFor: >-
+        0.2,3.5,3.10: real user purpose, original value, supported claims and contextual authorship/creation transparency; formatting alone does not establish quality.
+      verified: "2026-09-09"
+- id: "3.7"
+  phase: 3
+  phaseLabel: "3 — Content & trust"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Minimum viable launch content complete
+  whatToDo: >-
+    Define and finish the smallest set of priority landing, trust and conversion pages needed for the launch proposition. Do not block launch on an aspirational long-term editorial calendar.
+  doneWhen: >-
+    Every URL marked launch-critical in the inventory has complete, approved copy, media, metadata, links and conversion path.
+  owners: ["business", "content", "seo"]
+  ownerSource: >-
+    Content + business + SEO
+  tools: >-
+    URL inventory; editorial tracker
+  cadence:
+    triggers: ["before-launch"]
+    source: >-
+      Before launch
+  notes: >-
+    Purpose: security/governance; relevance/ranking consideration. Operating design; no external ranking claim. Related controls: 0.3, 3.5, 3.6.
+  automation: assisted
+  remediationClass: content
+  detectors: ["launch-content-completeness"]
+  sources: []
+- id: "3.8"
+  phase: 3
+  phaseLabel: "3 — Content & trust"
+  priority: P1
+  profile: core
+  launchGate: false
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Post-launch content production plan and cadence
+  whatToDo: >-
+    Turn the keyword and intent map into a sustainable dated backlog with owners, review steps and publication dates after the minimum launch set is complete.
+  doneWhen: >-
+    The next content tranche has named owners, realistic dates and an accountable backlog owner.
+  owners: ["business", "content"]
+  ownerSource: >-
+    Content + business
+  tools: >-
+    Content calendar; project tracker
+  cadence:
+    triggers: ["before-launch"]
+    interval: monthly
+    source: >-
+      Set before launch; review monthly
+  notes: >-
+    Purpose: relevance/ranking consideration; security/governance. v4: demoted; the actual launch content set is covered by 3.7. Operating design; no external ranking claim. Related controls: 0.1, 0.2, 3.7.
+  automation: attested
+  remediationClass: content
+  detectors: []
+  sources: []
+- id: "3.9"
+  phase: 3
+  phaseLabel: "3 — Content & trust"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: false
+    any: ["bulk-publishing"]
+    source: >-
+      Bulk/programmatic publishing or materially AI-generated batches
+  task: >-
+    Batch publishing inventory, quality checks and release safeguard
+  whatToDo: >-
+    Before a batch becomes indexable, record its URL inventory, legitimate user need, sources and distinct value. Define automated checks over the full batch and human review by risk, including consequential claims under 3.6. Test duplicate/template-only output, wrong entities/locations, unsupported promises, doorway patterns and factual errors. Include high-risk and edge cases in the sample. Assign a release owner, acceptance criteria and a correction/removal route; quarantine failing pages.
+  doneWhen: >-
+    The inventory and review scope are complete, required checks pass and sampled defects are investigated across affected pages. Only approved passing pages enter the indexable release; failing pages remain excluded or unpublished and are retested after correction. Sources, decisions and owner are recorded. Explain creation methods where users reasonably need that context. Sampling is not a guarantee that every claim is correct.
+  owners: ["developer", "content", "seo"]
+  ownerSource: >-
+    Content owner + qualified reviewer + developer + SEO
+  tools: >-
+    Batch inventory; automated content checks; risk-based editorial sample; publishing controls
+  cadence:
+    triggers: ["on-change"]
+    source: >-
+      Before first batch and each material batch release; after generator/data-source changes
+  notes: >-
+    Purpose: security/governance. D03/E01. Conditional publishing risk gate. Old 3.9 formatting now lives in 3.5; this ID has a new criterion and purpose. Ordinary drafting uses 3.5/3.6 unless batch scope applies. Sources: Generative AI content guidance; Spam policies. Source IDs: SRC029; SRC079.
+  automation: assisted
+  remediationClass: content
+  detectors: ["batch-page-quality"]
+  sources:
+    - id: "SRC029"
+      topic: "Spam policies"
+      url: "https://developers.google.com/search/docs/essentials/spam-policies"
+      usedFor: >-
+        3.9,3.13: scaled-content, doorway, link-spam and current site-reputation policy; actual third-party arrangements and integration factors, not a blanket ban on contributors.
+      verified: "2026-09-09"
+    - id: "SRC079"
+      topic: "Generative AI content guidance"
+      url: "https://developers.google.com/search/docs/fundamentals/using-gen-ai-content"
+      usedFor: >-
+        3.9: AI can support useful work; bulk generation without added user value risks scaled-content abuse. The batch-testing workflow is this checklist's operational safeguard.
+      verified: "2026-09-09"
+- id: "3.10"
+  phase: 3
+  phaseLabel: "3 — Content & trust"
+  priority: P1
+  profile: core
+  launchGate: false
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Cannibalisation check before publish
+  whatToDo: >-
+    Compare a proposed page with the actual content inventory for user need, entity/product/location, substantive content and expected search role. Consolidate materially redundant pages when one stronger page serves the need. Keep distinct useful pages even when intent overlaps. After launch, use query/page evidence to investigate competition rather than assuming every overlap is harmful cannibalization.
+  doneWhen: >-
+    The publish decision records why to create, update, retain or consolidate the page. Distinct entities or useful content are not merged merely for sharing an intent. Investigations use the maintained URL inventory and available search evidence; a site: query alone is not a complete inventory.
+  owners: ["content", "seo"]
+  ownerSource: >-
+    Content + SEO
+  tools: >-
+    CMS/crawl inventory; content comparison; Search Console query/page evidence when available
+  cadence:
+    triggers: ["every-publish"]
+    source: >-
+      Every publish
+  notes: >-
+    Purpose: relevance/ranking consideration. C20. Editorial and ongoing optimization decision, not an automatic consolidation or launch rule. Sources: Helpful content; site: search limitations. Source IDs: SRC033; SRC062.
+  automation: assisted
+  remediationClass: content
+  detectors: ["cannibalization"]
+  sources:
+    - id: "SRC033"
+      topic: "Helpful content"
+      url: "https://developers.google.com/search/docs/fundamentals/creating-helpful-content"
+      usedFor: >-
+        0.2,3.5,3.10: real user purpose, original value, supported claims and contextual authorship/creation transparency; formatting alone does not establish quality.
+      verified: "2026-09-09"
+    - id: "SRC062"
+      topic: "site: search limitations"
+      url: "https://developers.google.com/search/docs/monitor-debug/search-operators/all-search-site"
+      usedFor: >-
+        3.10 and inherited-domain review: site: results are not a complete inventory or proof of absence; use the actual maintained URL inventory and relevant account evidence.
+      verified: "2026-09-09"
+- id: "3.11"
+  phase: 3
+  phaseLabel: "3 — Content & trust"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Accessible content, links and media QA
+  whatToDo: >-
+    Check heading meaning, descriptive link text, plain language where appropriate, table headers, image alternatives, captions/transcripts, page language and instructions that do not depend only on color, shape or position.
+  doneWhen: >-
+    Priority content remains understandable and operable with images, sound or styling unavailable; media alternatives are accurate.
+  owners: ["accessibility", "designer", "content"]
+  ownerSource: >-
+    Content + accessibility + designer
+  tools: >-
+    Editorial accessibility checklist; screen reader sampling
+  cadence:
+    triggers: []
+    source: >-
+      Every launch content release
+  notes: >-
+    Purpose: legal/accessibility. Source IDs: SRC014; SRC057; SRC098.
+  automation: assisted
+  remediationClass: content
+  detectors: ["content-accessibility"]
+  sources:
+    - id: "SRC014"
+      topic: "WCAG 2.2"
+      url: "https://www.w3.org/TR/WCAG22/"
+      usedFor: >-
+        0.9, 4.4: declared target and conformance requirements, including full pages/processes, supported use and non-interference; qualified scope determines obligations.
+      verified: "2026-09-09"
+    - id: "SRC057"
+      topic: "Declaring language in HTML"
+      url: "https://www.w3.org/International/questions/qa-html-language-declarations"
+      usedFor: >-
+        1.14: accurate document language and language changes support processing and assistive technology; separate from Google's visible-language detection.
+      verified: "2026-09-09"
+    - id: "SRC098"
+      topic: "Image text alternatives"
+      url: "https://www.w3.org/WAI/tutorials/images/"
+      usedFor: >-
+        2.2: actual informative, functional and decorative image inventory determines applicable text-alternative checks.
+      verified: "2026-09-10"
+- id: "3.12"
+  phase: 3
+  phaseLabel: "3 — Content & trust"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: false
+    any: ["multilingual"]
+    source: >-
+      Multilingual / multi-country
+  task: >-
+    Locale-specific content and conversion localization
+  whatToDo: >-
+    Localize intent, terminology, currency, units, legal information, shipping/service availability, contacts and conversion copy. Do not publish raw machine translation without accountable review.
+  doneWhen: >-
+    Each launch locale is reviewed by a qualified human and matches the local query, offer, legal scope and conversion journey.
+  owners: ["localization", "business", "content"]
+  ownerSource: >-
+    Localization + content + business
+  tools: >-
+    Locale briefs; human QA; URL inventory
+  cadence:
+    triggers: ["before-launch"]
+    source: >-
+      Before each locale launches
+  notes: >-
+    Purpose: indexing/discovery; legal/accessibility. Source IDs: SRC012; SRC013.
+  automation: assisted
+  remediationClass: content
+  detectors: ["locale-content-parity"]
+  sources:
+    - id: "SRC012"
+      topic: "International sites"
+      url: "https://developers.google.com/search/docs/specialty/international/managing-multi-regional-sites"
+      usedFor: >-
+        0.7, 1.14, 4.9: stable locale URLs, visible language, user choice and documented same-language regional canonical consolidation.
+      verified: "2026-09-09"
+    - id: "SRC013"
+      topic: "Localized versions / hreflang"
+      url: "https://developers.google.com/search/docs/specialty/international/localized-versions"
+      usedFor: >-
+        0.7, 1.14, 4.9: supported codes, fully qualified equivalent URLs, self/return references and intentional x-default fallback.
+      verified: "2026-09-09"
+- id: "3.13"
+  phase: 3
+  phaseLabel: "3 — Content & trust"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: false
+    any: ["ugc", "reviews"]
+    source: >-
+      Sites with public UGC, listings, third-party publishing or review collection, solicitation or display
+  task: >-
+    Public content, third-party publishing and review safeguards
+  whatToDo: >-
+    Before public content launches, set moderation, publication/indexability thresholds and escalation owners. Review third-party provenance, purpose, responsibility, integration and actual arrangements against current spam policies; assess batches under 3.9. Qualify paid links with sponsored or accepted nofollow and handle UGC links appropriately. Before collecting/displaying reviews, shipping review markup or making the first request, approve the destination-specific rules in 7.6 and test the actual request, staff guidance and moderation flow.
+  doneWhen: >-
+    Applicable publication/moderation controls work and policy defects are resolved before release. Record actual third-party arrangements and current policy version; authorship alone is not abuse. For reviews, retain genuine provenance, required disclosures, moderation/takedown evidence and approval of each destination's rules before first use. Reapprove changed platforms, incentives or request/moderation flows before use. Escalation covers relevant Search Console notices and policy review routes.
+  owners: ["trust-safety", "developer", "business", "seo"]
+  ownerSource: >-
+    Trust & safety + business + SEO + developer
+  tools: >-
+    Moderation tools; crawler; Search Console; destination policy and request-flow review
+  cadence:
+    triggers: []
+    source: >-
+      Before public-content launch or first review collection/display/request; before material programme changes
+  notes: >-
+    Purpose: security/governance; legal/accessibility. H04. Verified 2026-09-09: site-reputation manual-action effects differ by searcher location. Outside the EEA they affect the identified section; inside the EEA that impact does not apply and the section may rank independently over time. No immunity or automatic outcome is promised. Integration factors are assessed together. Sources: Spam policies; Site reputation policy update; Outbound-link qualification. Source IDs: SRC029; SRC030; SRC080; SRC082; SRC083.
+  automation: assisted
+  remediationClass: content
+  detectors: ["ugc-governance", "outbound-link-qualification", "review-integrity"]
+  sources:
+    - id: "SRC029"
+      topic: "Spam policies"
+      url: "https://developers.google.com/search/docs/essentials/spam-policies"
+      usedFor: >-
+        3.9,3.13: scaled-content, doorway, link-spam and current site-reputation policy; actual third-party arrangements and integration factors, not a blanket ban on contributors.
+      verified: "2026-09-09"
+    - id: "SRC030"
+      topic: "Outbound-link qualification"
+      url: "https://developers.google.com/search/docs/crawling-indexing/qualify-outbound-links"
+      usedFor: >-
+        3.13: sponsored preferred for paid placements with nofollow accepted; appropriate UGC treatment and contextual exceptions; link attributes do not prevent target indexing.
+      verified: "2026-09-09"
+    - id: "SRC080"
+      topic: "Site reputation policy update"
+      url: "https://developers.google.com/search/blog/2026/08/update-site-reputation-policy"
+      usedFor: >-
+        3.13: August2026 update distinguishes effects for searchers inside/outside the EEA, with Search Console notices and review routes; no ranking or immunity promise.
+      verified: "2026-09-09"
+    - id: "SRC082"
+      topic: "Maps review policy"
+      url: "https://support.google.com/contributionpolicy/answer/7400114?hl=en-GB"
+      usedFor: >-
+        3.13/7.6: genuine reviews; no incentives, positive-only solicitation, pressure, dictated content or staff review quotas. Other destinations require separate policy review.
+      verified: "2026-09-09"
+    - id: "SRC083"
+      topic: "Review snippet guidelines"
+      url: "https://developers.google.com/search/docs/appearance/structured-data/review-snippet"
+      usedFor: >-
+        2.11,3.13,4.6,7.6: visible genuine item-specific reviews; no imported aggregates; self-serving Organization/LocalBusiness star restriction includes widgets and is distinct from eligible Product reviews.
+      verified: "2026-09-09"

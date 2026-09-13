@@ -1,0 +1,599 @@
+# Corpus v5.0 - phase 4: 4 — Pre-launch QA
+# Bootstrapped by scripts/compile-corpus.ts from corpus/source/v5.0.tsv.
+# This file is the source of record now: edit it directly. The compiler
+# refuses to overwrite an existing version, so these edits are safe.
+
+- id: "4.1"
+  phase: 4
+  phaseLabel: "4 — Pre-launch QA"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Full staging crawl: raw HTML and rendered output
+  whatToDo: >-
+    Crawl the release candidate before launch with raw-HTML and JavaScript rendering modes for status codes, titles, headings, canonicals, directives, links, assets and orphan detection. Production crawling is a separate launch-day row.
+  doneWhen: >-
+    No unexplained critical difference exists between raw and rendered output; priority URLs have no broken links, missing metadata or indexation conflicts.
+  owners: ["developer", "seo"]
+  ownerSource: >-
+    SEO + developer
+  tools: >-
+    Screaming Frog (JS rendered); Sitebulb
+  cadence:
+    triggers: ["before-launch", "on-change"]
+    source: >-
+      Before launch and after big releases
+  notes: >-
+    Purpose: indexing/discovery. v4: split staging QA from the production crawl. Source IDs: SRC009; SRC010; SRC038; SRC039.
+  automation: automated
+  remediationClass: code
+  detectors: ["raw-rendered-crawl-diff", "broken-links", "metadata-completeness"]
+  sources:
+    - id: "SRC009"
+      topic: "Robots meta and X-Robots-Tag"
+      url: "https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag"
+      usedFor: >-
+        B03 and 0.3, 1.10, 1.16: intentional noindex needs crawl access; headers cover non-HTML files. Directives do not replace authorization.
+      verified: "2026-09-08"
+    - id: "SRC010"
+      topic: "Canonicalization"
+      url: "https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls"
+      usedFor: >-
+        1.3, 1.6, 1.16: retained duplicates, preferred-URL signals, supported non-HTML Link canonical; selection is not guaranteed.
+      verified: "2026-09-08"
+    - id: "SRC038"
+      topic: "JavaScript SEO basics"
+      url: "https://developers.google.com/search/docs/crawling-indexing/javascript/javascript-seo-basics"
+      usedFor: >-
+        1.1, 1.10: rendering, raw noindex, canonical consistency and crawlable output; SSR is a reliability policy.
+      verified: "2026-09-08"
+    - id: "SRC039"
+      topic: "JavaScript troubleshooting"
+      url: "https://developers.google.com/search/docs/crawling-indexing/javascript/fix-search-javascript"
+      usedFor: >-
+        1.1: renderer limitations, resource/API access and reproducible raw/rendered diagnostics.
+      verified: "2026-09-08"
+- id: "4.2"
+  phase: 4
+  phaseLabel: "4 — Pre-launch QA"
+  priority: P0
+  profile: extended
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Indexability and edge-access matrix reconciliation
+  whatToDo: >-
+    Compare the release candidate with 0.3 for status, directives, canonical, sitemap, links and locale. On an approved production-equivalent path, test actual cache layers cold/warm and after invalidation, relevant cookies/headers/locales, separate users and private-route authorization. Check intended crawler/visitor rules, challenges, rate limits and essential rendering resources. Record intentional staging access differences for 5.1 live confirmation.
+  doneWhen: >-
+    Every launch pattern meets the approved matrix and current acceptance criteria across tested cache/access variants. No private cross-user response leak, stale indexing directive, wrong locale, or blocked required resource remains. Missing infrastructure layers are documented. Unresolved mismatches fail; an approved policy change requires matrix/criteria revision and retesting, not a Passed waiver.
+  owners: ["developer", "seo"]
+  ownerSource: >-
+    SEO + developer
+  tools: >-
+    Crawler export; URL matrix; cold/warm HTTP and browser probes; cache configuration; trusted logs
+  cadence:
+    triggers: ["before-launch"]
+    source: >-
+      Immediately before launch
+  notes: >-
+    Purpose: indexing/discovery; security/governance. D05. This existing P0 gate owns applicable cache, WAF and privacy acceptance before cutover; 1.7 holds design evidence. It cannot prove an unobserved external crawler visit. Production path and genuine request observations follow in 5.1/6.1. Sources: HTTP caching standard; Verify Google crawler requests. Source IDs: SRC047; SRC050.
+  automation: assisted
+  remediationClass: config
+  detectors: ["indexability-matrix-reconciliation"]
+  sources:
+    - id: "SRC047"
+      topic: "HTTP caching standard"
+      url: "https://www.rfc-editor.org/rfc/rfc9111.html"
+      usedFor: >-
+        1.7, 4.2, 5.1: shared/private cache behavior, request variants and sensitive-response isolation; directives do not replace authorization.
+      verified: "2026-09-09"
+    - id: "SRC050"
+      topic: "Verify Google crawler requests"
+      url: "https://developers.google.com/crawling/docs/crawlers-fetchers/verify-google-requests"
+      usedFor: >-
+        1.7,2.9,5.5,2.15: genuine crawler identity differs from synthetic user-agent probes; use documented DNS/IP methods before trusting crawler-only access.
+      verified: "2026-09-09"
+- id: "4.3"
+  phase: 4
+  phaseLabel: "4 — Pre-launch QA"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Mobile content parity and critical-journey QA
+  whatToDo: >-
+    Test the declared template/journey matrix on representative real phones and with a keyboard. Compare mobile/desktop primary content, headings, crawlable links, robots directives, metadata, canonicals/hreflang and relevant structured data; account for intentional separate-URL relationships. Required content/media must be available without crawler interaction. Test applicable forms, errors, labels, focus, contrast, targets, zoom, navigation and consent/banner states; link 4.4 accessibility evidence.
+  doneWhen: >-
+    The complete approved matrix passes, including usable forms and keyboard/focus/error/zoom states where present. Mobile exposes equivalent essential content and correct signals/resources; no interaction-only loading, accidental mobile exclusion or blocking overlay remains. Separate mobile URLs map correctly. A different layout is acceptable when content and access requirements still pass.
+  owners: ["developer", "designer"]
+  ownerSource: >-
+    Designer + developer
+  tools: >-
+    Representative real phones; browser network/DOM tools; keyboard; linked accessibility evidence
+  cadence:
+    triggers: []
+    source: >-
+      Launch
+  notes: >-
+    Purpose: indexing/discovery; legal/accessibility. C18. Apply 1.1 rendering checks to the mobile output used for indexing. Responsive layout or an automated score alone does not prove content parity or journey access. Existing content in accessible tabs/accordions can be valid; fetching required content only after a click is different. Sources: Mobile-first indexing; Accessibility evaluation. Source IDs: SRC015; SRC058.
+  automation: assisted
+  remediationClass: code
+  detectors: ["mobile-journey-qa"]
+  sources:
+    - id: "SRC015"
+      topic: "Accessibility evaluation"
+      url: "https://www.w3.org/WAI/test-evaluate/"
+      usedFor: >-
+        0.9, 4.3, 4.4: early assessment with knowledgeable human evaluation; tools alone cannot establish accessibility conformance.
+      verified: "2026-09-09"
+    - id: "SRC058"
+      topic: "Mobile-first indexing"
+      url: "https://developers.google.com/search/docs/crawling-indexing/mobile/mobile-sites-mobile-first-indexing"
+      usedFor: >-
+        4.3: mobile primary content, directives, metadata, structured data and resources; no interaction-dependent primary loading; correct separate-URL relationships.
+      verified: "2026-09-09"
+- id: "4.4"
+  phase: 4
+  phaseLabel: "4 — Pre-launch QA"
+  priority: P0
+  profile: extended
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites; conformance target follows the 0.9 scope
+  task: >-
+    Accessibility assessment against the approved target
+  whatToDo: >-
+    Assess the version/level and scope approved in 0.9 using automated tools and knowledgeable human evaluation. Cover keyboard/focus, screen-reader use, names/roles, reflow/zoom, forms/errors, landmarks/dialogs, motion, captions and status messages as applicable. Record tested pages and complete processes, technologies, unmet criteria, severity, owners and remediation dates. Limit conclusions to the evidence actually collected.
+  doneWhen: >-
+    All release-blocking access and obligation criteria in 0.9 are satisfied; unresolved blockers remain failed. The assessment records scope, methods, limitations and remaining actions. Make a conformance claim only when evidence satisfies the applicable conformance requirements, including full pages, complete processes, accessibility-supported use and non-interference. A tool score or representative sample alone is insufficient.
+  owners: ["accessibility", "developer", "designer"]
+  ownerSource: >-
+    Accessibility + designer + developer
+  tools: >-
+    axe; Lighthouse; keyboard; screen reader; WCAG checklist; Sources sheet
+  cadence:
+    triggers: ["before-launch", "on-change"]
+    source: >-
+      Before launch and after critical UI changes
+  notes: >-
+    Purpose: legal/accessibility. C19. Assessment is not automatically a conformance claim. If conformance is itself a blocking obligation, missing proof remains unresolved; an owner/date is not a waiver. Legal scope is reviewed through 0.9. Sources: WCAG 2.2, section 5; Accessibility evaluation. Source IDs: SRC014; SRC015.
+  automation: assisted
+  remediationClass: code
+  detectors: ["axe-accessibility", "manual-a11y-evaluation"]
+  sources:
+    - id: "SRC014"
+      topic: "WCAG 2.2"
+      url: "https://www.w3.org/TR/WCAG22/"
+      usedFor: >-
+        0.9, 4.4: declared target and conformance requirements, including full pages/processes, supported use and non-interference; qualified scope determines obligations.
+      verified: "2026-09-09"
+    - id: "SRC015"
+      topic: "Accessibility evaluation"
+      url: "https://www.w3.org/WAI/test-evaluate/"
+      usedFor: >-
+        0.9, 4.3, 4.4: early assessment with knowledgeable human evaluation; tools alone cannot establish accessibility conformance.
+      verified: "2026-09-09"
+- id: "4.5"
+  phase: 4
+  phaseLabel: "4 — Pre-launch QA"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Representative-template lab performance QA
+  whatToDo: >-
+    Run the frozen 1.5 profile on the homepage, every major launch template and relevant interactions. Record the release, tool/version, devices, network, cache state, repeated runs and agreed summary. Inspect LCP discovery, layout shifts, main-thread work, fonts and third-party code. Compare launch thresholds and diagnostic targets separately; investigate variance instead of selecting only the best run.
+  doneWhen: >-
+    Every launch template passes the current approved acceptance criteria with reproducible evidence. Diagnostic overruns have impact, owner and remediation date. A failed threshold is not Passed by a signed exception. If criteria change, record approval and a new revision, then re-evaluate; stale evidence cannot authorize the revised release.
+  owners: ["developer"]
+  ownerSource: >-
+    Developer + performance owner
+  tools: >-
+    Lighthouse CI; WebPageTest; browser performance panel
+  cadence:
+    triggers: ["every-release", "before-launch"]
+    source: >-
+      Before launch and major releases
+  notes: >-
+    Purpose: measurement; security/governance. C08. A passing lab budget is pre-launch engineering evidence, not a field CWV result. Lighthouse TBT may help diagnose responsiveness; interaction tests in a lab still do not replace real-user INP. Sources: Web Vitals metrics; Lab versus field data. Source IDs: SRC006; SRC053; SRC092.
+  automation: assisted
+  remediationClass: code
+  detectors: ["template-lab-perf"]
+  sources:
+    - id: "SRC006"
+      topic: "Lab versus field data"
+      url: "https://web.dev/articles/lab-and-field-data-differences"
+      usedFor: >-
+        1.5, 4.5, 4.11: controlled lab profiles versus real-user distributions; results and populations are not interchangeable.
+      verified: "2026-09-09"
+    - id: "SRC053"
+      topic: "Web Vitals metrics"
+      url: "https://web.dev/articles/vitals"
+      usedFor: >-
+        1.5, 4.5, 6.2: LCP/INP/CLS at p75 by device; Good <=2.5 s/200 ms/0.1; TBT lab diagnostics do not replace field INP.
+      verified: "2026-09-09"
+    - id: "SRC092"
+      topic: "INP historical date"
+      url: "https://web.dev/blog/responsiveness"
+      usedFor: >-
+        H07 source correction for 4.5/6.2: the page's current notice states INP replaced FID on 2024-03-12. Retain current metric controls; do not describe this as an August/September 2026 launch rule.
+      verified: "2026-09-09"
+- id: "4.6"
+  phase: 4
+  phaseLabel: "4 — Pre-launch QA"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: false
+    any: ["structured-data"]
+    source: >-
+      Sites implementing structured data
+  task: >-
+    Structured-data validation and visible-content parity
+  whatToDo: >-
+    Validate every shipped marked template in Schema.org Validator and the relevant consumer/Google feature test. Inspect rendered output and page states under 1.1. Compare entities, names, offers, availability, ratings, dates and authors with actual content/source data; investigate conflicting duplicate nodes. Apply specific feature policies and document any permitted visibility exception from its primary guidance. Separate syntax, required-property, recommendation and policy results.
+  doneWhen: >-
+    No invalid or misleading shipped markup remains. Required prerequisites pass for each claimed feature, or that feature is explicitly withdrawn from the delivered matrix. Valid non-Google markup can remain with a documented purpose/owner. Recommended-property warnings have decisions rather than automatic failure. Tool success alone cannot replace content/policy review, and withdrawal is not recorded as feature eligibility.
+  owners: ["seo"]
+  ownerSource: >-
+    SEO
+  tools: >-
+    Schema.org Validator; relevant feature test; rendered-page and source-data comparison
+  cadence:
+    triggers: []
+    source: >-
+      Each new schema type
+  notes: >-
+    Purpose: search-feature eligibility; security/governance. C09. This existing gate assesses actually shipped markup, not mandatory adoption of every optional feature. Correct/remove misleading output and retest. Valid vocabulary alone does not establish Google feature eligibility. Sources: Structured-data guidelines; Google structured data features; Structured-data formats and interpretation. Source IDs: SRC008; SRC070; SRC071; SRC083.
+  automation: assisted
+  remediationClass: code
+  detectors: ["schema-validation-parity"]
+  sources:
+    - id: "SRC008"
+      topic: "Structured-data guidelines"
+      url: "https://developers.google.com/search/docs/appearance/structured-data/sd-policies"
+      usedFor: >-
+        2.7/4.6/7.9 and E02: validate the selected feature, content accuracy and visibility; feature eligibility is distinct from general web ranking and does not guarantee display.
+      verified: "2026-09-10"
+    - id: "SRC070"
+      topic: "Structured-data formats and interpretation"
+      url: "https://developers.google.com/search/docs/appearance/structured-data/intro-structured-data"
+      usedFor: >-
+        4.6: structured-data vocabulary and formats, interpreting page content and relevant Google feature requirements.
+      verified: "2026-09-09"
+    - id: "SRC071"
+      topic: "Google structured data features"
+      url: "https://developers.google.com/search/docs/appearance/structured-data/search-gallery"
+      usedFor: >-
+        2.7, 4.6, 7.9: select currently supported features and follow the relevant individual guidance; vocabulary validity alone is not feature support.
+      verified: "2026-09-09"
+    - id: "SRC083"
+      topic: "Review snippet guidelines"
+      url: "https://developers.google.com/search/docs/appearance/structured-data/review-snippet"
+      usedFor: >-
+        2.11,3.13,4.6,7.6: visible genuine item-specific reviews; no imported aggregates; self-serving Organization/LocalBusiness star restriction includes widgets and is distinct from eligible Product reviews.
+      verified: "2026-09-09"
+- id: "4.7"
+  phase: 4
+  phaseLabel: "4 — Pre-launch QA"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: false
+    any: ["analytics", "consent"]
+    source: >-
+      Sites using analytics, conversion tags or consent controls
+  task: >-
+    Analytics, conversion and consent QA matrix
+  whatToDo: >-
+    Execute the 0.4 matrix across applicable consent states, direct/organic/campaign entry, initial loads, client routes, back/forward, forms/errors and payment returns. Repeat confirmations to test duplicate or empty/reused transaction IDs; failed/abandoned transactions must not count as completed purchases. Inspect storage and outgoing URLs, titles, event/user fields and in-scope server/vendor forwarding for prohibited data. Reconcile allowed test outcomes with the system of record.
+  doneWhen: >-
+    Every required case has dated release-specific evidence matching expected collection or suppression, consent timing, values and attribution. Required events are not missing or duplicated; prohibited payloads and unintended referrals are absent. All blocking defects are corrected and retested; an owner/date alone is insufficient. Record reporting delay and unavailable diagnostics honestly; do not require unconsented users or suppressed events to appear in analytics.
+  owners: ["analytics", "developer", "privacy"]
+  ownerSource: >-
+    Analytics + privacy + developer
+  tools: >-
+    Analytics debugger; Tag Assistant; network/storage tools
+  cadence:
+    triggers: ["before-launch"]
+    source: >-
+      Immediately before launch
+  notes: >-
+    Purpose: measurement; legal/accessibility. C13/D06. Test actual payloads even with CMP approval or best-effort platform redaction enabled. Hashing alone does not authorize a prohibited field. Optional links and unavailable historical data are not universal gates; a missing required test remains incomplete. Sources: Consent Mode implementation timing; Analytics PII prevention; GA4 SPA measurement; GA4 transaction IDs; GA4 cross-domain measurement. Source IDs: SRC064; SRC065; SRC066; SRC067; SRC069.
+  automation: assisted
+  remediationClass: config
+  detectors: ["analytics-consent-matrix"]
+  sources:
+    - id: "SRC064"
+      topic: "Consent Mode implementation timing"
+      url: "https://developers.google.com/tag-platform/security/guides/consent"
+      usedFor: >-
+        2.6, 4.7: defaults before config/events, updates before page transitions, choice persistence and withdrawal; validate the actual implementation.
+      verified: "2026-09-09"
+    - id: "SRC065"
+      topic: "Analytics PII prevention"
+      url: "https://support.google.com/analytics/answer/6366371"
+      usedFor: >-
+        2.5, 4.7, 5.6: remove prohibited identifiers from URLs, titles and collected fields; redaction settings are not complete payload verification.
+      verified: "2026-09-09"
+    - id: "SRC066"
+      topic: "GA4 SPA measurement"
+      url: "https://developers.google.com/analytics/devguides/collection/ga4/single-page-applications"
+      usedFor: >-
+        2.5, 4.7: deliberate virtual-pageview emission, avoid double tracking, inspect current page_location/page_referrer and navigation behavior.
+      verified: "2026-09-09"
+    - id: "SRC067"
+      topic: "GA4 transaction IDs"
+      url: "https://support.google.com/analytics/answer/12313109"
+      usedFor: >-
+        2.5, 4.7, 5.6: web purchase deduplication needs unique nonempty transaction IDs without customer-identifying data; avoid reused IDs and generic deduplication claims.
+      verified: "2026-09-09"
+    - id: "SRC069"
+      topic: "GA4 cross-domain measurement"
+      url: "https://support.google.com/analytics/answer/10071811?hl=en"
+      usedFor: >-
+        2.5, 4.7: selected cross-domain journeys use consistent configuration; verify destination functionality and preserved linker parameters through redirects.
+      verified: "2026-09-09"
+- id: "4.8"
+  phase: 4
+  phaseLabel: "4 — Pre-launch QA"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: false
+    any: ["migration"]
+    source: >-
+      Migration / redesign / domain or URL change
+  task: >-
+    Migration redirect, content-parity and rollback rehearsal
+  whatToDo: >-
+    Before cutover, test the full 0.8 URL inventory and redirect configuration in a controlled environment, including relevant query/host variants and assets. Validate every planned status/target automatically; compare content and SEO signals by the approved value/template matrix. Confirm destination readiness, durable GSC ownership and Change of Address eligibility. Reference the timed recovery exercise in 4.12 and recheck inherited-domain findings where applicable.
+  doneWhen: >-
+    Every inventoried outcome matches the approved map: retained content has a relevant working destination, unchanged URLs remain correct, and deliberate retirements return the intended 404/410. No unintended chain, loop, missing mapping or irrelevant consolidation remains. Required parity and inherited-domain checks pass; recovery evidence meets 4.12. Live redirect activation and eligible Change of Address submission remain 5.2.
+  owners: ["operations", "developer", "seo"]
+  ownerSource: >-
+    SEO + developer + operations
+  tools: >-
+    Old/new crawl diff; redirect tester; analytics/GSC baseline
+  cadence:
+    triggers: ["cutover"]
+    source: >-
+      Immediately before cutover
+  notes: >-
+    Purpose: indexing/discovery; security/governance. C21/F01. Full-map status/target testing is distinct from risk-based content sampling. Approved intentional changes are recorded before testing; signing off a failed current criterion does not make it Passed. Sources: Google site moves; Change of Address. Source IDs: SRC011; SRC059.
+  automation: assisted
+  remediationClass: config
+  detectors: ["migration-redirect-test", "content-parity-diff"]
+  sources:
+    - id: "SRC011"
+      topic: "Google site moves"
+      url: "https://developers.google.com/search/docs/crawling-indexing/site-move-with-url-changes"
+      usedFor: >-
+        0.8, 4.8, 5.2: domain history, URL outcomes, destination/redirect sequencing and at-least-one-year redirect guidance. Keep the tool's separate 180-day effect distinct.
+      verified: "2026-09-09"
+    - id: "SRC059"
+      topic: "Change of Address"
+      url: "https://support.google.com/webmasters/answer/9370220"
+      usedFor: >-
+        0.8, 4.8, 5.2: eligible/excluded moves, same-account ownership, source property/variant scope and submission after live redirects; tool effect is 180 days.
+      verified: "2026-09-09"
+- id: "4.9"
+  phase: 4
+  phaseLabel: "4 — Pre-launch QA"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: false
+    any: ["multilingual"]
+    source: >-
+      Multilingual / multi-country
+  task: >-
+    International crawl and hreflang QA
+  whatToDo: >-
+    Crawl every launch locale against 0.7/1.14 for statuses, actual content language, canonical choices, self/return hreflang, supported codes, working equivalent URLs, localized links and the chosen fallback. Test mobile/desktop locale switching without forced IP/language routing. Verify localized content and journeys against each market's approved requirements, including any documented same-language duplicate consolidation.
+  doneWhen: >-
+    Intended equivalent-page clusters have correct self/return annotations and reachable targets. Distinct translations remain indexable; canonical exceptions match the documented same-language policy. Actual content is localized, switching works and fallback behavior is intentional. Missing translations are not fabricated, and unresolved routing, language or indexing conflicts fail the gate.
+  owners: ["localization", "developer", "seo"]
+  ownerSource: >-
+    SEO + localization + developer
+  tools: >-
+    Crawler; hreflang validator; locale QA matrix
+  cadence:
+    triggers: ["before-launch"]
+    source: >-
+      Before each locale launch
+  notes: >-
+    Purpose: indexing/discovery. C07. Validate the intended cluster, not a requirement that every URL exist in every locale. x-default is a chosen fallback, not an automatic requirement for a new page. Sources: International sites; Localized versions / hreflang. Source IDs: SRC012; SRC013.
+  automation: automated
+  remediationClass: config
+  detectors: ["hreflang-cluster-qa"]
+  sources:
+    - id: "SRC012"
+      topic: "International sites"
+      url: "https://developers.google.com/search/docs/specialty/international/managing-multi-regional-sites"
+      usedFor: >-
+        0.7, 1.14, 4.9: stable locale URLs, visible language, user choice and documented same-language regional canonical consolidation.
+      verified: "2026-09-09"
+    - id: "SRC013"
+      topic: "Localized versions / hreflang"
+      url: "https://developers.google.com/search/docs/specialty/international/localized-versions"
+      usedFor: >-
+        0.7, 1.14, 4.9: supported codes, fully qualified equivalent URLs, self/return references and intentional x-default fallback.
+      verified: "2026-09-09"
+- id: "4.10"
+  phase: 4
+  phaseLabel: "4 — Pre-launch QA"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: false
+    any: ["ecommerce"]
+    source: >-
+      E-commerce / product catalogue
+  task: >-
+    Product, checkout, variant, feed and policy QA
+  whatToDo: >-
+    Use the 2.11 submodule matrix to test actual selling/catalogue surfaces. Cover representative available, sold-out, retired and variant states; crawl categories/filters under 1.12/1.13/1.15. Verify directly selected variant image/price/availability and correct cart item where sold. Test checkout only when present and feeds only when used. Compare applicable page, markup, feed and transaction totals/currency plus shipping/return policies. Investigate discrepancies against authoritative product data.
+  doneWhen: >-
+    Every applicable matrix case passes with current evidence. No blocking variant crawl trap, orphan product, misleading offer/markup, inconsistent selected feed or broken chosen checkout remains. A catalogue without checkout or Merchant Center may pass its documented scope. Missing third-party approval/reporting is recorded separately from tested implementation; it is never represented as verified eligibility or successful transactions.
+  owners: ["merchandising", "developer", "business", "seo"]
+  ownerSource: >-
+    Developer + merchandising + SEO + business
+  tools: >-
+    Catalogue-state matrix; crawler; relevant feature validator; selected feed diagnostics; checkout evidence if used
+  cadence:
+    triggers: ["before-launch"]
+    source: >-
+      Before launch and catalogue platform changes
+  notes: >-
+    Purpose: security/governance; search-feature eligibility; legal/accessibility. C10. Conditional QA of actual commercial functions. Follow required versus recommended feature properties under 2.7/4.6. Review rules remain separate under 3.13/7.6. Sources: Product structured data; Merchant listing requirements; Product variants. Source IDs: SRC072; SRC073; SRC074.
+  automation: assisted
+  remediationClass: code
+  detectors: ["product-checkout-qa"]
+  sources:
+    - id: "SRC072"
+      topic: "Product structured data"
+      url: "https://developers.google.com/search/docs/appearance/structured-data/product"
+      usedFor: >-
+        2.11,4.10: distinct product snippets, merchant listings and Merchant Center choices; accuracy and chosen-surface requirements.
+      verified: "2026-09-09"
+    - id: "SRC073"
+      topic: "Merchant listing requirements"
+      url: "https://developers.google.com/search/docs/appearance/structured-data/merchant-listing"
+      usedFor: >-
+        2.11,4.10: purchasable product pages, offer data, currency-specific URLs and required versus recommended properties; not every catalogue has checkout.
+      verified: "2026-09-09"
+    - id: "SRC074"
+      topic: "Product variants"
+      url: "https://developers.google.com/search/docs/appearance/structured-data/product-variants"
+      usedFor: >-
+        2.11,4.10: variant/group IDs, direct variant selection, correct image/offer/cart state and distinct single-page versus multi-page canonical models.
+      verified: "2026-09-09"
+- id: "4.11"
+  phase: 4
+  phaseLabel: "4 — Pre-launch QA"
+  priority: P1
+  profile: core
+  launchGate: false
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Dated pre-launch crawl, performance and visibility baseline
+  whatToDo: >-
+    Archive a dated release baseline: crawl, representative lab results with the 1.5 profile, schema checks and available field data. Label field source, URL/origin/group/cohort, devices, window and data sufficiency. For a replaced live site also retain available rankings, traffic and top landing pages. For a first launch explicitly record which historical or field measurements do not exist.
+  doneWhen: >-
+    The release-linked baseline is findable and identifies comparable measurements and limitations. Missing field or historical data is Unavailable in evidence with a reason and next review, never invented or replaced by a lab score. Post-launch comparisons identify any population, configuration or window change.
+  owners: ["seo"]
+  ownerSource: >-
+    SEO
+  tools: >-
+    Screaming Frog export; PageSpeed; GSC export; analytics export
+  cadence:
+    triggers: ["before-launch", "once"]
+    source: >-
+      Once, immediately before launch
+  notes: >-
+    Purpose: measurement. C22. A new site need not possess pre-launch field history. Migration-critical baseline evidence remains scoped in 0.8/4.8. Sources: Lab versus field data; CrUX methodology and coverage; CrUX API collection window. Source IDs: SRC006; SRC054; SRC055.
+  automation: automated
+  remediationClass: config
+  detectors: ["prelaunch-baseline-snapshot"]
+  sources:
+    - id: "SRC006"
+      topic: "Lab versus field data"
+      url: "https://web.dev/articles/lab-and-field-data-differences"
+      usedFor: >-
+        1.5, 4.5, 4.11: controlled lab profiles versus real-user distributions; results and populations are not interchangeable.
+      verified: "2026-09-09"
+    - id: "SRC054"
+      topic: "CrUX API collection window"
+      url: "https://developer.chrome.com/docs/crux/api"
+      usedFor: >-
+        4.11, 6.2: recorded 28-day collectionPeriod may contain fewer observed days; identify URL/origin and form factor.
+      verified: "2026-09-09"
+    - id: "SRC055"
+      topic: "CrUX methodology and coverage"
+      url: "https://developer.chrome.com/docs/crux/methodology"
+      usedFor: >-
+        4.11, 6.2: public discoverability and undisclosed popularity thresholds; missing coverage is not a performance grade.
+      verified: "2026-09-09"
+- id: "4.12"
+  phase: 4
+  phaseLabel: "4 — Pre-launch QA"
+  priority: P0
+  profile: extended
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Backup, rollback and launch-owner rehearsal
+  whatToDo: >-
+    Rehearse 1.17 recovery using the required backups, access and launch contacts. Restore the chosen first-launch target or existing release/data state, including the plan for post-cutover writes. Before cutover configure monitor owners, severity, routing and response targets; safely test alert delivery and escalation. Where diagnostics need logs, test approved collection, access restrictions, redaction and retention with representative records.
+  doneWhen: >-
+    A recorded timed exercise restores the agreed state within recovery-time and data-loss limits; a holding mode meets its approved response/indexing behavior and duration. Contacts are current and a safe alert test reaches the monitored recipient within target. Required diagnostic records are retrievable under the approved controls. Missing or failed readiness remains HOLD; live confirmation follows in 5.5.
+  owners: ["operations", "developer", "business"]
+  ownerSource: >-
+    Operations + developer + business
+  tools: >-
+    Runbook; hosting platform; monitoring
+  cadence:
+    triggers: ["before-launch"]
+    source: >-
+      Immediately before launch
+  notes: >-
+    Purpose: security/governance. F03/F04. First launch uses the approved recoverable state or holding mode, not a nonexistent previous release. Reuse this exercise from 4.8. Preserve alert/log readiness without prescribing a universal log-retention period. Sources: Contingency planning and recovery testing; Monitoring distributed systems; Secure logging guidance. Source IDs: SRC051; SRC052; SRC063.
+  automation: attested
+  remediationClass: config
+  detectors: []
+  sources:
+    - id: "SRC051"
+      topic: "Monitoring distributed systems"
+      url: "https://sre.google/sre-book/monitoring-distributed-systems/"
+      usedFor: >-
+        1.7, 4.12, 5.5: actionable symptoms, clear alert routing and external behavior checks; project readiness tests are an operating-policy application.
+      verified: "2026-09-09"
+    - id: "SRC052"
+      topic: "Secure logging guidance"
+      url: "https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html"
+      usedFor: >-
+        4.12, 7.8: verify logging, limit sensitive fields, restrict access and apply approved retention/deletion obligations; duration is context dependent.
+      verified: "2026-09-09"
+    - id: "SRC063"
+      topic: "Contingency planning and recovery testing"
+      url: "https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final"
+      usedFor: >-
+        1.17, 4.12: risk-based recovery planning, targets and exercises. Adapted operational practice; not a universal SEO or legal requirement.
+      verified: "2026-09-09"

@@ -1,0 +1,428 @@
+# Corpus v5.0 - phase 6: 6 — First 30 days
+# Bootstrapped by scripts/compile-corpus.ts from corpus/source/v5.0.tsv.
+# This file is the source of record now: edit it directly. The compiler
+# refuses to overwrite an existing version, so these edits are safe.
+
+- id: "6.1"
+  phase: 6
+  phaseLabel: "6 — First 30 days"
+  priority: P1
+  profile: core
+  launchGate: false
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Indexation review
+  whatToDo: >-
+    Compare submitted, crawled, canonical and indexed URLs by template; inspect priority pages and assign causes/owners for exclusions. For Google indexed URL Inspection, compare selected and declared canonicals against the approved matrix, recording indexed-data time, current live evidence and whether the report predates release. Investigate material mismatches without treating intentional consolidation as failure. Where Bing is selected, review its sitemap processing and crawl/index issues in the first week and first month with engine-specific evidence.
+  doneWhen: >-
+    Known blockers and material canonical/indexing mismatches have investigation, fix and retest owners. Review available indexed evidence; record missing or lagging data as Unavailable with the next check date, separately for each engine. Do not invent an indexed result or treat this follow-up as a retrospective day-one indexing prerequisite.
+  owners: ["seo"]
+  ownerSource: >-
+    SEO
+  tools: >-
+    Search Console indexed/live URL Inspection; Bing tools where selected; URL matrix
+  cadence:
+    triggers: []
+    interval: weekly
+    windowDays: 30
+    source: >-
+      Weekly for 30 days
+  notes: >-
+    Purpose: indexing/discovery; measurement. D05 follow-up: in the first week, review unobserved crawler cases from 5.1 using correctly verified request logs and available search-tool evidence. Record the crawler category, URL/time/status, method and any access failure; if still unobserved, keep that evidence Unavailable with an owner and next date. A live user-triggered fetch is not proof of a normal indexing crawl. Source: Verify Google crawler requests. Source IDs: SRC010; SRC019; SRC091.
+  automation: assisted
+  remediationClass: config
+  detectors: ["indexation-review"]
+  sources:
+    - id: "SRC010"
+      topic: "Canonicalization"
+      url: "https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls"
+      usedFor: >-
+        1.3, 1.6, 1.16: retained duplicates, preferred-URL signals, supported non-HTML Link canonical; selection is not guaranteed.
+      verified: "2026-09-08"
+    - id: "SRC019"
+      topic: "URL Inspection: live vs indexed"
+      url: "https://support.google.com/webmasters/answer/9012289?hl=en"
+      usedFor: >-
+        B04: live evidence cannot establish Google-selected canonical
+      verified: "2026-09-07"
+    - id: "SRC091"
+      topic: "Bing sitemap guidance"
+      url: "https://blogs.bing.com/webmaster/July-2025/Keeping-Content-Discoverable-with-Sitemaps-in-AI-Powered-Search"
+      usedFor: >-
+        5.8/6.1: selected Bing sitemap discovery/processing follow-up; submission, crawl and indexing are distinct stages and no display guarantee follows.
+      verified: "2026-09-09"
+- id: "6.2"
+  phase: 6
+  phaseLabel: "6 — First 30 days"
+  priority: P1
+  profile: extended
+  launchGate: false
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Field performance and real-user monitoring
+  whatToDo: >-
+    Review available field LCP, INP and CLS at p75, separating mobile and desktop. Name the source and actual URL, origin, Search Console group or first-party RUM cohort; do not present one as another. Record the collection window, sample/coverage limits and release timing. Good boundaries are LCP <=2.5 s, INP <=200 ms and CLS <=0.1. Use lab and relevant RUM evidence to diagnose regressions and assign actions.
+  doneWhen: >-
+    Available metrics have a named population/window/device segment and correct grade. Missing or insufficient metrics are Unavailable in evidence with an owner and next review, not Passed or Failed. Regressions have impact, action owners and retest dates. Completing this review does not claim that the site has Good field CWV.
+  owners: ["developer"]
+  ownerSource: >-
+    Developer
+  tools: >-
+    PageSpeed Insights / CrUX API; Search Console CWV groups; approved first-party RUM; lab diagnostics
+  cadence:
+    triggers: []
+    interval: weekly
+    windowDays: 30
+    source: >-
+      Weekly for 30 days
+  notes: >-
+    Purpose: measurement; relevance/ranking consideration. C22. CrUX API/PSI rolling collection periods span 28 days, but a newly launched page may contribute fewer observed days. First-party RUM can start at launch with its own stated window/sample and approved collection scope. Origin/group data is not a per-template guarantee; do not average percentiles into one score. Status records review completion only. Sources: Web Vitals metrics; CrUX API collection window; CrUX methodology and coverage; Search Console CWV groups. Source IDs: SRC053; SRC054; SRC055; SRC056; SRC092; SRC097.
+  automation: assisted
+  remediationClass: code
+  detectors: ["field-cwv-monitor"]
+  sources:
+    - id: "SRC053"
+      topic: "Web Vitals metrics"
+      url: "https://web.dev/articles/vitals"
+      usedFor: >-
+        1.5, 4.5, 6.2: LCP/INP/CLS at p75 by device; Good <=2.5 s/200 ms/0.1; TBT lab diagnostics do not replace field INP.
+      verified: "2026-09-09"
+    - id: "SRC054"
+      topic: "CrUX API collection window"
+      url: "https://developer.chrome.com/docs/crux/api"
+      usedFor: >-
+        4.11, 6.2: recorded 28-day collectionPeriod may contain fewer observed days; identify URL/origin and form factor.
+      verified: "2026-09-09"
+    - id: "SRC055"
+      topic: "CrUX methodology and coverage"
+      url: "https://developer.chrome.com/docs/crux/methodology"
+      usedFor: >-
+        4.11, 6.2: public discoverability and undisclosed popularity thresholds; missing coverage is not a performance grade.
+      verified: "2026-09-09"
+    - id: "SRC056"
+      topic: "Search Console CWV groups"
+      url: "https://support.google.com/webmasters/answer/9205520"
+      usedFor: >-
+        6.2: device-specific URL groups and origin fallback; distinguish group evidence from an individual URL measurement.
+      verified: "2026-09-09"
+    - id: "SRC092"
+      topic: "INP historical date"
+      url: "https://web.dev/blog/responsiveness"
+      usedFor: >-
+        H07 source correction for 4.5/6.2: the page's current notice states INP replaced FID on 2024-03-12. Retain current metric controls; do not describe this as an August/September 2026 launch rule.
+      verified: "2026-09-09"
+    - id: "SRC097"
+      topic: "Page experience and ranking"
+      url: "https://developers.google.com/search/docs/appearance/page-experience"
+      usedFor: >-
+        E02 / 6.2: Google uses Core Web Vitals in ranking; other page-experience work and reporting scores do not constitute a universal ranking score or guarantee.
+      verified: "2026-09-10"
+- id: "6.3"
+  phase: 6
+  phaseLabel: "6 — First 30 days"
+  priority: P1
+  profile: core
+  launchGate: false
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Reporting rhythm and anomaly thresholds
+  whatToDo: >-
+    Track selected engines' queries, clicks, crawl/index health and content gaps, plus available conversions and field CWV under their approved measurement scopes. For Bing selected in 5.8, include first-week and first-month sitemap, crawl/index, search-performance and notification checks. Define anomaly thresholds, denominators, reporting lag and the investigation owner. Preserve engine/report/time-window labels; keep AI impressions, citations and referral sessions separate under 6.4.
+  doneWhen: >-
+    A dated reporting rhythm and actionable thresholds exist. Each selected engine's checks have evidence or explicit Unavailable/pending states, owners and next dates. Material anomalies have documented dispositions. Missing data is not silently converted to zero, and incompatible engine or AI metrics are not added together as a single visibility score.
+  owners: ["business", "seo"]
+  ownerSource: >-
+    SEO / business
+  tools: >-
+    Selected search-engine tools; approved analytics; field-performance sources; issue/evidence log
+  cadence:
+    triggers: []
+    interval: monthly
+    windowDays: 30
+    source: >-
+      Weekly 30 days; then monthly
+  notes: >-
+    Purpose: measurement. Source IDs: SRC019; SRC053; SRC091.
+  automation: assisted
+  remediationClass: config
+  detectors: ["reporting-anomaly-thresholds"]
+  sources:
+    - id: "SRC019"
+      topic: "URL Inspection: live vs indexed"
+      url: "https://support.google.com/webmasters/answer/9012289?hl=en"
+      usedFor: >-
+        B04: live evidence cannot establish Google-selected canonical
+      verified: "2026-09-07"
+    - id: "SRC053"
+      topic: "Web Vitals metrics"
+      url: "https://web.dev/articles/vitals"
+      usedFor: >-
+        1.5, 4.5, 6.2: LCP/INP/CLS at p75 by device; Good <=2.5 s/200 ms/0.1; TBT lab diagnostics do not replace field INP.
+      verified: "2026-09-09"
+    - id: "SRC091"
+      topic: "Bing sitemap guidance"
+      url: "https://blogs.bing.com/webmaster/July-2025/Keeping-Content-Discoverable-with-Sitemaps-in-AI-Powered-Search"
+      usedFor: >-
+        5.8/6.1: selected Bing sitemap discovery/processing follow-up; submission, crawl and indexing are distinct stages and no display guarantee follows.
+      verified: "2026-09-09"
+- id: "6.4"
+  phase: 6
+  phaseLabel: "6 — First 30 days"
+  priority: P1
+  profile: extended
+  launchGate: false
+  applicability:
+    universal: false
+    any: ["ai-reporting"]
+    source: >-
+      Sites with available AI-search reporting or meaningful AI referrals
+  task: >-
+    AI search visibility baseline
+  whatToDo: >-
+    Record actual Google Search Generative AI report availability and earliest data date. Use its impressions for AI Overviews/AI Mode with property/page aggregation, device/country, date range and reporting time zone; Discover uses a separate report and Search Labs is excluded. Preserve missing-data markers before export, which may convert them to zeros. If selected, keep Bing AI citation counts and grounding-query samples separate. Measure identifiable AI referral sessions only under the approved analytics scope; optional dated prompt spot checks are anecdotal.
+  doneWhen: >-
+    The baseline names each report, metric, scope, period and availability limits. Google AI impressions are not clicks, CTR, rankings or all-provider visibility; Bing citations are not those metrics either. Referral sessions have their own attribution limits. Do not sum incompatible datasets or equate chart/table totals with different aggregation. Record unavailable/insufficient data explicitly and do not fabricate pre-availability history. Prompt examples are not representative coverage estimates.
+  owners: ["seo"]
+  ownerSource: >-
+    SEO
+  tools: >-
+    SC Search/Discover AI reports where available; optional Bing AI Performance; approved referral analytics
+  cadence:
+    triggers: []
+    interval: monthly
+    source: >-
+      Day 30; then monthly
+  notes: >-
+    Purpose: measurement. H01/C23. Checked 2026-09-09: Google announces worldwide AI-report rollout as of 2026-08-31, while its help still lists account/data caveats. Verify actual availability. Bing's cited announcement labels AI Performance public preview; verify current account features and metric scope. Sources: Search AI performance report; Bing AI Performance. Source IDs: SRC034; SRC090.
+  automation: automated
+  remediationClass: content
+  detectors: ["ai-visibility-baseline"]
+  sources:
+    - id: "SRC034"
+      topic: "Search AI performance report"
+      url: "https://support.google.com/webmasters/answer/16984139"
+      usedFor: >-
+        6.4: Search AI impressions, actual availability, separate Discover/Labs scope, property/page aggregation, PT dates and missing values becoming zeros on export; no click/CTR or all-AI visibility interpretation.
+      verified: "2026-09-09"
+    - id: "SRC090"
+      topic: "Bing AI Performance"
+      url: "https://blogs.bing.com/webmaster/February-2026/Introducing-AI-Performance-in-Bing-Webmaster-Tools-Public-Preview"
+      usedFor: >-
+        6.4: optional public-preview AI citations, cited pages and sampled grounding queries. These are not clicks, rankings or comprehensive AI visibility. General Bing crawl/index follow-up is an operating procedure supported separately by the sitemap guidance.
+      verified: "2026-09-11"
+- id: "6.5"
+  phase: 6
+  phaseLabel: "6 — First 30 days"
+  priority: P1
+  profile: core
+  launchGate: false
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Security and manual action monitoring
+  whatToDo: >-
+    Review GSC Security Issues, Manual Actions and alerts; maintain the CMS/dependency patching owner and investigate unexpected published URLs. Record report scope, access limitations and findings with incident owners, remedies and next checks. Use site: only as a supplemental discovery aid. Recheck after launch, on alerts and after material incidents; inherited-domain checks also belong before cutover in 0.8.
+  doneWhen: >-
+    Required reports were actually reviewed, findings were investigated and actions/escalation are recorded. Missing access is explicit and the affected review stays incomplete. Critical incidents remain open until verified remediation; review completion does not mean the site has no issues. Do not infer a clean site from absent search results or a short sample of affected URLs.
+  owners: ["developer"]
+  ownerSource: >-
+    Developer
+  tools: >-
+    Search Console reports/alerts; CMS and dependency security tooling; incident log
+  cadence:
+    triggers: []
+    interval: monthly
+    windowDays: 30
+    source: >-
+      Weekly for 30 days; then monthly
+  notes: >-
+    Purpose: security/governance. F01. The Status records completion of this monitoring review, not a security certification or absence of manual actions. Preserve incident outcomes separately and reopen affected release controls. Sources: Manual actions; Security issues; site: operator limitations. Source IDs: SRC060; SRC061.
+  automation: assisted
+  remediationClass: config
+  detectors: ["security-manual-actions"]
+  sources:
+    - id: "SRC060"
+      topic: "Manual actions"
+      url: "https://support.google.com/webmasters/answer/9044175"
+      usedFor: >-
+        0.8, 6.5: inspect actual report findings, including inherited-site actions, and verify remediation/review outcomes.
+      verified: "2026-09-09"
+    - id: "SRC061"
+      topic: "Security issues"
+      url: "https://support.google.com/webmasters/answer/9044101"
+      usedFor: >-
+        0.8, 6.5: inherited-site problems, investigation and remediation; reported example URLs are not necessarily exhaustive.
+      verified: "2026-09-09"
+- id: "6.6"
+  phase: 6
+  phaseLabel: "6 — First 30 days"
+  priority: P1
+  profile: core
+  launchGate: false
+  applicability:
+    universal: false
+    any: ["migration"]
+    source: >-
+      Migration / redesign / domain or URL change
+  task: >-
+    Post-migration 404, redirect and visibility monitoring
+  whatToDo: >-
+    Monitor old high-value URLs, server 404s, redirect chains, crawl rate, indexed old/new URLs, traffic and ranking transitions. Correct missed mappings without redirecting irrelevant URLs to the homepage.
+  doneWhen: >-
+    Material missed redirects and parity defects are fixed; visibility changes are explained and monitored through stabilization.
+  owners: ["developer", "seo"]
+  ownerSource: >-
+    SEO + developer
+  tools: >-
+    Server logs; crawler; GSC; analytics
+  cadence:
+    triggers: []
+    interval: weekly
+    source: >-
+      Daily first week; weekly through day 30
+  notes: >-
+    Purpose: indexing/discovery; measurement. Source IDs: SRC011; SRC041; SRC042.
+  automation: automated
+  remediationClass: config
+  detectors: ["post-migration-monitor"]
+  sources:
+    - id: "SRC011"
+      topic: "Google site moves"
+      url: "https://developers.google.com/search/docs/crawling-indexing/site-move-with-url-changes"
+      usedFor: >-
+        0.8, 4.8, 5.2: domain history, URL outcomes, destination/redirect sequencing and at-least-one-year redirect guidance. Keep the tool's separate 180-day effect distinct.
+      verified: "2026-09-09"
+    - id: "SRC041"
+      topic: "Redirects and Google Search"
+      url: "https://developers.google.com/search/docs/crawling-indexing/301-redirects"
+      usedFor: >-
+        1.3, 1.6: permanent/temporary redirect choices, 301/308 and usable destination mappings.
+      verified: "2026-09-08"
+    - id: "SRC042"
+      topic: "HTTP status codes"
+      url: "https://developers.google.com/crawling/docs/troubleshooting/http-status-codes"
+      usedFor: >-
+        1.4: 4xx, 429 and 5xx behavior; distinguish genuine absence, temporary failure and success.
+      verified: "2026-09-08"
+- id: "6.7"
+  phase: 6
+  phaseLabel: "6 — First 30 days"
+  priority: P1
+  profile: extended
+  launchGate: false
+  applicability:
+    universal: false
+    any: ["analytics"]
+    source: >-
+      Sites using analytics or conversion measurement
+  task: >-
+    Analytics and conversion reconciliation
+  whatToDo: >-
+    Compare analytics conversions and revenue with forms, CRM, orders or other systems of record. Investigate duplicates, missing events, attribution changes and consent-related gaps.
+  doneWhen: >-
+    Material differences are quantified, explained and assigned; dashboards use documented definitions.
+  owners: ["analytics", "business"]
+  ownerSource: >-
+    Analytics + business
+  tools: >-
+    Analytics; CRM/order system; reconciliation sheet
+  cadence:
+    triggers: []
+    source: >-
+      Week 1 and day 30
+  notes: >-
+    Purpose: measurement. Source IDs: SRC004; SRC067; SRC069.
+  automation: assisted
+  remediationClass: config
+  detectors: ["analytics-reconciliation"]
+  sources:
+    - id: "SRC004"
+      topic: "Google Consent Mode"
+      url: "https://developers.google.com/tag-platform/security/concepts/consent-mode"
+      usedFor: >-
+        0.4, 2.6, 5.6: Basic/Advanced behavior, consent types and limitations. Denied storage can still involve transmission in Advanced mode; mode selection follows qualified scope.
+      verified: "2026-09-09"
+    - id: "SRC067"
+      topic: "GA4 transaction IDs"
+      url: "https://support.google.com/analytics/answer/12313109"
+      usedFor: >-
+        2.5, 4.7, 5.6: web purchase deduplication needs unique nonempty transaction IDs without customer-identifying data; avoid reused IDs and generic deduplication claims.
+      verified: "2026-09-09"
+    - id: "SRC069"
+      topic: "GA4 cross-domain measurement"
+      url: "https://support.google.com/analytics/answer/10071811?hl=en"
+      usedFor: >-
+        2.5, 4.7: selected cross-domain journeys use consistent configuration; verify destination functionality and preserved linker parameters through redirects.
+      verified: "2026-09-09"
+- id: "6.9"
+  phase: 6
+  phaseLabel: "6 — First 30 days"
+  priority: P1
+  profile: extended
+  launchGate: false
+  applicability:
+    universal: false
+    any: ["ecommerce", "multilingual"]
+    source: >-
+      E-commerce or multilingual / multi-country sites
+  task: >-
+    Conditional template monitoring after launch
+  whatToDo: >-
+    Check product/feed/rich-result errors, variant canonicals, hreflang clusters, locale indexation and localized conversions using the reports relevant to the deployed features.
+  doneWhen: >-
+    Errors and coverage gaps have owners, priority and retest evidence; no template-wide regression remains unexplained.
+  owners: ["business", "developer", "seo"]
+  ownerSource: >-
+    SEO + developer + relevant business owner
+  tools: >-
+    Search Console; Merchant Center; crawler; analytics
+  cadence:
+    triggers: []
+    interval: weekly
+    source: >-
+      Weekly through day 30
+  notes: >-
+    Purpose: search-feature eligibility; indexing/discovery; measurement. Source IDs: SRC008; SRC013; SRC073; SRC074.
+  automation: automated
+  remediationClass: config
+  detectors: ["conditional-template-monitor"]
+  sources:
+    - id: "SRC008"
+      topic: "Structured-data guidelines"
+      url: "https://developers.google.com/search/docs/appearance/structured-data/sd-policies"
+      usedFor: >-
+        2.7/4.6/7.9 and E02: validate the selected feature, content accuracy and visibility; feature eligibility is distinct from general web ranking and does not guarantee display.
+      verified: "2026-09-10"
+    - id: "SRC013"
+      topic: "Localized versions / hreflang"
+      url: "https://developers.google.com/search/docs/specialty/international/localized-versions"
+      usedFor: >-
+        0.7, 1.14, 4.9: supported codes, fully qualified equivalent URLs, self/return references and intentional x-default fallback.
+      verified: "2026-09-09"
+    - id: "SRC073"
+      topic: "Merchant listing requirements"
+      url: "https://developers.google.com/search/docs/appearance/structured-data/merchant-listing"
+      usedFor: >-
+        2.11,4.10: purchasable product pages, offer data, currency-specific URLs and required versus recommended properties; not every catalogue has checkout.
+      verified: "2026-09-09"
+    - id: "SRC074"
+      topic: "Product variants"
+      url: "https://developers.google.com/search/docs/appearance/structured-data/product-variants"
+      usedFor: >-
+        2.11,4.10: variant/group IDs, direct variant selection, correct image/offer/cart state and distinct single-page versus multi-page canonical models.
+      verified: "2026-09-09"

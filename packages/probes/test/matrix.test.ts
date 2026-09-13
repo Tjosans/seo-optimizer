@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { fileURLToPath } from 'node:url';
-import { loadCorpus } from '@seo/corpus';
+import { CURRENT_CORPUS_VERSION, loadCorpus } from '@seo/corpus';
 import { PROBES, buildProbeMatrix, formatProbeMatrix } from '@seo/probes';
 
-const corpus = loadCorpus(fileURLToPath(new URL('../../../corpus/v4.4', import.meta.url)));
+const corpus = loadCorpus(
+  fileURLToPath(new URL(`../../../corpus/v${CURRENT_CORPUS_VERSION}`, import.meta.url)),
+);
 const matrix = buildProbeMatrix(corpus);
 
 describe('probe matrix', () => {

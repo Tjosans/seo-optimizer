@@ -111,7 +111,8 @@ describe.each(versions)('corpus %s', (dir) => {
     });
 
     it('resolves sources for every check whose notes cite them', () => {
-      for (const check of corpus.checks.filter((c) => /See Sources:/i.test(c.notes))) {
+      // v4.4 cites by topic ("See Sources: X"), v5.0 by stable id ("Source IDs: SRC006").
+      for (const check of corpus.checks.filter((c) => /See Sources:|Source IDs?:/i.test(c.notes))) {
         expect(check.sources.length, `${check.id} notes cite sources`).toBeGreaterThan(0);
       }
     });

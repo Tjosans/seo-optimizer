@@ -1,0 +1,38 @@
+Phase	Applies? = Yes	Not started	In progress	Passed	Failed	Skipped	Passed / applicable	Applies? = Review
+0 — Discovery & strategy	5	5	0	0	0	0	0	4
+1 — Day 1 architecture	12	12	0	0	0	0	0	7
+2 — Pre-launch config	4	4	0	0	0	0	0	14
+3 — Content & trust	9	9	0	0	0	0	0	4
+4 — Pre-launch QA	7	7	0	0	0	0	0	5
+5 — Launch day	5	5	0	0	0	0	0	3
+6 — First 30 days	4	4	0	0	0	0	0	4
+7 — Ongoing	8	8	0	0	0	0	0	3
+TOTAL	54	54	0	0	0	0	0	44
+Launch readiness
+Applicable gates not Passed (all stages)	29
+Applicable launch gates failed	0
+Gate applicability unresolved / invalid	25
+Final launch assessment (calculated)	HOLD
+Core workload (advisory)	43
+Passed / applicable = Passed divided by tasks with Applies?=Yes. Review decisions are outside the denominator. N/A means no confirmed applicable tasks. Percentages and Core workload never authorize launch or override either launch assessment.
+Read both calculated assessments and their blocker diagnostics. READY FOR CUTOVER is preflight readiness; final GO requires completed live checks and a valid cutover record. Neither result itself records human authorization. Use 5.7 for the final owner decision.
+Cutover readiness (calculated)	HOLD
+Input integrity errors	0
+Pre-cutover gates outstanding	25
+Live gates outstanding	4
+Pre-cutover evidence incomplete	25
+Live evidence incomplete	4
+Cutover record valid	0
+Scope / context errors	8
+Dashboard counts include every Checklist table row, regardless of filters or Profile.
+Fix unclassified entries before using the percentage. Reconciled counts can still coexist with launch blockers.
+Dashboard data checks	Rows
+Total Checklist rows	98
+Unknown or blank phase	0
+Invalid or blank Applies?	0
+Applicable rows with unknown status	0
+Applicable rows outside phase totals	0
+Review rows outside phase totals	0
+All unresolved applicability decisions	44
+Dashboard assessment	Counts reconcile; resolve applicability
+Review log input problems	0

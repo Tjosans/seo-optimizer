@@ -1,4 +1,7 @@
 /**
+ * Automation triage, one table per corpus version. `triageFor(version)` is
+ * what the compiler reads; a version with no table does not compile.
+ *
  * Automation triage for the v4.4 corpus: 97 checks.
  *
  * Each entry is [automation tier, remediation class, detector ids].
@@ -47,7 +50,9 @@ import type { AutomationTier, RemediationClass } from '../packages/core/src/chec
 /** [automation tier, remediation class, detector ids] for one check. */
 export type TriageEntry = readonly [AutomationTier, RemediationClass, readonly string[]];
 
-export const TRIAGE: Readonly<Record<string, TriageEntry>> = {
+export type TriageTable = Readonly<Record<string, TriageEntry>>;
+
+const V4_4: TriageTable = {
   // -- Phase 0: discovery and strategy. Decisions, not site state. ---------
   '0.1': ['assisted', 'config', ['competitor-serp-baseline']],
   '0.2': ['assisted', 'content', ['keyword-intent-map']],
@@ -161,3 +166,92 @@ export const TRIAGE: Readonly<Record<string, TriageEntry>> = {
   '7.9': ['automated', 'config', ['schema-hreflang-maintenance']],
   '7.10': ['assisted', 'config', ['security-dependency-maintenance']],
 };
+
+/**
+ * Automation triage for the v5.0 corpus: 98 checks.
+ *
+ * DRAFTED 2026-09-14, AWAITING MAINTAINER SIGN-OFF. Every row was re-read
+ * against its v5.0 "Done when". A row not listed below reads the same under
+ * v5.0 as it did under v4.4 — its wording may have moved, but not in a way
+ * that changes who can close it — and inherits its v4.4 entry.
+ *
+ * The rule is v4.4's, applied to the new wording: `automated` only when the
+ * "Done when" closes on observation alone. v5.0 rewrote 71 of those criteria,
+ * and most rewrites add a record a person produces as part of completing the
+ * check — an owner for an unavailable measurement, a reason for an ineligible
+ * case, a review of a retained duplicate, an assessment of an external chain.
+ * Where the check itself asks for that record, it is `assisted`; where the
+ * wording names a decision taken elsewhere ("the approved matrix", "the chosen
+ * fallback"), that is an input and the tier stands. Fifteen rows move from
+ * `automated` to `assisted` on that reading: automated checks 41 to 26.
+ *
+ * Detectors follow the requirement, not the id. v5.0 gave 3.9 a new meaning
+ * (batch and AI-generated publishing), and the authorship-and-dates subject
+ * the two content detectors read moved into 3.5; review integrity moved from
+ * 2.11 to 3.13.
+ */
+const V5_0: TriageTable = {
+  ...V4_4,
+
+  // -- Tier moves: the v5.0 "Done when" asks a person for a record. ------
+  // "Retained 200 duplicates have a justified canonical policy"; "external
+  // chains are assessed by impact".
+  '1.3': ['assisted', 'config', ['canonicalization', 'url-convention', 'host-slash-policy']],
+  // "Missing resources return genuine errors with useful UX" is a reader's call.
+  '1.4': ['assisted', 'code', ['http-status', 'soft-404', 'redirect-chain', 'internal-search-indexability']],
+  // A versioned policy names thresholds and owners; overruns carry an owner and
+  // date. Crawler byte limits are a new, observable part of the same check.
+  '1.5': ['assisted', 'code', ['lab-perf-budget', 'lcp-element-strategy', 'crawler-fetch-limit']],
+  // "Any retained duplicate or unavoidable external chain has reviewed evidence".
+  '1.6': ['assisted', 'config', ['https-enforcement', 'mixed-content', 'host-redirect']],
+  // Owners, testable policies, and absent layers "explicitly recorded"; private
+  // responses must not be shared across users, which a crawl can partly see.
+  '1.7': ['assisted', 'config', ['security-headers', 'http-version', 'compression-cache', 'third-party-budget', 'private-response-caching']],
+  // The matrix "records ... recommended-property decisions".
+  '2.7': ['assisted', 'code', ['schema-eligibility-matrix']],
+  // Unobserved behaviour carries "an owner/follow-up", and identity-verified
+  // requests come from trusted logs; a crawl can only simulate a user agent.
+  '2.9': ['assisted', 'config', ['ai-crawler-directive-verify']],
+  // An unobserved organic crawl is recorded "with an owner and first-week follow-up".
+  '5.1': ['assisted', 'config', ['production-smoke-test']],
+  // "Ineligible cases have a recorded reason."
+  '5.2': ['assisted', 'config', ['migration-redirects-live']],
+  // Submission is "explicitly pending with an owner and next action".
+  '5.4': ['assisted', 'config', ['sitemap-submit', 'url-inspection']],
+  // Blockers have "investigation, fix and retest owners".
+  '6.1': ['assisted', 'config', ['indexation-review']],
+  // Missing metrics carry "an owner and next review"; regressions "action owners".
+  '6.2': ['assisted', 'code', ['field-cwv-monitor']],
+  // "Required reports were actually reviewed ... actions/escalation are recorded."
+  '6.5': ['assisted', 'config', ['security-manual-actions']],
+  // "Owned regression tickets exist."
+  '7.3': ['assisted', 'config', ['quarterly-regression-crawl']],
+  // Defects "retained as open actions with owners"; markup retired "deliberately".
+  '7.9': ['assisted', 'config', ['schema-hreflang-maintenance']],
+
+  // -- Subjects that moved between checks. -------------------------------
+  // Old 3.9's authorship and dates now sit in "Authorship and dates are
+  // accurate where needed", and its clear answers in "serves its stated
+  // purpose clearly".
+  '3.5': ['assisted', 'content', ['content-helpfulness', 'answer-first-structure', 'author-date-signals']],
+  // New meaning: an inventory of a publishing batch, its sampled defects and a
+  // release safeguard. A crawl can surface a batch's near-identical pages; which
+  // of them may be released is the reviewer's decision.
+  '3.9': ['assisted', 'content', ['batch-page-quality']],
+  // "Review authenticity and destination rules are recorded under 3.13/7.6."
+  '2.11': ['assisted', 'code', ['product-schema', 'merchant-feed-parity']],
+  '3.13': ['assisted', 'content', ['ugc-governance', 'outbound-link-qualification', 'review-integrity']],
+  // Migration discovery now covers a domain's history, not only a URL move.
+  '0.8': ['assisted', 'config', ['migration-map-builder', 'inherited-domain-history']],
+
+  // -- New in v5.0. -------------------------------------------------------
+  // A news-policy review is a person's; the feed and article templates are not.
+  '2.18': ['assisted', 'code', ['news-sitemap', 'news-article-policy']],
+};
+
+const TABLES: Readonly<Record<string, TriageTable>> = { '4.4': V4_4, '5.0': V5_0 };
+
+/** The triage table for a corpus version, or undefined when none exists. */
+export function triageFor(version: string): TriageTable | undefined {
+  return TABLES[version];
+}

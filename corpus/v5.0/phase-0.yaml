@@ -1,0 +1,433 @@
+# Corpus v5.0 - phase 0: 0 — Discovery & strategy
+# Bootstrapped by scripts/compile-corpus.ts from corpus/source/v5.0.tsv.
+# This file is the source of record now: edit it directly. The compiler
+# refuses to overwrite an existing version, so these edits are safe.
+
+- id: "0.1"
+  phase: 0
+  phaseLabel: "0 — Discovery & strategy"
+  priority: P1
+  profile: core
+  launchGate: false
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    SEO opportunity and competitor baseline
+  whatToDo: >-
+    Document audience, geography/language, seed keywords, competing URLs, and current visibility before coding.
+  doneWhen: >-
+    Audience, market/language, competitor URLs, and baseline visibility are written down.
+  owners: ["business", "seo"]
+  ownerSource: >-
+    SEO / business
+  tools: >-
+    Search; Ahrefs/Semrush or manual SERP review; competitor sites
+  cadence:
+    triggers: ["before-build", "once"]
+    windowDays: 90
+    source: >-
+      Once before build; refresh at 90 days
+  notes: >-
+    Purpose: relevance/ranking consideration; measurement. Important strategy input, but not a universal cutover blocker. Operating design; no external ranking claim. Related controls: 0.2, 0.3, 0.4.
+  automation: assisted
+  remediationClass: config
+  detectors: ["competitor-serp-baseline"]
+  sources: []
+- id: "0.2"
+  phase: 0
+  phaseLabel: "0 — Discovery & strategy"
+  priority: P1
+  profile: core
+  launchGate: false
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Keyword and intent mapping
+  whatToDo: >-
+    Map priority search landing pages to their main user need, relevant query cluster, intent and business role before architecture decisions. Include navigational intent where relevant. Assign other URL patterns their functional purpose and indexability decision under 0.3. Document a meaningful outcome where useful rather than forcing every URL into a conversion target.
+  doneWhen: >-
+    Priority search pages have a documented purpose and query/intent mapping. Utility, private and other functional routes are accounted for in 0.3 without artificial keyword or conversion assignments. Use the mapping to guide architecture and content decisions, then refine it with actual search evidence after launch.
+  owners: ["content", "seo"]
+  ownerSource: >-
+    SEO / content
+  tools: >-
+    Keyword research tools; Search Console later
+  cadence:
+    triggers: ["before-build", "once"]
+    source: >-
+      Once before build; update when adding pages
+  notes: >-
+    Purpose: relevance/ranking consideration. C01. Strategy and relevance planning; P1 and nongating. The URL-purpose/indexability contract remains in 0.3. Source: Helpful content. Source IDs: SRC033.
+  automation: assisted
+  remediationClass: content
+  detectors: ["keyword-intent-map"]
+  sources:
+    - id: "SRC033"
+      topic: "Helpful content"
+      url: "https://developers.google.com/search/docs/fundamentals/creating-helpful-content"
+      usedFor: >-
+        0.2,3.5,3.10: real user purpose, original value, supported claims and contextual authorship/creation transparency; formatting alone does not establish quality.
+      verified: "2026-09-09"
+- id: "0.3"
+  phase: 0
+  phaseLabel: "0 — Discovery & strategy"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Information architecture, URL inventory and indexability matrix
+  whatToDo: >-
+    Inventory planned CMS, API-generated and uploaded URL patterns before implementation, including public indexable pages, excluded search/tag/filter/feed/file patterns and private routes. Record template, intent, parent/discovery links, status, indexability/directives, canonical, sitemap decision, locale and launch criticality. Reconcile to actual routes and uploaded assets.
+  doneWhen: >-
+    The approved matrix covers every planned pattern and priority URL, including intentional exclusions and non-HTML files. Each has consistent status, access, indexing, canonical and discovery rules; private data requires authorization.
+  owners: ["developer", "seo"]
+  ownerSource: >-
+    SEO + developer
+  tools: >-
+    Spreadsheet / repo doc
+  cadence:
+    triggers: []
+    source: >-
+      Update whenever a page type is added
+  notes: >-
+    Purpose: indexing/discovery; security/governance. C05. The matrix drives later QA. robots.txt does not make data private or guarantee removal. Sources: Robots meta and X-Robots-Tag; Googlebot fetch limits. Source IDs: SRC009; SRC010; SRC040; SRC045; SRC103.
+  automation: assisted
+  remediationClass: config
+  detectors: ["url-inventory-builder"]
+  sources:
+    - id: "SRC009"
+      topic: "Robots meta and X-Robots-Tag"
+      url: "https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag"
+      usedFor: >-
+        B03 and 0.3, 1.10, 1.16: intentional noindex needs crawl access; headers cover non-HTML files. Directives do not replace authorization.
+      verified: "2026-09-08"
+    - id: "SRC010"
+      topic: "Canonicalization"
+      url: "https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls"
+      usedFor: >-
+        1.3, 1.6, 1.16: retained duplicates, preferred-URL signals, supported non-HTML Link canonical; selection is not guaranteed.
+      verified: "2026-09-08"
+    - id: "SRC040"
+      topic: "Googlebot fetch limits"
+      url: "https://developers.google.com/search/docs/crawling-indexing/googlebot"
+      usedFor: >-
+        1.1, 1.5, 0.3: uncompressed per-file fetch caps; Search: 2 MB non-PDF, 64 MB PDF; separate resources. Reverify with crawler/payload changes.
+      verified: "2026-09-08"
+    - id: "SRC045"
+      topic: "Sitemap construction"
+      url: "https://developers.google.com/search/docs/crawling-indexing/sitemaps/build-sitemap"
+      usedFor: >-
+        2.1: UTF-8, escaping, absolute URLs, 50,000 URL/50 MB uncompressed limits and meaningful lastmod.
+      verified: "2026-09-08"
+    - id: "SRC103"
+      topic: "Crawlable links and anchor text"
+      url: "https://developers.google.com/search/docs/crawling-indexing/links-crawlable"
+      usedFor: >-
+        1.2 / 3.3: crawlable anchors and href attributes, descriptive contextual links and links to important pages. Few clicks is a project usability target, not a numeric Google rule.
+      verified: "2026-09-10"
+- id: "0.4"
+  phase: 0
+  phaseLabel: "0 — Discovery & strategy"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Measurement scope and success plan
+  whatToDo: >-
+    Approve the measurement purpose, business outcomes, reporting owner and chosen tools, or a documented no-tracking decision. For selected instrumentation define events/key events, trigger and deduplication rules, attribution scope and expected collection or suppression by consent/journey state. Specify required receipt evidence and reporting latency. Link the qualified privacy/vendor decision in 0.9 and record measurement limitations before implementation.
+  doneWhen: >-
+    A dated owner decision defines the measurement scope and success criteria, including any no-tracking choice. Selected events, consent expectations, validation methods and review owners are explicit. Resolve 2.5, 2.6, 4.7 and 5.6 independently from that scope; no tool, conversion event or cross-product association is required merely to complete this plan.
+  owners: ["business", "seo"]
+  ownerSource: >-
+    Business + SEO
+  tools: >-
+    Measurement plan; privacy/vendor decisions; chosen-platform documentation
+  cadence:
+    triggers: ["before-build"]
+    source: >-
+      At strategy; verify at launch
+  notes: >-
+    Purpose: measurement; security/governance. C12. Measurement is a business/governance control, not a ranking requirement. A no-analytics choice does not decide consent for other tags or vendors. Sources: Google Consent Mode; Search Console and GA4 linking. Source IDs: SRC004; SRC068.
+  automation: attested
+  remediationClass: config
+  detectors: []
+  sources:
+    - id: "SRC004"
+      topic: "Google Consent Mode"
+      url: "https://developers.google.com/tag-platform/security/concepts/consent-mode"
+      usedFor: >-
+        0.4, 2.6, 5.6: Basic/Advanced behavior, consent types and limitations. Denied storage can still involve transmission in Advanced mode; mode selection follows qualified scope.
+      verified: "2026-09-09"
+    - id: "SRC068"
+      topic: "Search Console and GA4 linking"
+      url: "https://support.google.com/analytics/answer/10737381"
+      usedFor: >-
+        0.4, 2.5: optional integration of matching page scope, web stream and properties; verify permissions and reporting limits if selected.
+      verified: "2026-09-09"
+- id: "0.5"
+  phase: 0
+  phaseLabel: "0 — Discovery & strategy"
+  priority: P2
+  profile: extended
+  launchGate: false
+  applicability:
+    universal: false
+    any: ["entity-identity"]
+    source: >-
+      Sites documenting organization/person identity and relevant official profiles
+  task: >-
+    Brand and entity baseline
+  whatToDo: >-
+    Record the actual public brand and relevant legal identity, logo and official profiles that already exist or serve a real business purpose. Verify what entity each URL identifies and who controls or maintains it where relevant. Use sameAs only for a page that unambiguously identifies the same entity. Do not create irrelevant profiles merely to complete this checklist.
+  doneWhen: >-
+    The identity record uses accurate names and relevant verified references. Selected sameAs URLs identify the same entity, not a related company, topic or product. Differences between legal and public brand names are intentional. Optional profile or schema adoption is not required, and no entity-recognition or ranking outcome is promised.
+  owners: ["business", "seo"]
+  ownerSource: >-
+    Business + SEO
+  tools: >-
+    Brand doc; social/profile accounts
+  cadence:
+    triggers: ["once"]
+    source: >-
+      Once; update when profiles change
+  notes: >-
+    Purpose: security/governance; optional enhancement. C25. Optional identity governance and markup support. sameAs can refer to authoritative identity pages as well as controlled profiles; ownership is not the sole test. Source: Schema.org sameAs. Source IDs: SRC078.
+  automation: assisted
+  remediationClass: content
+  detectors: ["brand-entity-consistency"]
+  sources:
+    - id: "SRC078"
+      topic: "Schema.org sameAs"
+      url: "https://schema.org/sameAs"
+      usedFor: >-
+        0.5: a reference page must unambiguously identify the same entity; controlled profiles are one possible reference, not a compulsory list.
+      verified: "2026-09-09"
+- id: "0.6"
+  phase: 0
+  phaseLabel: "0 — Discovery & strategy"
+  priority: P2
+  profile: extended
+  launchGate: false
+  applicability:
+    universal: false
+    any: ["ai-policy"]
+    source: >-
+      Sites deciding how their content is used by AI search and training systems
+  task: >-
+    AI crawler, AI-feature and training policy
+  whatToDo: >-
+    If an explicit AI-use policy is needed, maintain one provider/purpose register with owner, source/version date, scope, business reason and allow/block/limit decision. Separate ordinary Google crawl/index/preview rules, Search Console Search generative AI inclusion, Google-Extended, and each selected provider's search, training and user-directed fetch agents. Record the effective Search Console setting and any inherited parent or child override. Use current product documentation; do not assume one provider's robots behavior applies to another.
+  doneWhen: >-
+    Each selected control has a resolved purpose/scope decision and dated implementation evidence or a clearly recorded pending action. Google Search AI inclusion is separate from training and does not change ranking/inclusion in other Search parts. Record actual account access and inherited scope. Optional services and experimental files are not mandatory launch requirements, and no setting is presented as a universal AI opt-out.
+  owners: ["business", "seo"]
+  ownerSource: >-
+    Business + SEO
+  tools: >-
+    Search Console Settings > Search generative AI; robots.txt; CDN/WAF rules; Sources sheet
+  cadence:
+    triggers: ["on-change"]
+    interval: quarterly
+    source: >-
+      Before selected policy takes effect; after provider/scope changes; review quarterly
+  notes: >-
+    Purpose: security/governance; optional enhancement. H01/H02. Checked 2026-09-09: dedicated Google help announces worldwide rollout on 2026-08-31; verify the actual property. Google-Extended is a robots product token, not an HTTP user agent, and covers its documented Gemini training/grounding uses. llms.txt remains optional/experimental; Google Search ignores it for visibility/ranking. Sources: Search AI control; Google common crawlers; Google AI optimization. Source IDs: SRC002; SRC018; SRC037; SRC084; SRC085; SRC086.
+  automation: attested
+  remediationClass: config
+  detectors: []
+  sources:
+    - id: "SRC002"
+      topic: "OpenAI crawlers"
+      url: "https://developers.openai.com/api/docs/bots"
+      usedFor: >-
+        0.6/2.9: independent OAI-SearchBot search and GPTBot training controls, user-directed ChatGPT-User whose requests may not follow robots, current provider identity evidence.
+      verified: "2026-09-09"
+    - id: "SRC018"
+      topic: "Search AI control"
+      url: "https://support.google.com/webmasters/answer/16908024?hl=en"
+      usedFor: >-
+        0.6/2.9: worldwide 2026-08-31 announcement, effective inherited/overridden property choice, specific Search AI inclusion scope distinct from training and other Search ranking.
+      verified: "2026-09-09"
+    - id: "SRC037"
+      topic: "Google AI optimization"
+      url: "https://developers.google.com/search/docs/fundamentals/ai-optimization-guide"
+      usedFor: >-
+        0.6: no required llms.txt, special AI markup or Markdown for Google Search; such files are ignored for Google visibility/ranking. Other services need their own documented case.
+      verified: "2026-09-09"
+    - id: "SRC084"
+      topic: "Google common crawlers"
+      url: "https://developers.google.com/crawling/docs/crawlers-fetchers/google-common-crawlers"
+      usedFor: >-
+        0.6/2.9: Google-Extended is a product token without a separate HTTP UA, with specified Gemini training/grounding scope and no ordinary Google Search inclusion/ranking effect.
+      verified: "2026-09-09"
+    - id: "SRC085"
+      topic: "Anthropic bots"
+      url: "https://support.claude.com/en/articles/8896518-does-anthropic-crawl-data-from-the-web-and-how-can-site-owners-block-the-crawler"
+      usedFor: >-
+        0.6/2.9: ClaudeBot training, Claude-SearchBot search and Claude-User user-directed retrieval, with provider-documented robots compliance and identity guidance.
+      verified: "2026-09-09"
+    - id: "SRC086"
+      topic: "Perplexity crawlers"
+      url: "https://docs.perplexity.ai/docs/resources/perplexity-crawlers"
+      usedFor: >-
+        0.6/2.9: PerplexityBot search versus Perplexity-User requested fetches that generally ignore robots; current identity/IP guidance, no inferred training scope.
+      verified: "2026-09-09"
+- id: "0.7"
+  phase: 0
+  phaseLabel: "0 — Discovery & strategy"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: false
+    any: ["multilingual"]
+    source: >-
+      Multilingual / multi-country
+  task: >-
+    International market, localization and URL strategy
+  whatToDo: >-
+    Research needs per intended locale; choose stable folders, subdomains or ccTLDs and assign localization owners. Plan canonical/hreflang relationships, available page equivalents and localized journeys. Keep valuable translations independently indexable; document any preferred canonical for same-language regional duplicates. Provide user-controlled locale links instead of forced IP or browser-language redirects.
+  doneWhen: >-
+    Each launch locale has demand/user-need evidence, an owner, URL/content plan and approved canonical/hreflang and journey decisions. Same-language consolidation is justified explicitly; distinct translations are not collapsed to one language. Users and crawlers can reach intended variants.
+  owners: ["developer", "seo"]
+  ownerSource: >-
+    Developer + SEO
+  tools: >-
+    hreflang tester; GSC
+  cadence:
+    triggers: ["before-build"]
+    source: >-
+      Before routes are coded
+  notes: >-
+    Purpose: indexing/discovery; relevance/ranking consideration. C07. Plan regional differences deliberately; localization does not require identical offers in every market. Source: International sites; Localized versions / hreflang. Source IDs: SRC012; SRC013.
+  automation: attested
+  remediationClass: config
+  detectors: []
+  sources:
+    - id: "SRC012"
+      topic: "International sites"
+      url: "https://developers.google.com/search/docs/specialty/international/managing-multi-regional-sites"
+      usedFor: >-
+        0.7, 1.14, 4.9: stable locale URLs, visible language, user choice and documented same-language regional canonical consolidation.
+      verified: "2026-09-09"
+    - id: "SRC013"
+      topic: "Localized versions / hreflang"
+      url: "https://developers.google.com/search/docs/specialty/international/localized-versions"
+      usedFor: >-
+        0.7, 1.14, 4.9: supported codes, fully qualified equivalent URLs, self/return references and intentional x-default fallback.
+      verified: "2026-09-09"
+- id: "0.8"
+  phase: 0
+  phaseLabel: "0 — Discovery & strategy"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: false
+    any: ["migration", "inherited-domain"]
+    source: >-
+      Migration / redesign / URL change; inherited or previously used domain
+  task: >-
+    Migration and inherited-domain discovery
+  whatToDo: >-
+    Record URL-move and domain-history scope separately. For inherited domains, inspect available GSC manual actions, security issues and prior URL removals during discovery and recheck before cutover. For moves, inventory pages/assets, important links and available traffic/ranking baselines; approve URL outcomes, content parity, freeze/DNS timing, recovery owners and old-domain continuity. Plan redirects for at least one year and an eligible Change of Address property matrix.
+  doneWhen: >-
+    History findings, access limitations and required remedies are recorded; unresolved required checks or blocking inherited issues fail. For moves, the complete inventory/map, baseline limitations, cutover/freeze plan, recovery reference and redirect/domain-retention owner are approved before build completion and current at cutover. A history-only case records that no URL move applies; it does not require redirects or Change of Address.
+  owners: ["developer", "seo"]
+  ownerSource: >-
+    Developer + SEO
+  tools: >-
+    URL inventory/map; GSC reports and property matrix; recovery runbook
+  cadence:
+    triggers: ["before-build", "cutover"]
+    source: >-
+      Before build; update through cutover
+  notes: >-
+    Purpose: indexing/discovery; security/governance. C21/F01. Change of Address excludes protocol-only, same-domain www, hosting-only and same-domain path moves. Eligible moves require the same Google account to own old/new properties; source scope excludes paths and does not include child subdomains automatically. Include verified source variants, including www/non-www, even when inactive. Sources: Google site moves; Change of Address; Manual actions; Security issues. Source IDs: SRC011; SRC059; SRC060; SRC061.
+  automation: assisted
+  remediationClass: config
+  detectors: ["migration-map-builder", "inherited-domain-history"]
+  sources:
+    - id: "SRC011"
+      topic: "Google site moves"
+      url: "https://developers.google.com/search/docs/crawling-indexing/site-move-with-url-changes"
+      usedFor: >-
+        0.8, 4.8, 5.2: domain history, URL outcomes, destination/redirect sequencing and at-least-one-year redirect guidance. Keep the tool's separate 180-day effect distinct.
+      verified: "2026-09-09"
+    - id: "SRC059"
+      topic: "Change of Address"
+      url: "https://support.google.com/webmasters/answer/9370220"
+      usedFor: >-
+        0.8, 4.8, 5.2: eligible/excluded moves, same-account ownership, source property/variant scope and submission after live redirects; tool effect is 180 days.
+      verified: "2026-09-09"
+    - id: "SRC060"
+      topic: "Manual actions"
+      url: "https://support.google.com/webmasters/answer/9044175"
+      usedFor: >-
+        0.8, 6.5: inspect actual report findings, including inherited-site actions, and verify remediation/review outcomes.
+      verified: "2026-09-09"
+    - id: "SRC061"
+      topic: "Security issues"
+      url: "https://support.google.com/webmasters/answer/9044101"
+      usedFor: >-
+        0.8, 6.5: inherited-site problems, investigation and remediation; reported example URLs are not necessarily exhaustive.
+      verified: "2026-09-09"
+- id: "0.9"
+  phase: 0
+  phaseLabel: "0 — Discovery & strategy"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites; obligations vary
+  task: >-
+    Legal, privacy, consent and accessibility scope decision
+  whatToDo: >-
+    Document jurisdictions, business model, audience, data collection, required legal/consumer information and consent approach. Record accessibility obligations or exemptions with qualified review where needed. Specify the adopted WCAG version/level, pages and complete journeys assessed, supported technology scope, and which access/obligation requirements block release. Separate an assessment from any conformance claim.
+  doneWhen: >-
+    A dated scope decision identifies applicable requirements and evidence, owners and qualified escalation. The accessibility target and blocking criteria are explicit. Legal applicability/exemptions are supported by the appropriate review; SEO completion is not legal sign-off or proof of conformance.
+  owners: ["accessibility", "business", "privacy", "legal"]
+  ownerSource: >-
+    Business + legal/privacy + accessibility
+  tools: >-
+    Legal scope checklist; Sources sheet
+  cadence:
+    triggers: ["before-build"]
+    source: >-
+      Before design/build; revisit when scope changes
+  notes: >-
+    Purpose: legal/accessibility; security/governance. C19. Accessibility and obligation scope protects users and delivery decisions. Record the actual required target; do not assume one WCAG version or a legal exemption applies universally. Sources: WCAG 2.2; Accessibility evaluation. Source IDs: SRC014; SRC015.
+  automation: attested
+  remediationClass: config
+  detectors: []
+  sources:
+    - id: "SRC014"
+      topic: "WCAG 2.2"
+      url: "https://www.w3.org/TR/WCAG22/"
+      usedFor: >-
+        0.9, 4.4: declared target and conformance requirements, including full pages/processes, supported use and non-interference; qualified scope determines obligations.
+      verified: "2026-09-09"
+    - id: "SRC015"
+      topic: "Accessibility evaluation"
+      url: "https://www.w3.org/WAI/test-evaluate/"
+      usedFor: >-
+        0.9, 4.3, 4.4: early assessment with knowledgeable human evaluation; tools alone cannot establish accessibility conformance.
+      verified: "2026-09-09"

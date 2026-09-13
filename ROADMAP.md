@@ -2,7 +2,7 @@
 
 ## Status
 Current phase: Phase 4 — Orchestration & Scaling
-Last updated: 2026-09-12
+Last updated: 2026-09-14
 
 ## Phase 0 — Foundation
 - [x] Create monorepo structure with TypeScript workspace packages
@@ -39,7 +39,8 @@ Last updated: 2026-09-12
 - [x] Prove two corpus versions load and grade side by side (packages/corpus/test/versions.test.ts, fixtures v9.0/v9.1)
 - [x] Amend the v4.4 triage: 3.11 moves from `automated` to `assisted`, signed off by the maintainer 2026-09-11 (corpus/v4.4/phase-3.yaml, scripts/triage.ts)
 - [x] Amend the v4.4 triage: 3.9 moves from `automated` to `assisted`, signed off by the maintainer 2026-09-11 (corpus/v4.4/phase-3.yaml, scripts/triage.ts)
-- [ ] Triage sign-off for corpus v4.5 once its rows exist — `scripts/triage.ts` is keyed by check id and signed off against v4.4 only
+- [ ] Triage sign-off for corpus v5.0 (v4.5 was skipped: the engine went from v4.4 straight to v5.0). Drafted 2026-09-14 in `scripts/triage.ts`: 15 rows move `automated` → `assisted` (1.3, 1.4, 1.5, 1.6, 1.7, 2.7, 2.9, 5.1, 5.2, 5.4, 6.1, 6.2, 6.5, 7.3, 7.9), the 3.9 content detectors move to 3.5, review integrity moves from 2.11 to 3.13, and 2.18 is new
+- [x] Compile corpus v5.0 from the verified workbook (SEO-Launch-Checklist-v5.0.xlsx, SHA-256 1165d18b…612a): 98 checks, 54 launch gates, 108 sources cited by stable id, a frozen `provenance-v5.0.test.ts`, and `CURRENT_CORPUS_VERSION` in @seo/corpus so the analyzer and the probe matrix follow the adopted methodology
 
 ## Phase 4 — Orchestration & Scaling
 - [x] Implement job queue for managing concurrent crawls (@seo/queue: bounded concurrency, lane exclusion per origin, cancellation)
@@ -67,6 +68,9 @@ Last updated: 2026-09-12
 - [x] Read gzipped sitemaps (`.xml.gz` served as `application/gzip`/`application/x-gzip`) — the body was non-textual, so the document was recorded as a 200 with no URLs (@seo/crawler: `FetchOptions.gunzip`, a gzip file recognised by its first two bytes and opened as it streams; the 50 MB ceiling applies to the expanded size)
 - [x] Make `maxBytes` stop the read for a page body too — the buffered path downloaded the whole response before cutting it, so the "protects against tarpits" promise on `FetchOptions.maxBytes` held only for streamed sitemaps (@seo/crawler: every body, textual or binary, is read a chunk at a time and the response cancelled at the limit; `byteLength` of a truncated body is now a lower bound)
 - [x] Prototype URL analyzer with snapshot comparison (npm run analyze / npm run compare) so engine changes can be measured against live sites
+- [ ] Give the engine the v5.0 workbook's second assessment, READY FOR CUTOVER: an evidence class per gate (5 planning, 43 preflight, 6 live), a release and scope revision, cutover authorization, and 5.7 recording GO only while the calculated result is GO (`provenance-v5.0.test.ts` holds it as a todo)
+- [ ] Record review freshness on check states — last review, result, next review or event trigger, `reopened` — so a stale, failed or reopened review holds a gate as v5.0 requires, and an attested row stops counting once its review is overdue
+- [ ] Refuse a pass on a failed threshold by exception alone (v5.0 1.5, 4.2, 4.5, 4.7): an attestation may record a decision, not overturn a failed measurement
 
 ## Phase 5 — Rendered Crawl
 - [ ] Implement JavaScript rendering in @seo/crawler (renderMode column exists in schema but not used)
@@ -95,6 +99,13 @@ Last updated: 2026-09-12
 ## Blocked
 
 ## Decisions
+- 2026-09-14: went from corpus v4.4 straight to v5.0 and skipped 4.5, because no audit pins 4.5 and every version on disk is one the engine must keep able to re-grade; a version nobody will run is a maintenance cost with no report behind it
+- 2026-09-14: made the engine mirror the workbook — a check id means what the workbook's current version says it means — so where v5.0 gave 3.9 a new requirement (batch and AI-generated publishing), the two content detectors followed their subject into 3.5 rather than the id being renumbered. The workbook's own rule ("never reuse an old control ID for a different requirement") is broken by that row; the engine follows the workbook as issued and `npm run compare` already flags a corpus change between snapshots
+- 2026-09-14: made detectors follow the current methodology rather than versioning them. Stored probe results keep an old audit explainable and re-gradable, which is what version pinning exists for; versioning each detector by corpus would double every detector whose rules moved, for audits nobody is going to run against v4.4 again. `CURRENT_CORPUS_VERSION` is the one place that says which methodology that is
+- 2026-09-14: cited v5.0 sources by the workbook's stable Source IDs rather than the fuzzy topic match v4.4 needed, and made an id the Sources sheet does not hold a compile error, because v5.0 notes say "Source IDs: SRC006" where v4.4 said "See Sources: X" — the old matcher would have compiled 97 of 98 checks with no citations and exited cleanly
+- 2026-09-14: exported the workbook's Checklist, Sources, Progress and How to use sheets as displayed values, with Excel date serials in Sources rendered as ISO dates, and had the export refuse any cell containing a tab or line break rather than rewrite it, because the compiler reads the TSV with a plain split
+- 2026-09-14: triaged v5.0 by v4.4's rule read against the new wording, and moved fifteen rows to `assisted` where the "Done when" itself now asks a person for a record — an owner for unavailable data, a reason for an ineligible case, reviewed evidence for a retained duplicate, an impact assessment for an external chain. Wording that names a decision taken elsewhere ("the approved matrix", "the chosen fallback") stays an input. Drafted, not signed off: the table says so and the sign-off is its own Phase 3 item
+- 2026-09-14: mapped v5.0's "sites with on-page images" (2.2) to `images`, `media` or `image-search`, because a site that declared meaningful media or image search has on-page images by definition, and a gate should not leave scope on a flag vocabulary change the site never saw
 - 2026-09-12: had a live worker ask the store for abandoned work on every heartbeat (`JobStore.adopt`), rather than only in `recover()` on the way up. The lease already said when nobody alive held a job; nothing acted on it between restarts, so a worker that died at noon left its backlog sitting there while healthy workers watched the same table. Adoption is the same act as recovery at a different moment, which is why both go through one `#restore`
 - 2026-09-12: excluded a worker's own rows from adoption, whatever their claim says. They are already that queue's to track, and the write that makes an adopted row `queued` — so it stops holding its lane — would stamp a job the worker is running as waiting, which is the one thing lane exclusion cannot survive
 - 2026-09-12: capped adoption at 25 jobs a beat, so two live workers divide a dead one's backlog instead of whichever woke first taking all of it. It costs nothing: a worker runs `concurrency` at a time and the rest would sit in its memory either way

@@ -9,11 +9,11 @@
 
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadCorpus } from '@seo/corpus';
+import { CURRENT_CORPUS_VERSION, loadCorpus } from '@seo/corpus';
 import { buildProbeMatrix, formatProbeMatrix } from '@seo/probes';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const corpus = loadCorpus(join(root, 'corpus', 'v4.4'));
+const corpus = loadCorpus(join(root, 'corpus', `v${CURRENT_CORPUS_VERSION}`));
 const matrix = buildProbeMatrix(corpus);
 
 console.log(formatProbeMatrix(matrix));

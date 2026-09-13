@@ -17,7 +17,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Corpus } from '@seo/core';
-import { loadCorpus } from '@seo/corpus';
+import { CURRENT_CORPUS_VERSION, loadCorpus } from '@seo/corpus';
 import { crawl } from '@seo/crawler';
 import type { CrawlResult } from '@seo/crawler';
 import { PROBES, runProbes } from '@seo/probes';
@@ -442,7 +442,7 @@ const stamp = (date: Date): string => date.toISOString().replace(/[:.]/g, '-').s
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  const corpus = loadCorpus(join(ROOT, 'corpus', 'v4.4'));
+  const corpus = loadCorpus(join(ROOT, 'corpus', `v${CURRENT_CORPUS_VERSION}`));
   const startedAt = new Date();
   const started = Date.now();
 

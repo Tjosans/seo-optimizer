@@ -1,0 +1,839 @@
+# Corpus v5.0 - phase 2: 2 — Pre-launch config
+# Bootstrapped by scripts/compile-corpus.ts from corpus/source/v5.0.tsv.
+# This file is the source of record now: edit it directly. The compiler
+# refuses to overwrite an existing version, so these edits are safe.
+
+- id: "2.1"
+  phase: 2
+  phaseLabel: "2 — Pre-launch config"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Sitemaps, robots.txt and index-bloat control
+  whatToDo: >-
+    Record the sitemap decision in the URL/indexability plan: sitemaps are useful discovery aids, especially for new or complex sites, but are not a universal indexing prerequisite. If used, validate UTF-8, escaping, absolute URLs and meaningful lastmod; split beyond 50,000 URLs or 50 MB uncompressed per sitemap. Ordinary sitemaps list intended canonical, indexable 200 URLs; document migration exceptions separately. Whether sitemaps are used or omitted, verify crawlable internal discovery against the inventory and test robots.txt GET, host/protocol/port and agent scope, UTF-8, 500 KiB parsing boundary, caching and error responses.
+  doneWhen: >-
+    The approved use/omission decision and internal-discovery checks are evidenced. Any implemented sitemap files and referenced URLs pass encoding, limit, status, directive and canonical checks. No priority route/resource is accidentally blocked. Excluded search/filter/tag/file patterns have consistent rules. robots.txt behavior, including intentional absence and cache/error cases, is recorded; reliance on noindex is crawl-readable and private access uses authorization.
+  owners: ["developer"]
+  ownerSource: >-
+    Developer
+  tools: >-
+    Sitemap validator; Search Console
+  cadence:
+    triggers: ["on-change"]
+    source: >-
+      Launch + after content changes
+  notes: >-
+    Purpose: indexing/discovery. D02/C05. Sources: Sitemap construction; robots.txt interpretation; Site moves. Missing robots.txt is an explicit policy decision, not automatic deindexing. Defaults reflect ordinary launch sitemaps, not temporary migration diagnostics. E02: retain the access/indexability gate; an approved sitemap omission is allowed. Source: Sitemap use decision. Source IDs: SRC045; SRC046; SRC096.
+  automation: automated
+  remediationClass: config
+  detectors: ["sitemap-validity", "robots-txt", "index-bloat", "sitemap-canonical-agreement"]
+  sources:
+    - id: "SRC045"
+      topic: "Sitemap construction"
+      url: "https://developers.google.com/search/docs/crawling-indexing/sitemaps/build-sitemap"
+      usedFor: >-
+        2.1: UTF-8, escaping, absolute URLs, 50,000 URL/50 MB uncompressed limits and meaningful lastmod.
+      verified: "2026-09-08"
+    - id: "SRC046"
+      topic: "robots.txt interpretation"
+      url: "https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec"
+      usedFor: >-
+        2.1, 5.5: GET scope, groups, 500 KiB, cache/error behavior. Most 4xx except 429 mean no restrictions; failures may retain cached rules.
+      verified: "2026-09-08"
+    - id: "SRC096"
+      topic: "Sitemap use decision"
+      url: "https://developers.google.com/search/docs/crawling-indexing/sitemaps/overview"
+      usedFor: >-
+        2.1 / 5.4: sitemaps aid discovery and often help new/complex sites; an appropriate approved omission does not itself prevent indexing.
+      verified: "2026-09-10"
+- id: "2.2"
+  phase: 2
+  phaseLabel: "2 — Pre-launch config"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: false
+    any: ["images", "media", "image-search"]
+    source: >-
+      Sites with on-page images or image-based controls
+  task: >-
+    Image alternatives and decorative-image handling
+  whatToDo: >-
+    Give meaningful images accurate alternative text based on their purpose; give decorative images empty alt. Avoid keyword stuffing and do not duplicate adjacent captions unnecessarily.
+  doneWhen: >-
+    Priority content images communicate the same purpose without sight; decorative assets are silent to assistive technology.
+  owners: ["developer", "content"]
+  ownerSource: >-
+    Content + developer
+  tools: >-
+    Screaming Frog; WCAG check
+  cadence:
+    triggers: ["every-publish"]
+    source: >-
+      Every content release
+  notes: >-
+    Purpose: legal/accessibility. v4: separates accessibility-critical alt handling from low-impact filenames. E02: resolve the actual image inventory, including functional and decorative images. An image-free site can use an approved exclusion; shipped image barriers still require correction. Source: Image text alternatives. Source IDs: SRC098.
+  automation: automated
+  remediationClass: content
+  detectors: ["image-alt-quality"]
+  sources:
+    - id: "SRC098"
+      topic: "Image text alternatives"
+      url: "https://www.w3.org/WAI/tutorials/images/"
+      usedFor: >-
+        2.2: actual informative, functional and decorative image inventory determines applicable text-alternative checks.
+      verified: "2026-09-10"
+- id: "2.3"
+  phase: 2
+  phaseLabel: "2 — Pre-launch config"
+  priority: P2
+  profile: extended
+  launchGate: false
+  applicability:
+    universal: false
+    any: ["image-search"]
+    source: >-
+      Sites where image search, Discover or image-rich search appearance matters
+  task: >-
+    Image discoverability and search-preview optimization
+  whatToDo: >-
+    Keep important images discoverable at stable URLs, with useful surrounding text and filenames where practical. Use an image sitemap when it improves discovery. For selected Discover pages, provide relevant high-quality imagery. Google's recommendations are at least 1,200 px wide, more than 300,000 total pixels and a useful 16:9 presentation. Preserve the subject when cropping; select representative og:image or supported schema imagery and permit large previews where rights/policy allow.
+  doneWhen: >-
+    Important images are crawlable and discoverable. Selected pages have a representative image and intentional preview controls. Record decisions against the Discover image recommendations; do not treat them as universal indexability requirements or require special Discover markup. Check rendered crops and avoid generic logos or text-heavy thumbnails where inappropriate.
+  owners: ["developer", "content"]
+  ownerSource: >-
+    Content + developer
+  tools: >-
+    CMS/media pipeline; image sitemap; page metadata; robots meta
+  cadence:
+    triggers: []
+    source: >-
+      When publishing priority media
+  notes: >-
+    Purpose: search-feature eligibility; optional enhancement. H06. Optional media enhancement. Discover eligibility is assessed separately in 2.16; image quality does not guarantee selection. Source: Discover. Source IDs: SRC025.
+  automation: assisted
+  remediationClass: content
+  detectors: ["image-discoverability"]
+  sources:
+    - id: "SRC025"
+      topic: "Discover"
+      url: "https://developers.google.com/search/docs/appearance/google-discover"
+      usedFor: >-
+        2.3,2.16: indexed/policy eligibility beyond publishers, no special markup, recommended image dimensions/crops/large previews and no appearance guarantee.
+      verified: "2026-09-09"
+- id: "2.4"
+  phase: 2
+  phaseLabel: "2 — Pre-launch config"
+  priority: P1
+  profile: core
+  launchGate: false
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Search Console ownership and configuration
+  whatToDo: >-
+    Verify the appropriate production property using a durable supported method independent of optional analytics. Prefer a Domain property when DNS control is available; use a correctly scoped URL-prefix property where needed. Record an accountable verified owner, secured recovery and appropriate backup access where feasible. Keep valid verification tokens in place, avoid overwriting other owners' tokens and grant monitoring staff the permissions they need. Document the intended sitemap URL.
+  doneWhen: >-
+    The property covers the intended production URLs and an accountable verified owner can access it. Monitoring permissions and recovery are documented, with backup access where feasible; two owners are not compulsory and shared credentials are not a substitute. Verification remains valid independently of optional tags. Pending setup stays recorded as pending, with an owner and next action; it is not a ranking or website-launch prerequisite.
+  owners: ["business", "seo"]
+  ownerSource: >-
+    SEO + business owner
+  tools: >-
+    Search Console; supported ownership method; access/recovery record
+  cadence:
+    triggers: ["before-launch"]
+    interval: quarterly
+    source: >-
+      Before launch; review access quarterly
+  notes: >-
+    Purpose: measurement. C14. Recommended monitoring setup, P1/nongating. Domain and URL-prefix properties have different scope and verification options. The live technical requirements in 5.4 remain gates; account setup or report availability is not an indexing guarantee. Sources: Search Console property types; Verify site ownership. Source IDs: SRC087; SRC088.
+  automation: assisted
+  remediationClass: config
+  detectors: ["gsc-property-ownership"]
+  sources:
+    - id: "SRC087"
+      topic: "Search Console property types"
+      url: "https://support.google.com/webmasters/answer/34592?hl=en"
+      usedFor: >-
+        2.4/5.4: Domain versus URL-prefix scope/verification and monitoring access; adding a property is not a website Search or ranking prerequisite.
+      verified: "2026-09-09"
+    - id: "SRC088"
+      topic: "Verify site ownership"
+      url: "https://support.google.com/webmasters/answer/9008080?hl=en"
+      usedFor: >-
+        2.4: durable supported verification, retaining tokens, accountable verified ownership and recovery; multiple owners/methods possible without an arbitrary two-owner requirement.
+      verified: "2026-09-09"
+- id: "2.5"
+  phase: 2
+  phaseLabel: "2 — Pre-launch config"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: false
+    any: ["analytics"]
+    source: >-
+      Sites using analytics or conversion measurement
+  task: >-
+    Analytics and conversion implementation
+  whatToDo: >-
+    Implement only the approved 0.4 instrumentation. Configure ownership, timezone, retention, test/internal traffic and applicable values, currency, cross-domain/referral handling. Choose one route/pageview emission method and prevent duplicate triggers. Use safe unique transaction IDs where relevant; remove prohibited payload fields before transmission. If GA4/Search Console linking is selected, match page scope and web stream, permissions and reporting ownership.
+  doneWhen: >-
+    Collection, suppression, values and attribution match the approved state matrix. Expected events are neither missing nor duplicated; relevant transactions reconcile with test records. SPA routes carry current page/referrer data, required cross-domain identifiers survive redirects, and prohibited data is absent from inspected payloads. The optional GA4/Search Console link is correctly scoped if chosen; its absence does not fail this gate.
+  owners: ["analytics", "developer", "business"]
+  ownerSource: >-
+    Developer + analytics + business
+  tools: >-
+    Chosen analytics debugger; browser network tools; tag debugger; Search Console Associations
+  cadence:
+    triggers: ["before-launch", "on-change"]
+    source: >-
+      Before launch and after tracking changes
+  notes: >-
+    Purpose: measurement; legal/accessibility. C12/D06. Check live payloads and recipient diagnostics, not only tag configuration. GA4 purchase deduplication needs a nonempty unique transaction_id without customer-identifying data; do not reuse IDs across orders/users or assume all event types are deduplicated. Sources: GA4 SPA measurement; GA4 transaction IDs; GA4 cross-domain measurement; Analytics PII prevention; Search Console and GA4 linking. Source IDs: SRC065; SRC066; SRC067; SRC068; SRC069.
+  automation: assisted
+  remediationClass: config
+  detectors: ["analytics-implementation"]
+  sources:
+    - id: "SRC065"
+      topic: "Analytics PII prevention"
+      url: "https://support.google.com/analytics/answer/6366371"
+      usedFor: >-
+        2.5, 4.7, 5.6: remove prohibited identifiers from URLs, titles and collected fields; redaction settings are not complete payload verification.
+      verified: "2026-09-09"
+    - id: "SRC066"
+      topic: "GA4 SPA measurement"
+      url: "https://developers.google.com/analytics/devguides/collection/ga4/single-page-applications"
+      usedFor: >-
+        2.5, 4.7: deliberate virtual-pageview emission, avoid double tracking, inspect current page_location/page_referrer and navigation behavior.
+      verified: "2026-09-09"
+    - id: "SRC067"
+      topic: "GA4 transaction IDs"
+      url: "https://support.google.com/analytics/answer/12313109"
+      usedFor: >-
+        2.5, 4.7, 5.6: web purchase deduplication needs unique nonempty transaction IDs without customer-identifying data; avoid reused IDs and generic deduplication claims.
+      verified: "2026-09-09"
+    - id: "SRC068"
+      topic: "Search Console and GA4 linking"
+      url: "https://support.google.com/analytics/answer/10737381"
+      usedFor: >-
+        0.4, 2.5: optional integration of matching page scope, web stream and properties; verify permissions and reporting limits if selected.
+      verified: "2026-09-09"
+    - id: "SRC069"
+      topic: "GA4 cross-domain measurement"
+      url: "https://support.google.com/analytics/answer/10071811?hl=en"
+      usedFor: >-
+        2.5, 4.7: selected cross-domain journeys use consistent configuration; verify destination functionality and preserved linker parameters through redirects.
+      verified: "2026-09-09"
+- id: "2.6"
+  phase: 2
+  phaseLabel: "2 — Pre-launch config"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: false
+    any: ["consent"]
+    source: >-
+      Sites where consent is required and/or Google tags use Consent Mode
+  task: >-
+    Consent platform and Google Consent Mode configuration
+  whatToDo: >-
+    Implement the qualified 0.9 privacy decision for the actual regions, vendors and data. Where Google Consent Mode is selected, record Basic/Advanced mode and affected consent types, including ad_user_data/ad_personalization where applicable. Set approved defaults before configuration/events; update choices before navigation and persist/restore them as designed. Test first visit, accept, reject, partial consent, withdrawal and return visits at network/storage level.
+  doneWhen: >-
+    Tag loading, transmission and storage match the approved policy in every required state, including delayed banner/tag loading. Basic blocks Google data until consent; Advanced denied states may send documented cookieless measurements only where approved. Choice changes and withdrawal affect subsequent behavior correctly, denied paths remain usable, and unapproved disclosure or unresolved scope fails.
+  owners: ["analytics", "developer", "privacy", "legal"]
+  ownerSource: >-
+    Privacy/legal + developer + analytics
+  tools: >-
+    CMP; Tag Assistant; browser storage/network tools; Sources sheet
+  cadence:
+    triggers: ["before-launch", "on-change"]
+    source: >-
+      Before launch and after CMP/tag changes
+  notes: >-
+    Purpose: legal/accessibility; security/governance. C13. The chosen mode must fit the qualified policy; Consent Mode is a signal mechanism, not legal certification. No cookies does not mean no transmission. Existing stored data and any deletion obligations need their own approved handling. Sources: Google Consent Mode; Consent Mode implementation timing. Source IDs: SRC004; SRC064.
+  automation: assisted
+  remediationClass: config
+  detectors: ["consent-mode-config"]
+  sources:
+    - id: "SRC004"
+      topic: "Google Consent Mode"
+      url: "https://developers.google.com/tag-platform/security/concepts/consent-mode"
+      usedFor: >-
+        0.4, 2.6, 5.6: Basic/Advanced behavior, consent types and limitations. Denied storage can still involve transmission in Advanced mode; mode selection follows qualified scope.
+      verified: "2026-09-09"
+    - id: "SRC064"
+      topic: "Consent Mode implementation timing"
+      url: "https://developers.google.com/tag-platform/security/guides/consent"
+      usedFor: >-
+        2.6, 4.7: defaults before config/events, updates before page transitions, choice persistence and withdrawal; validate the actual implementation.
+      verified: "2026-09-09"
+- id: "2.7"
+  phase: 2
+  phaseLabel: "2 — Pre-launch config"
+  priority: P1
+  profile: extended
+  launchGate: false
+  applicability:
+    universal: false
+    any: ["structured-data"]
+    source: >-
+      Templates eligible for useful structured data
+  task: >-
+    Structured-data eligibility matrix and implementation
+  whatToDo: >-
+    For each marked template record vocabulary, supported format, intended consumer/feature, required and recommended properties, content source and maintenance owner. Prefer JSON-LD; accept supported Microdata/RDFa. Decide relevant Organization, LocalBusiness, Article, Product/ProductGroup, VideoObject, paywall, BreadcrumbList and other types using current feature guidance. Describe actual page/entity content; do not generate empty boilerplate entities or infer Google support from Schema.org validity.
+  doneWhen: >-
+    The matrix distinguishes valid vocabulary from each selected feature's eligibility and records required-property results and recommended-property decisions. Shipped markup is accurate and passes 4.6; misleading/invalid output is corrected or removed. Valid markup without a Google feature may remain for a documented consumer/purpose. Feature adoption is optional and validation never guarantees display.
+  owners: ["developer", "seo"]
+  ownerSource: >-
+    Developer + SEO
+  tools: >-
+    Schema.org validator; Rich Results Test; Search Console; Sources sheet
+  cadence:
+    triggers: ["every-template"]
+    source: >-
+      Every new template
+  notes: >-
+    Purpose: search-feature eligibility; optional enhancement. C09/H05. Google FAQ rich results are no longer available, verified 2026-09-09. FAQPage remains Schema.org vocabulary; keep it only for a documented purpose rather than a Google FAQ feature/report promise. Sources: Structured-data guidelines; Google structured data features; Schema.org FAQPage; Google Search documentation updates. Source IDs: SRC007; SRC008; SRC035; SRC071.
+  automation: assisted
+  remediationClass: code
+  detectors: ["schema-eligibility-matrix"]
+  sources:
+    - id: "SRC007"
+      topic: "Google Search documentation updates"
+      url: "https://developers.google.com/search/updates"
+      usedFor: >-
+        2.7, 7.9: current feature changes, including Google FAQ rich-result withdrawal. Also tracks AI, migration and review-policy changes; verify each specific claim before use.
+      verified: "2026-09-09"
+    - id: "SRC008"
+      topic: "Structured-data guidelines"
+      url: "https://developers.google.com/search/docs/appearance/structured-data/sd-policies"
+      usedFor: >-
+        2.7/4.6/7.9 and E02: validate the selected feature, content accuracy and visibility; feature eligibility is distinct from general web ranking and does not guarantee display.
+      verified: "2026-09-10"
+    - id: "SRC035"
+      topic: "Schema.org FAQPage"
+      url: "https://schema.org/FAQPage"
+      usedFor: >-
+        2.7, 7.9: FAQPage remains vocabulary for FAQ content. This replaces an obsolete FAQ API-history proof link; Google feature availability is checked in the separate updates source.
+      verified: "2026-09-09"
+    - id: "SRC071"
+      topic: "Google structured data features"
+      url: "https://developers.google.com/search/docs/appearance/structured-data/search-gallery"
+      usedFor: >-
+        2.7, 4.6, 7.9: select currently supported features and follow the relevant individual guidance; vocabulary validity alone is not feature support.
+      verified: "2026-09-09"
+- id: "2.8"
+  phase: 2
+  phaseLabel: "2 — Pre-launch config"
+  priority: P1
+  profile: core
+  launchGate: false
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Social metadata
+  whatToDo: >-
+    For chosen sharing platforms, implement the basic Open Graph properties og:title, og:type, og:image and og:url. Add an accurate og:description where useful and any extra properties required by the chosen object type. Verify the actual public URL and image fetch. Configure additional platform cards only when selected, using current provider requirements.
+  doneWhen: >-
+    The chosen Open Graph object has accurate required properties and accessible preview assets. Test an actual share preview where available and record the URL, result and any provider limitation. Additional platform-card requirements are verified before declaring that optional implementation Passed.
+  owners: ["developer", "designer"]
+  ownerSource: >-
+    Developer + designer
+  tools: >-
+    Open Graph debugger; social preview tools
+  cadence:
+    triggers: []
+    source: >-
+      Launch + new landing pages
+  notes: >-
+    Purpose: optional enhancement. Source IDs: SRC108. SRC-L01: og:type was missing from the earlier list. Current exact X Cards field requirements remain unverified because the legacy official URL redirects to a general overview; this does not establish withdrawal of the feature.
+  automation: automated
+  remediationClass: config
+  detectors: ["social-metadata"]
+  sources:
+    - id: "SRC108"
+      topic: "Open Graph protocol"
+      url: "https://ogp.me/"
+      usedFor: >-
+        2.8: the basic required properties are og:title, og:type, og:image and og:url; og:description is optional recommended metadata. Additional properties depend on the chosen object type.
+      verified: "2026-09-10"
+- id: "2.9"
+  phase: 2
+  phaseLabel: "2 — Pre-launch config"
+  priority: P2
+  profile: extended
+  launchGate: false
+  applicability:
+    universal: false
+    any: ["ai-policy"]
+    source: >-
+      Sites with an approved AI crawler policy
+  task: >-
+    Implement and verify optional AI crawler directives
+  whatToDo: >-
+    Implement the approved 0.6 register in supported robots, Search Console and edge controls. Distinguish OAI-SearchBot (search), GPTBot (training) and ChatGPT-User (user fetch); Claude-SearchBot, ClaudeBot and Claude-User; and PerplexityBot versus Perplexity-User. Verify each provider's current scope and identity method. Test permitted and denied rules, label custom-UA probes as simulations, and use trusted logs for genuine requests. Keep robots accessible to compliant crawlers; never grant private access solely from a user-agent string.
+  doneWhen: >-
+    Selected settings and observed behavior match the approved purposes and paths. Evidence separates rule simulations from identity-verified requests and marks unobserved behavior with an owner/follow-up. Google-Extended is tested as a product token, not a fictitious fetcher. User-directed retrieval may differ: OpenAI says robots may not apply to ChatGPT-User; Perplexity-User generally ignores it; Anthropic documents robots compliance for its bots. Robots and preview directives are not access control.
+  owners: ["developer", "seo"]
+  ownerSource: >-
+    Developer + SEO
+  tools: >-
+    Provider documentation/register; SC effective settings; rule probes; provider identity verification; trusted logs
+  cadence:
+    triggers: ["on-change"]
+    source: >-
+      Before selected policy goes live; after provider, CDN/WAF or policy changes
+  notes: >-
+    Purpose: security/governance; optional enhancement. H02/D05. Preserve public-search access QA in 4.2/5.1. Apply each provider's current IP/DNS method; no generic Google identity test. For Bing, verify selected directives under Bing documentation; data-nosnippet excludes marked text from its snippets/AI summaries while retaining indexing. Sources: OpenAI crawlers; Anthropic bots; Perplexity crawlers; Bing snippet controls. Source IDs: SRC002; SRC018; SRC050; SRC084; SRC085; SRC086; SRC089.
+  automation: assisted
+  remediationClass: config
+  detectors: ["ai-crawler-directive-verify"]
+  sources:
+    - id: "SRC002"
+      topic: "OpenAI crawlers"
+      url: "https://developers.openai.com/api/docs/bots"
+      usedFor: >-
+        0.6/2.9: independent OAI-SearchBot search and GPTBot training controls, user-directed ChatGPT-User whose requests may not follow robots, current provider identity evidence.
+      verified: "2026-09-09"
+    - id: "SRC018"
+      topic: "Search AI control"
+      url: "https://support.google.com/webmasters/answer/16908024?hl=en"
+      usedFor: >-
+        0.6/2.9: worldwide 2026-08-31 announcement, effective inherited/overridden property choice, specific Search AI inclusion scope distinct from training and other Search ranking.
+      verified: "2026-09-09"
+    - id: "SRC050"
+      topic: "Verify Google crawler requests"
+      url: "https://developers.google.com/crawling/docs/crawlers-fetchers/verify-google-requests"
+      usedFor: >-
+        1.7,2.9,5.5,2.15: genuine crawler identity differs from synthetic user-agent probes; use documented DNS/IP methods before trusting crawler-only access.
+      verified: "2026-09-09"
+    - id: "SRC084"
+      topic: "Google common crawlers"
+      url: "https://developers.google.com/crawling/docs/crawlers-fetchers/google-common-crawlers"
+      usedFor: >-
+        0.6/2.9: Google-Extended is a product token without a separate HTTP UA, with specified Gemini training/grounding scope and no ordinary Google Search inclusion/ranking effect.
+      verified: "2026-09-09"
+    - id: "SRC085"
+      topic: "Anthropic bots"
+      url: "https://support.claude.com/en/articles/8896518-does-anthropic-crawl-data-from-the-web-and-how-can-site-owners-block-the-crawler"
+      usedFor: >-
+        0.6/2.9: ClaudeBot training, Claude-SearchBot search and Claude-User user-directed retrieval, with provider-documented robots compliance and identity guidance.
+      verified: "2026-09-09"
+    - id: "SRC086"
+      topic: "Perplexity crawlers"
+      url: "https://docs.perplexity.ai/docs/resources/perplexity-crawlers"
+      usedFor: >-
+        0.6/2.9: PerplexityBot search versus Perplexity-User requested fetches that generally ignore robots; current identity/IP guidance, no inferred training scope.
+      verified: "2026-09-09"
+    - id: "SRC089"
+      topic: "Bing snippet controls"
+      url: "https://blogs.bing.com/webmaster/October-2025/Bing-Introduces-Support-for-the-data-nosnippet-HTML-Attribute"
+      usedFor: >-
+        2.9/5.8: Bing data-nosnippet suppresses marked content in snippets/AI summaries while keeping it indexable; verify provider-specific directives rather than copying Google semantics.
+      verified: "2026-09-09"
+- id: "2.10"
+  phase: 2
+  phaseLabel: "2 — Pre-launch config"
+  priority: P2
+  profile: extended
+  launchGate: false
+  applicability:
+    universal: false
+    any: ["indexnow"]
+    source: >-
+      Sites prioritizing IndexNow search engines
+  task: >-
+    IndexNow submission
+  whatToDo: >-
+    If selected, notify currently participating IndexNow engines of added, materially updated and deleted URLs through publish/unpublish workflows. Verify host ownership, public key-file content/location and permitted URL scope. Test 200 receipt, 202 pending key validation and documented error responses; correct invalid requests and back off safely on rate limits. Check current participants instead of hard-coding an engine list. Maintain normal crawlable links and valid sitemaps, including for Google.
+  doneWhen: >-
+    Add, update and deletion events send the intended in-scope URLs without persistent retry loops. Keys and host/path scope validate; receipt, pending validation and failures are logged distinctly with a follow-up owner. Successful notification is not evidence of crawling or indexing. No IndexNow integration is required if this optional scope is excluded.
+  owners: ["developer"]
+  ownerSource: >-
+    Developer
+  tools: >-
+    IndexNow API; Bing Webmaster Tools
+  cadence:
+    triggers: ["on-change"]
+    interval: monthly
+    source: >-
+      Publish/unpublish events if adopted; after key/host changes; monthly failure review
+  notes: >-
+    Purpose: indexing/discovery; optional enhancement. C16. Optional discovery notification, including deletions. Google discovery also uses links and other mechanisms; it is not sitemap-only. Source: IndexNow protocol documentation. Source IDs: SRC017.
+  automation: assisted
+  remediationClass: config
+  detectors: ["indexnow-integration"]
+  sources:
+    - id: "SRC017"
+      topic: "IndexNow"
+      url: "https://www.indexnow.org/documentation"
+      usedFor: >-
+        2.10: added/updated/deleted notifications, host/key/path validation,200 receipt versus 202 pending verification and error handling; current participating engines share notifications, not indexing guarantees.
+      verified: "2026-09-09"
+- id: "2.11"
+  phase: 2
+  phaseLabel: "2 — Pre-launch config"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: false
+    any: ["ecommerce"]
+    source: >-
+      E-commerce / product catalogue
+  task: >-
+    Product, merchant and variant configuration by scope
+  whatToDo: >-
+    Record separate decisions for direct sales, product information, variants, chosen product markup, Merchant Center and checkout. Configure applicable prices, availability, currency, genuine identifiers, shipping/returns and variant URLs from the actual catalogue. Use Product snippets or merchant listing requirements for the intended surface; merchant listings require on-site purchase. Link selected feed/page/markup sources and test their agreement. Never fabricate ratings or present business testimonials as product reviews.
+  doneWhen: >-
+    Every submodule decision is resolved and applicable configuration is accurate. Selected variants have stable unique identities and directly selectable URLs showing the correct state. Shipped markup passes 4.6 and multiple data sources agree. Absent checkout/feed/optional markup does not fail a module that explicitly excludes it. Review authenticity and destination rules are recorded under 3.13/7.6; no fabricated review data is accepted.
+  owners: ["developer", "business"]
+  ownerSource: >-
+    Developer + business
+  tools: >-
+    Catalogue/source data; applicable feature validator; Merchant Center if used; page/feed comparison
+  cadence:
+    triggers: ["before-launch"]
+    source: >-
+      Before launch; every catalogue/template change
+  notes: >-
+    Purpose: search-feature eligibility; security/governance; legal/accessibility. C10. Conditional commercial accuracy and chosen-feature configuration. Product snippets, merchant listings and Merchant Center are distinct decisions. Follow the chosen single-page or multi-page ProductGroup canonical model; do not force all variants to one canonical. Sources: Product structured data; Merchant listing requirements; Product variants. Source IDs: SRC072; SRC073; SRC074; SRC083.
+  automation: assisted
+  remediationClass: code
+  detectors: ["product-schema", "merchant-feed-parity"]
+  sources:
+    - id: "SRC072"
+      topic: "Product structured data"
+      url: "https://developers.google.com/search/docs/appearance/structured-data/product"
+      usedFor: >-
+        2.11,4.10: distinct product snippets, merchant listings and Merchant Center choices; accuracy and chosen-surface requirements.
+      verified: "2026-09-09"
+    - id: "SRC073"
+      topic: "Merchant listing requirements"
+      url: "https://developers.google.com/search/docs/appearance/structured-data/merchant-listing"
+      usedFor: >-
+        2.11,4.10: purchasable product pages, offer data, currency-specific URLs and required versus recommended properties; not every catalogue has checkout.
+      verified: "2026-09-09"
+    - id: "SRC074"
+      topic: "Product variants"
+      url: "https://developers.google.com/search/docs/appearance/structured-data/product-variants"
+      usedFor: >-
+        2.11,4.10: variant/group IDs, direct variant selection, correct image/offer/cart state and distinct single-page versus multi-page canonical models.
+      verified: "2026-09-09"
+    - id: "SRC083"
+      topic: "Review snippet guidelines"
+      url: "https://developers.google.com/search/docs/appearance/structured-data/review-snippet"
+      usedFor: >-
+        2.11,3.13,4.6,7.6: visible genuine item-specific reviews; no imported aggregates; self-serving Organization/LocalBusiness star restriction includes widgets and is distinct from eligible Product reviews.
+      verified: "2026-09-09"
+- id: "2.12"
+  phase: 2
+  phaseLabel: "2 — Pre-launch config"
+  priority: P1
+  profile: core
+  launchGate: false
+  applicability:
+    universal: false
+    any: ["local-business"]
+    source: >-
+      Local businesses
+  task: >-
+    Google Business Profile and local entity setup
+  whatToDo: >-
+    Confirm Business Profile eligibility before creating or claiming a listing. Use the real business name, eligible customer-facing location or service area, correct address visibility and controlled ownership. Resolve duplicates under current location/practitioner rules. Keep hours, categories, contact details and the corresponding location page accurate. Use a tagged website link only under the measurement policy.
+  doneWhen: >-
+    The eligibility decision and accountable owner are recorded. Eligible profile configuration and location-page details agree. Record actual verification state and open dependencies with an owner and next check; do not label pending verification complete. Ineligible businesses do not create a profile. Profile verification is not a universal website-launch dependency.
+  owners: ["business", "seo"]
+  ownerSource: >-
+    Business / SEO
+  tools: >-
+    Google Business Profile
+  cadence:
+    triggers: ["on-change"]
+    windowDays: 30
+    source: >-
+      Eligibility before listing creation; launch/first 30 days follow-up; after business changes
+  notes: >-
+    Purpose: search-feature eligibility; optional enhancement. C11. Conditional local presence, not a universal gate. Business eligibility and exceptions follow current Google Business Profile rules. Review solicitation is governed separately under 3.13/7.6. Source: Business Profile representation guidelines. Source IDs: SRC075.
+  automation: assisted
+  remediationClass: config
+  detectors: ["gbp-setup"]
+  sources:
+    - id: "SRC075"
+      topic: "Business Profile representation guidelines"
+      url: "https://support.google.com/business/answer/3038177?hl=en"
+      usedFor: >-
+        2.12: eligibility before listing creation; real name/location/service area, address visibility, ownership and duplicate/location exceptions.
+      verified: "2026-09-09"
+- id: "2.13"
+  phase: 2
+  phaseLabel: "2 — Pre-launch config"
+  priority: P2
+  profile: core
+  launchGate: false
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Favicon, site name and search identity
+  whatToDo: >-
+    Reference a stable, brand-representative square favicon from the homepage; the image may be on a CDN. Use a current supported format such as PNG/ICO, at least 8x8px and preferably larger than 48x48px. Allow Googlebot access to the homepage and Googlebot-Image access to the asset. Provide consistent WebSite name/url data on the eligible domain/subdomain homepage; reuse the existing WebSite node and align visible brand signals.
+  doneWhen: >-
+    The homepage references the intended accessible favicon with a supported format and square dimensions meeting the minimum. Site-name data uses the canonical homepage URL and consistent identity. Check relevant duplicate homepages for consistent data. A separate subdirectory search site name is not promised, and lack of chosen display is not proof of invalid implementation.
+  owners: ["developer", "designer", "seo"]
+  ownerSource: >-
+    Developer + designer + SEO
+  tools: >-
+    Browser; Rich Results/schema validator; robots test; Search Console
+  cadence:
+    triggers: ["before-launch", "on-change"]
+    source: >-
+      Before launch; after brand/domain changes
+  notes: >-
+    Purpose: search-feature eligibility; optional enhancement. C15. Optional search-identity enhancement, not a launch requirement or ranking promise. One favicon is supported per hostname; site-name scope is domain/subdomain, with www/m generally treated as equivalent. A larger-than 48x48 favicon is a recommendation, not the 8x8 minimum. Sources: Favicon in Search; Site names. Source IDs: SRC022; SRC023.
+  automation: automated
+  remediationClass: config
+  detectors: ["favicon-site-name"]
+  sources:
+    - id: "SRC022"
+      topic: "Favicon in Search"
+      url: "https://developers.google.com/search/docs/appearance/favicon-in-search"
+      usedFor: >-
+        2.13: CDN permitted; supported formats, square 8x8 minimum and recommendation above 48x48; homepage/asset crawler access and hostname scope.
+      verified: "2026-09-09"
+    - id: "SRC023"
+      topic: "Site names"
+      url: "https://developers.google.com/search/docs/appearance/site-names"
+      usedFor: >-
+        2.13: WebSite name/url on eligible domain/subdomain homepage, consistent duplicates and signals, reuse existing node; no separate subdirectory site names.
+      verified: "2026-09-09"
+- id: "2.14"
+  phase: 2
+  phaseLabel: "2 — Pre-launch config"
+  priority: P1
+  profile: extended
+  launchGate: false
+  applicability:
+    universal: false
+    any: ["video"]
+    source: >-
+      Sites where indexable video is a primary content asset
+  task: >-
+    Video search and watch-page optimization
+  whatToDo: >-
+    For selected video-search goals, provide a dedicated watch page whose main purpose is one video, with unique title/context and a prominent discoverable playable player. Check intended indexability, stable accessible thumbnails/video resources and accurate eligible VideoObject. Validate third-party embed access where used. Use a video sitemap when useful, with the watch-page URL as loc and correct video/player/thumbnail fields. Assign post-launch indexing/performance review.
+  doneWhen: >-
+    Selected watch-page templates expose the intended playable main video and required accessible resources without a user action needed for discovery. Chosen markup/feed validates and agrees with the video. A product/article page with supplemental video is not claimed as a dedicated watch page. Record indexed evidence when available after launch; unavailable field data or lack of feature display is not invented as a pass.
+  owners: ["developer", "content", "seo"]
+  ownerSource: >-
+    Content + developer + SEO
+  tools: >-
+    Rich Results Test; video sitemap; Search Console; crawler
+  cadence:
+    triggers: ["before-launch"]
+    source: >-
+      Before launch for video templates; review when publishing video
+  notes: >-
+    Purpose: search-feature eligibility; optional enhancement. H06. Conditional video-feature enhancement; adoption remains nongating. Ordinary pages with complementary video can still appear as text results. Template implementation and actual video indexing/display are separate. Source: Video SEO. Source IDs: SRC026.
+  automation: automated
+  remediationClass: code
+  detectors: ["video-watch-page", "videoobject-schema", "video-sitemap"]
+  sources:
+    - id: "SRC026"
+      topic: "Video SEO"
+      url: "https://developers.google.com/search/docs/appearance/video"
+      usedFor: >-
+        2.14: dedicated main-video watch page, discoverable player/resources, third-party access, accurate structured data and optional sitemap; supplemental video differs.
+      verified: "2026-09-09"
+- id: "2.15"
+  phase: 2
+  phaseLabel: "2 — Pre-launch config"
+  priority: P0
+  profile: extended
+  launchGate: true
+  applicability:
+    universal: false
+    any: ["paywall"]
+    source: >-
+      Sites with paywalled or registration-gated publishing, whether indexed or deliberately excluded
+  task: >-
+    Paywall, registration and gated-content indexing
+  whatToDo: >-
+    Approve the intended indexing, sampling and access model for gated publishing. Test authorized readers, logged-out clients and verified eligible crawlers against that policy, including raw/rendered responses, APIs and shared caches. For indexed paywalled content use accurate isAccessibleForFree=false; apply hasPart/cssSelector for relevant section granularity and record recommended-property decisions. Private account data requires real authorization; a Googlebot-like user agent must never grant private access.
+  doneWhen: >-
+    Observed reader/crawler access and previews match approved policy. Indexed paywall markup meets required properties and chosen section selectors match actual content. Deliberately excluded publishing follows 1.8; noindex alone does not protect private data. No unauthorized private content is exposed through page, API or cache responses. Resolve and retest blocking defects before this gate passes.
+  owners: ["developer", "business", "content", "legal"]
+  ownerSource: >-
+    Developer + content + legal/business
+  tools: >-
+    URL Inspection; Rich Results/schema validator; crawler; access-control tests
+  cadence:
+    triggers: ["before-build", "on-change"]
+    source: >-
+      Before gated content launches; after access-model changes
+  notes: >-
+    Purpose: indexing/discovery; security/governance. C17. Conditional gate protecting private data and intended search access. Keep public paid-publishing access distinct from private user accounts. Googlebot identity is verified under 1.7; labels or user-agent probes alone are insufficient. Sources: Paywalled content; Verify Google crawler requests. Source IDs: SRC028; SRC050.
+  automation: assisted
+  remediationClass: structural
+  detectors: ["paywall-access-model"]
+  sources:
+    - id: "SRC028"
+      topic: "Paywalled content"
+      url: "https://developers.google.com/search/docs/appearance/structured-data/paywalled-content"
+      usedFor: >-
+        2.15: intended crawler access to indexed paid content; required isAccessibleForFree and recommended section granularity; access and preview choices.
+      verified: "2026-09-09"
+    - id: "SRC050"
+      topic: "Verify Google crawler requests"
+      url: "https://developers.google.com/crawling/docs/crawlers-fetchers/verify-google-requests"
+      usedFor: >-
+        1.7,2.9,5.5,2.15: genuine crawler identity differs from synthetic user-agent probes; use documented DNS/IP methods before trusting crawler-only access.
+      verified: "2026-09-09"
+- id: "2.16"
+  phase: 2
+  phaseLabel: "2 — Pre-launch config"
+  priority: P2
+  profile: extended
+  launchGate: false
+  applicability:
+    universal: false
+    any: ["discover"]
+    source: >-
+      Sites selecting Discover presentation or an optional Preferred Sources user flow
+  task: >-
+    Discover presentation and Preferred Sources decision
+  whatToDo: >-
+    Review Discover content policies for any selected content, whether or not the site is a conventional publisher. Use accurate previews and the image decisions in 2.3. Discover eligibility requires Google indexing and policy compliance, without special tags/schema. Separately check whether the domain/subdomain appears in the Preferred Sources selection tool. If chosen, implement and test a supported button/link that lets users select the actual site; do not promise a separate subdirectory source.
+  doneWhen: >-
+    Selected templates have accurate previews and documented policy/image decisions. Record actual indexed evidence or a post-launch follow-up when unavailable. Preferred Sources adoption and current eligibility are recorded separately; an absent optional button or lack of source availability is not a launch failure. An implemented flow targets the intended site. Eligibility and user choice do not guarantee traffic or general ranking gains.
+  owners: ["developer", "audience", "content", "seo"]
+  ownerSource: >-
+    Content + developer + audience/SEO
+  tools: >-
+    Search Central docs; page metadata; Search Console
+  cadence:
+    triggers: []
+    interval: quarterly
+    windowDays: 30
+    source: >-
+      Before selected presentation launches; first 30 days indexing follow-up; quarterly and feature changes
+  notes: >-
+    Purpose: search-feature eligibility; optional enhancement. H06. Optional discovery/audience module, distinct from news 2.18. Discover can include useful older and nonpublisher content. Preferred Sources is a user preference whose supported surfaces/availability need dated verification. Sources: Discover; Preferred Sources. Source IDs: SRC025; SRC032.
+  automation: assisted
+  remediationClass: content
+  detectors: ["publisher-discover-readiness"]
+  sources:
+    - id: "SRC025"
+      topic: "Discover"
+      url: "https://developers.google.com/search/docs/appearance/google-discover"
+      usedFor: >-
+        2.3,2.16: indexed/policy eligibility beyond publishers, no special markup, recommended image dimensions/crops/large previews and no appearance guarantee.
+      verified: "2026-09-09"
+    - id: "SRC032"
+      topic: "Preferred Sources"
+      url: "https://developers.google.com/search/docs/appearance/preferred-sources"
+      usedFor: >-
+        2.16: optional user selection, current domain/subdomain eligibility and supported button/link; no distinct subdirectory source or guaranteed general ranking benefit.
+      verified: "2026-09-09"
+- id: "2.17"
+  phase: 2
+  phaseLabel: "2 — Pre-launch config"
+  priority: P1
+  profile: core
+  launchGate: false
+  applicability:
+    universal: false
+    any: ["hierarchical"]
+    source: >-
+      Sites with hierarchical content or category structures
+  task: >-
+    Breadcrumb navigation and BreadcrumbList markup
+  whatToDo: >-
+    Provide visible, crawlable breadcrumbs representing a useful typical user path; keep linked ancestors aligned with intended canonical URLs. Do not merely mirror URL strings or invent hierarchy. Where BreadcrumbList is used, match the visible trail and validate at least two correctly ordered ListItems, names and required links. Google permits the last item to omit item; home/current-page crumbs are not automatically required.
+  doneWhen: >-
+    Selected hierarchical templates have usable navigation and working canonical ancestor links. Shipped BreadcrumbList matches the visible hierarchy and relevant required properties; positions/names/links are correct on tested states. A permitted last-item link omission is accepted. Record eligibility separately from actual search display.
+  owners: ["developer", "designer", "seo"]
+  ownerSource: >-
+    Developer + designer + SEO
+  tools: >-
+    Rich Results Test; crawler; accessibility QA; Sources sheet
+  cadence:
+    triggers: ["before-launch", "on-change"]
+    source: >-
+      Before launch for hierarchical templates; after navigation changes
+  notes: >-
+    Purpose: indexing/discovery; search-feature eligibility. E04. Retain this existing conditional nongate control. Google's breadcrumb feature is available on desktop; that does not restrict useful on-page navigation to desktop. No guaranteed display or ranking benefit. Source: Breadcrumb navigation. Source IDs: SRC036.
+  automation: automated
+  remediationClass: code
+  detectors: ["breadcrumb-navigation", "breadcrumblist-schema"]
+  sources:
+    - id: "SRC036"
+      topic: "Breadcrumb navigation"
+      url: "https://developers.google.com/search/docs/appearance/structured-data/breadcrumb"
+      usedFor: >-
+        2.17: actual useful hierarchy, at least two ordered ListItems, required properties and last-item exception; current Google feature is desktop only.
+      verified: "2026-09-09"
+- id: "2.18"
+  phase: 2
+  phaseLabel: "2 — Pre-launch config"
+  priority: P1
+  profile: extended
+  launchGate: true
+  applicability:
+    universal: false
+    any: ["news"]
+    source: >-
+      News publishers with a news programme in the release scope
+  task: >-
+    News publishing policy and news sitemap QA
+  whatToDo: >-
+    Record publisher/company/contact details, accountable bylines and accurate original publication dates. Distinguish editorial work from advertising and disclose material sponsorship. Test current Google News policy requirements for the selected programme. If a news sitemap is used, update it as articles publish; include news metadata only for the last two days and at most 1,000 news entries per file. Validate publication name/language, original publication date and article title.
+  doneWhen: >-
+    The news-policy review and tested article templates match accountable publishing and clear sponsorship. A selected news feed validates, dates are original and aged entries/news metadata are removed while appropriate normal sitemap coverage remains. An intentionally empty feed is acceptable. No news sitemap or AMP is required for ordinary websites. Unresolved applicable policy or implemented-feed defects block this module; Google News inclusion is not guaranteed.
+  owners: ["developer", "business", "content", "seo"]
+  ownerSource: >-
+    Editor + publisher + developer + SEO
+  tools: >-
+    News-policy review; article/source inspection; news sitemap validator; Search Console when available
+  cadence:
+    triggers: []
+    windowDays: 30
+    source: >-
+      Before news programme launch; each publication/feed change; first 30 days monitoring
+  notes: >-
+    Purpose: search-feature eligibility; security/governance. D04. Conditional news-policy/implemented-feed gate, separate from Discover 2.16. This is the site's release dependency for its chosen news programme, not a universal Google Search ranking prerequisite. Sources: Google News policies; News sitemaps. Source IDs: SRC076; SRC077.
+  automation: assisted
+  remediationClass: code
+  detectors: ["news-sitemap", "news-article-policy"]
+  sources:
+    - id: "SRC076"
+      topic: "Google News policies"
+      url: "https://support.google.com/news/publisher-center/answer/6204050?hl=en"
+      usedFor: >-
+        2.18: accountable publisher, company/authors/contact, clear dates/bylines, sponsorship disclosure and news-surface policy eligibility.
+      verified: "2026-09-09"
+    - id: "SRC077"
+      topic: "News sitemaps"
+      url: "https://developers.google.com/search/docs/crawling-indexing/sitemaps/news-sitemap"
+      usedFor: >-
+        2.18: optional news feed; last-two-days metadata, at most 1,000 news entries per file, original publication dates and required publication/language/title; intentional empty feed allowed.
+      verified: "2026-09-09"

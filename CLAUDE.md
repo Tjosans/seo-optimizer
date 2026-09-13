@@ -6,10 +6,10 @@ Read [`ROADMAP.md`](./ROADMAP.md) first — it holds the phase list, what is don
 
 ## What is this?
 
-seo-optimizer is an SEO launch-readiness auditor. It crawls a site, runs it against a versioned corpus of 97 checks across 8 corpus phases, and grades what launched. The system is a pipeline of independent packages:
+seo-optimizer is an SEO launch-readiness auditor. It crawls a site, runs it against a versioned corpus of checks — v5.0, 98 checks across 8 corpus phases, is the current one — and grades what launched. The system is a pipeline of independent packages:
 
 - **@seo/core** — types for checks, check state, readiness scoring, and the site inputs a person supplies (AI crawler policy)
-- **@seo/corpus** — loader for the v4.4 check corpus (YAML phases 0-7, source TSV)
+- **@seo/corpus** — loader for the versioned check corpus (YAML phases 0-7, source TSV); `CURRENT_CORPUS_VERSION` names the methodology the detectors follow (5.0), and v4.4 stays on disk so audits pinned to it can be re-graded
 - **@seo/crawler** — site crawler respecting robots.txt, redirect chains, sitemaps (and the video entries they declare), flagging any response body it had to cut; stops between requests on a caller's signal; makes the auxiliary requests probes are not allowed to make themselves
 - **@seo/probes** — 11 detector categories (accessibility, commerce, content, delivery, facets, indexability, markup, media, metadata, site, video)
 - **@seo/persistence** — sink that streams crawls and probe runs into Postgres
@@ -117,10 +117,13 @@ Key scripts:
 
 - **The YAML is the source of record.** `corpus/v<version>/*.yaml` is what the engine reads and what you edit. The TSV under `corpus/source/` is the workbook's provenance record, and it is the source for exactly one event: the first compile of a version.
 - **A methodology revision is a new version directory**, compiled from a new export: `npm run corpus:compile -- 4.5 --reviewed 2026-09-07`. Never a re-compile over a live one — a delivered report pins `audits.corpusVersion` and has to keep explaining itself afterwards.
-- **Every row needs a triage entry.** `scripts/triage.ts` maps check id to `[automation tier, remediation class, detector ids]` and requires sign-off; the compiler exits non-zero and names any untriaged row. The current table is signed off against v4.4 only.
+- **Every row needs a triage entry.** `scripts/triage.ts` holds one table per version, mapping check id to `[automation tier, remediation class, detector ids]`, and `triageFor(version)` is what the compiler reads; it exits non-zero and names any untriaged row, and refuses a version with no table. v4.4's table is signed off; v5.0's is drafted and awaiting the maintainer's sign-off (ROADMAP Phase 3).
+- **Citations resolve by stable id from v5.0 on.** Notes say "Source IDs: SRC006; SRC040" and the Sources export carries the id in column E; an id the Sources sheet does not hold fails the compile. v4.4's "See Sources: X" topic match is kept for older exports.
+- **Detectors follow the current methodology, not the version an audit pins.** Adopting a new version means changing `CURRENT_CORPUS_VERSION` and bringing the detectors to its wording. An older audit stays explainable because its probe results are stored and re-gradable; a new crawl is judged by the detectors as they are now.
+- **A check id means what the current workbook says it means.** v5.0 gave 3.9 a new requirement (batch and AI-generated publishing), so the two content detectors that read authorship, dates and answer structure moved with their subject into 3.5.
 - **Every "Applies to" wording needs a mapping** in the compiler's `APPLICABILITY` table, or the row compiles as `UNMAPPED` and the loader refuses it.
 - **`manifest.yaml` carries `checkCount`**, and `loadCorpus` throws when it disagrees with the files. Editing checks by hand means editing that number.
-- **Tests follow automatically.** `packages/corpus/test/corpus.test.ts` discovers every `corpus/v*` directory and applies the structural invariants to each; `provenance.test.ts` is frozen to v4.4 and its workbook, and must not be edited when the corpus grows.
+- **Tests follow automatically.** `packages/corpus/test/corpus.test.ts` discovers every `corpus/v*` directory and applies the structural invariants to each; `provenance.test.ts` is frozen to v4.4 and `provenance-v5.0.test.ts` to v5.0, each against its own workbook, and neither is edited when the corpus grows.
 - **Adding a detector needs no migration.** Write the probe, add it to its category array in `packages/probes/src/probes/`, and the matrix test will fail if no corpus check declares its id. `probe_results.probeId` is text, and the grader defaults to whatever the registry holds.
 - **A site's AI crawler policy is an input, not an observation.** `sites.aiPolicy` (jsonb) holds `{ agents: { GPTBot: 'disallow', … }, approvedAt, approvedBy }` — see `AiCrawlerPolicy` in @seo/core. Nothing observable can stand in for it: a site that wants to be in AI answers and one that wants to be out look identical from outside. `ai-crawler-directive-verify` is `not-applicable` without one, and `submit()` refuses a malformed one before it writes the audit row. Agent names are text keys because new crawlers appear faster than a migration should.
 
@@ -132,7 +135,7 @@ Key scripts:
 - A machine may **fail** a check; only an `automated` check may be **passed** by one. `assisted` means the engine proposes and a person confirms.
 - A detector that is unimplemented, errored, or observed nothing leaves the check `not-started` / `unknown`. Missing evidence is never good news, and never bad news either.
 - Scope comes from `sites.flags`: an empty profile leaves conditional checks at `review`; a filled-in one narrows non-matching checks to `no` with a written rationale.
-- Only 54 of the corpus's 128 detectors exist, so today 23 of 41 automated checks can be graded end to end and most audits come back mostly ungraded. That is the honest answer, not a bug. `npm run probes:matrix` prints the current figure; do not quote one from memory.
+- Only 54 of v5.0's 134 detectors exist, so today 17 of 26 automated checks can be graded end to end and most audits come back mostly ungraded. That is the honest answer, not a bug. `npm run probes:matrix` prints the current figure; do not quote one from memory.
 - A row a human attested is never overwritten by a re-grade, and it counts in the frozen readiness.
 
 ### Guarantees the sink relies on
@@ -151,25 +154,25 @@ Together these let the sink resolve `discoveredFromId` from an in-memory map. Br
 
 ### Two detectors can share a subject without sharing a question
 
-International is the worked example, and the pattern generalises. `hreflang-cluster-qa` (4.9) reads the crawl as a whole and asks whether the pages agree with each other — reciprocity, self-references, targets the crawl reached. `hreflang-implementation` (1.14) asks whether what they agree on names anything: ISO 639-1 for the language, ISO 3166-1 alpha-2 for the region, one URL per locale, absolute hrefs. A cluster can be flawlessly reciprocal and completely inert because every page in it reciprocates `en-UK`, so folding the two together would let each hide the other's finding. `locale-canonical` (1.14) is the third: whether a page the cluster names is allowed to be indexed as itself, which is the one instruction that outranks every annotation on the site. It fails a non-self canonical where the general `canonicalization` detector only warns, because pointing elsewhere is legitimate for a known duplicate and never legitimate for a locale.
+International is the worked example, and the pattern generalises. `hreflang-cluster-qa` (4.9) reads the crawl as a whole and asks whether the pages agree with each other — reciprocity, self-references, targets the crawl reached. `hreflang-implementation` (1.14) asks whether what they agree on names anything: ISO 639-1 for the language, ISO 3166-1 alpha-2 for the region, one URL per locale, absolute hrefs. A cluster can be flawlessly reciprocal and completely inert because every page in it reciprocates `en-UK`, so folding the two together would let each hide the other's finding. `locale-canonical` (1.14) is the third: whether a page the cluster names is allowed to be indexed as itself, which is the one instruction that outranks every annotation on the site. It fails a canonical onto another language, where the general `canonicalization` detector only warns, because a translation collapsed into another language is never legitimate. A canonical onto another region of the same language (`en-GB` onto `en-US`) is a `warn`: v5.0 allows that consolidation when the locale plan (0.7) documents it, and only a person holds the plan.
 
 Commerce is the second worked example. `product-variant-canonical` (1.15) asks whether one rule governs which of a product's addresses is the product's; `product-lifecycle-state` (1.15) asks what becomes of that address once the product stops being for sale. A catalogue can hold a flawless canonical rule and still delete every out-of-stock page, or keep every retired product alive at three addresses nobody chose. The two are kept from reporting one fact twice by the route test: a canonical onto a different route is lifecycle consolidation, a canonical onto the same route is variant consolidation.
 
-Video is the third, and the only one where the three detectors split by *artefact* rather than by question. `video-watch-page` (2.14) judges the page a video sits on — indexable, with the player and thumbnail robots.txt actually allows, and with words around the player saying what it is. `videoobject-schema` (2.14) judges the description, and whether it names the video the page plays: markup complete to the last property still describes something else if the embed was swapped. `video-sitemap` (2.14) judges the file that lists the watch pages, and only where the site publishes one — its absence is a decision about discovery that no crawl can second-guess, but a sitemap named `video-sitemap.xml` that 404s is a site that believes it is publishing one.
+Video is the third, and the only one where the three detectors split by *artefact* rather than by question. `video-watch-page` (2.14) judges the page a video sits on — indexable, with the player and thumbnail robots.txt actually allows, and with words around the player saying what it is — unless the page declares itself a product or an article, because v5.0 says a page with supplemental video is not a dedicated watch page. `videoobject-schema` (2.14) judges the description, and whether it names the video the page plays: markup complete to the last property still describes something else if the embed was swapped. `video-sitemap` (2.14) judges the file that lists the watch pages, and only where the site publishes one — its absence is a decision about discovery that no crawl can second-guess, but a sitemap named `video-sitemap.xml` that 404s is a site that believes it is publishing one.
 
 Faceted navigation is the fourth, split into crawl and index. `parameter-crawl-space` (1.12) asks whether the parameter URL space is bounded: session ids in URLs, one filter state at several parameter orders, and a crawl budget spent on permutations of routes already fetched all say it is not. `faceted-nav-control` (1.12) asks whether each filtered page the crawl opened has a decision behind it — self-canonical and distinct from its listing, or noindexed or canonicalized away and kept out of the sitemap. A site can noindex every filter flawlessly and still hand a crawler ten thousand of them. Neither passes on what the crawl did not walk: filter URLs found and left unfetched hold the check with a `warn`, because whether a space closes is only observed by walking it. Pagination, internal search and product variant parameters stay with 1.13, 1.4 and 1.15.
 
-Content is the fifth, split by how many pages a question needs. `answer-first-structure` (3.9) reads one page's reading matter — the main landmark, a lone article, or the body without navigation, asides and page chrome — and asks whether it is signposted and whether every question heading has text beneath it. `author-date-signals` (3.9) reads every page declaring itself an article — a schema.org Article type, or an Open Graph article with a publication time, never `og:type` alone — together, because the failure the corpus names outright, bylines and dates "as site-wide boilerplate", cannot be seen from inside one page: a `dateModified` identical to the second on every article is a build, not an edit. Both fail only what is false on its face, and 3.9 is `assisted`, because whether a page answers its query is a reader's call.
+Content is the fifth, split by how many pages a question needs. Both detectors grade 3.5 under v5.0 (3.9 under v4.4, whose 3.9 v5.0 replaced with batch publishing). `answer-first-structure` reads one page's reading matter — the main landmark, a lone article, or the body without navigation, asides and page chrome — and asks whether it is signposted and whether every question heading has text beneath it. `author-date-signals` reads every page declaring itself an article — a schema.org Article type, or an Open Graph article with a publication time, never `og:type` alone — together, because the failure the corpus names outright, bylines and dates "as site-wide boilerplate", cannot be seen from inside one page: a `dateModified` identical to the second on every article is a build, not an edit. Both fail only what is false on its face, and the check is `assisted` in either version, because whether a page answers its query is a reader's call.
 
 ## Testing
 
-Unit tests (no database needed): `packages/corpus/test/{corpus,provenance,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,fetch,protocol,robots,sitemap,url}.test.ts`, `packages/probes/test/{probes,detectors,facets,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store,lease}.test.ts`, `packages/grader/test/grade.test.ts`, `packages/scheduler/test/{retry,lane}.test.ts`.
+Unit tests (no database needed): `packages/corpus/test/{corpus,provenance,provenance-v5.0,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,fetch,protocol,robots,sitemap,url}.test.ts`, `packages/probes/test/{probes,detectors,facets,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store,lease}.test.ts`, `packages/grader/test/grade.test.ts`, `packages/scheduler/test/{retry,lane}.test.ts`.
 
 Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/{scheduler,recovery,cancel,flags,ai-policy}.test.ts`, `packages/job-store/test/postgres.test.ts`, `packages/grader/test/record.test.ts`.
 
 All tests skip gracefully if `DATABASE_URL` is unset — which means a green local run does not prove the database layer works. `vitest.config.ts` aliases packages to source, so no build step is needed during test.
 
-`provenance.test.ts` is frozen against the v4.4 workbook: 97 checks, phase distribution (9, 19, 17, 13, 12, 8, 9, 10), priority (P0:55, P1:35, P2:7), profile (core:68, extended:29), and the launch-readiness block. Do not update those numbers — a newer methodology is a new version with a provenance file of its own.
+`provenance.test.ts` is frozen against the v4.4 workbook: 97 checks, phase distribution (9, 19, 17, 13, 12, 8, 9, 10), priority (P0:55, P1:35, P2:7), profile (core:68, extended:29), and the launch-readiness block. `provenance-v5.0.test.ts` is frozen against the v5.0 workbook (SHA-256 1165d18b…612a): 98 checks, phases (9, 19, 18, 13, 12, 8, 8, 11), priority (P0:54, P1:35, P2:9), profile (core:68, extended:30), 108 sources, and its final-assessment block; its cutover-readiness block is a `todo` until @seo/core has a second assessment. Do not update those numbers — a newer methodology is a new version with a provenance file of its own.
 
 `corpus.test.ts` runs the version-independent invariants against every `corpus/v*` directory it finds: unique ids, phases in range, the detector/tier contract, conditional checks having a way into scope, and launch-gate semantics. A new version is covered the moment it lands.
 
@@ -194,7 +197,7 @@ It is bypassable with `--no-verify` and is a convenience, not the gate — the r
 ```
 packages/
   core/src/{check,state,readiness,site}.ts
-  corpus/src/{load,flags}.ts
+  corpus/src/{load,flags,current}.ts
   crawler/src/{crawl,extract,fetch,protocol,robots,sitemap,url}.ts
   db/src/{schema,enums,client}.ts  +  migrations/0000-0007
   persistence/src/{crawl-sink,map,probe-results}.ts
@@ -206,8 +209,10 @@ packages/
   testkit/src/{fixture-site,tls-server}.ts
 corpus/
   source/v4.4.tsv                  # immutable workbook export
+  source/v5.0{,-sources,-progress,-how-to-use}.tsv  # v5.0 workbook export
   v4.4/phase-0.yaml … phase-7.yaml # compiled checks (97)
-  v4.4/{manifest,sources}.yaml
+  v5.0/phase-0.yaml … phase-7.yaml # compiled checks (98), the current corpus
+  v{4.4,5.0}/{manifest,sources}.yaml
 scripts/{compile-corpus,probe-matrix,triage}.ts
 ```
 
@@ -222,4 +227,4 @@ scripts/{compile-corpus,probe-matrix,triage}.ts
 
 ## What to pick up next
 
-`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; lease expiry (@seo/job-store, @seo/queue) is in, so a second worker can share a queue namespace, and lanes hold across workers, so two of them never crawl one host together; what remains is detector coverage — 74 of the corpus's 128 detectors are unimplemented, which is the single thing most limiting what an audit can say. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.
+`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; lease expiry (@seo/job-store, @seo/queue) is in, so a second worker can share a queue namespace, and lanes hold across workers, so two of them never crawl one host together; what remains is detector coverage — 80 of v5.0's 134 detectors are unimplemented, which is the single thing most limiting what an audit can say — and the v5.0 workbook's second assessment (READY FOR CUTOVER, evidence classes, review freshness). The v5.0 triage also awaits the maintainer's sign-off. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.

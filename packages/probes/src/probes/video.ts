@@ -34,6 +34,8 @@ import { isAllowed, isSameSite } from '@seo/crawler';
 import type { CrawledPage, Robots } from '@seo/crawler';
 import type { PageProbe, SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
+import { isProductPage } from './commerce.js';
+import { declaresArticle } from './content.js';
 
 const NO_HTML = 'No HTML was parsed for this response.';
 
@@ -218,10 +220,16 @@ const blockedForAgent = (
 /**
  * A watch page: a URL where one video can be found, understood and indexed.
  *
- * Every page carrying a video is judged as a candidate. Which videos are
- * "important" is the corpus's word and a person's decision — a crawl cannot
- * rank a site's own library — so the detector answers the part that does not
- * need ranking: whatever this page's video is, is its page fit to be found.
+ * Corpus v5.0 2.14 defines one as "a dedicated watch page whose main purpose
+ * is one video", and says outright that "a product/article page with
+ * supplemental video is not claimed as a dedicated watch page". So a page that
+ * declares itself a product or an article is not judged here, whatever it
+ * embeds: its video supports the page, and it can still rank as a text result.
+ *
+ * Every other page carrying a video is judged as a candidate. Which videos are
+ * selected for video search is a person's decision — a crawl cannot rank a
+ * site's own library — so the detector answers the part that does not need
+ * ranking: whatever this page's video is, is its page fit to be found.
  */
 export const videoWatchPage: PageProbe = {
   id: 'video-watch-page',
@@ -235,6 +243,12 @@ export const videoWatchPage: PageProbe = {
     const video = videosOn(page);
     if (video.count === 0 && video.nodes.length === 0) {
       return notApplicable('The page plays no video and declares none.');
+    }
+    if (isProductPage(page) || declaresArticle(extracted)) {
+      return notApplicable(
+        `The page declares itself ${isProductPage(page) ? 'a product' : 'an article'}, ` +
+          'so its video supports the page rather than being its main purpose.',
+      );
     }
 
     const data = {

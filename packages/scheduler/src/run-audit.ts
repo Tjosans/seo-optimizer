@@ -19,6 +19,7 @@ import { eq } from 'drizzle-orm';
 import { audits } from '@seo/db';
 import type { Database } from '@seo/db';
 import { CorpusVersionMismatchError, gradeAudit, recordGrade, toEvidence } from '@seo/grader';
+import { simulatableAgents } from '@seo/core';
 import { unknownFlags } from '@seo/corpus';
 import { CrawlCancelledError } from '@seo/crawler';
 import { crawlToDatabase, persistProbeRuns } from '@seo/persistence';
@@ -110,10 +111,11 @@ export async function runAudit(
       options: {
         ...job.options,
         // The crawlers the site has an opinion on are the crawlers worth
-        // arriving as. No policy, no extra requests to anybody's origin.
+        // arriving as. No policy, no extra requests to anybody's origin, and
+        // none under a product token's name, since nothing fetches as one.
         ...(job.aiPolicy === null
           ? {}
-          : { userAgentTests: Object.keys(job.aiPolicy.agents) }),
+          : { userAgentTests: simulatableAgents(job.aiPolicy) }),
         ...(signal === undefined ? {} : { signal }),
       },
     });

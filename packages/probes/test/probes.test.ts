@@ -39,13 +39,15 @@ describe('page probes against a site with known defects', () => {
     expect(on('http-status', '/')).toBe('pass');
   });
 
-  it('fails a redirect chain and only warns about a single hop', () => {
-    expect(on('redirect-chain', '/old')).toBe('fail');
+  // v5.0 1.3: one hop "where feasible", chains "assessed by impact".
+  it('holds a redirect chain for assessment rather than failing it', () => {
+    expect(on('redirect-chain', '/old')).toBe('warn');
     expect(on('redirect-chain', '/')).toBe('pass');
   });
 
-  it('fails a page that declares no canonical', () => {
-    expect(on('canonicalization', '/about')).toBe('fail');
+  // v5.0 1.3: self-canonicals "where appropriate", not on every page.
+  it('warns about a page that declares no canonical', () => {
+    expect(on('canonicalization', '/about')).toBe('warn');
     expect(on('canonicalization', '/')).toBe('pass');
   });
 

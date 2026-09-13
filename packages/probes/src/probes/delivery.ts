@@ -36,8 +36,10 @@ export const redirectChain: PageProbe = {
     const chain = page.fetch.redirectChain;
     if (chain.length === 0) return pass('Reached directly, with no redirect.');
     const hops = chain.map((hop) => ({ from: hop.url, status: hop.status, to: hop.location }));
+    // v5.0 1.3 asks for one hop "where feasible" and has external chains
+    // "assessed by impact", so a chain holds the check for that assessment.
     if (chain.length > 1) {
-      return fail(`Redirect chain of ${chain.length} hops before the final URL.`, { hops });
+      return warn(`Redirect chain of ${chain.length} hops before the final URL.`, { hops });
     }
     return warn('One redirect before the final URL; link to the destination directly.', { hops });
   },

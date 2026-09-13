@@ -340,12 +340,32 @@ describe('locale-canonical', () => {
     expect(runPage('locale-canonical', fr, [en, fr]).outcome).toBe('fail');
   });
 
-  it('fails a locale variant that declares no canonical at all', () => {
+  // v5.0 asks for self-canonicals "where appropriate", not on every page.
+  it('warns about a locale variant that declares no canonical at all', () => {
     const en = localePage('/en/', [['en', '/en/'], ['fr', '/fr/']], '/en/');
     const fr = localePage('/fr/', [['en', '/en/'], ['fr', '/fr/']], null);
     const observation = runPage('locale-canonical', fr, [en, fr]);
-    expect(observation.outcome).toBe('fail');
+    expect(observation.outcome).toBe('warn');
     expect(observation.summary).toMatch(/no rel=canonical/);
+  });
+
+  // v5.0 0.7/1.14: same-language regional consolidation is allowed when the
+  // locale plan documents it, and only a person holds the plan.
+  it('holds, rather than fails, a region canonicalized onto its own language', () => {
+    const cluster: [string, string][] = [['en-US', '/us/'], ['en-GB', '/uk/'], ['fr-FR', '/fr/']];
+    const us = localePage('/us/', cluster, '/us/');
+    const uk = localePage('/uk/', cluster, '/us/');
+    const fr = localePage('/fr/', cluster, '/fr/');
+    const observation = runPage('locale-canonical', uk, [us, uk, fr]);
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toMatch(/same-language "en-US"/);
+  });
+
+  it('still fails a translation canonicalized onto another language', () => {
+    const cluster: [string, string][] = [['en-US', '/us/'], ['fr-FR', '/fr/']];
+    const us = localePage('/us/', cluster, '/us/');
+    const fr = localePage('/fr/', cluster, '/us/');
+    expect(runPage('locale-canonical', fr, [us, fr]).outcome).toBe('fail');
   });
 
   it('fails a canonical that leaves the cluster entirely', () => {
@@ -592,7 +612,8 @@ describe('host-redirect', () => {
     expect(observation.summary).toMatch(/different URLs/);
   });
 
-  it('fails a variant that takes two hops to arrive', () => {
+  // v5.0 1.6: one hop "preferably", with reviewed evidence where not.
+  it('warns about a variant that takes two hops to arrive', () => {
     const variants = goodVariants();
     variants[0] = variant('http://example.com/', {
       finalUrl: `${ORIGIN}/`,
@@ -602,8 +623,25 @@ describe('host-redirect', () => {
       ],
     });
     const observation = runSite('host-redirect', [page({ path: '/' })], [], variants);
-    expect(observation.outcome).toBe('fail');
+    expect(observation.outcome).toBe('warn');
     expect(observation.summary).toMatch(/more than one hop/);
+  });
+
+  // v5.0 1.6 allows an intentional retained duplicate host with consistent
+  // canonical behaviour, as an exception a person evidences.
+  it('holds duplicate hosts that both declare one canonical for a person', () => {
+    const canonicalTag = `<html><head><link rel="canonical" href="${ORIGIN}/"></head></html>`;
+    const variants = goodVariants().map((entry) => ({
+      ...entry,
+      fetch: { ...entry.fetch, body: canonicalTag },
+    }));
+    variants[2] = variant('https://www.example.com/', {
+      finalUrl: 'https://www.example.com/',
+      body: canonicalTag,
+    });
+    const observation = runSite('host-redirect', [page({ path: '/' })], [], variants);
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toMatch(/intentional exception/);
   });
 
   it('fails a variant that answers 5xx', () => {
@@ -777,7 +815,7 @@ describe('favicon-site-name', () => {
 // --- 2.9 ai-crawler-directive-verify ----------------------------------------
 
 const POLICY = {
-  agents: { GPTBot: 'disallow', 'Google-Extended': 'allow' },
+  agents: { GPTBot: 'disallow', 'Google-Extended': 'allow', 'OAI-SearchBot': 'allow' },
   approvedAt: '2026-09-01',
   approvedBy: 'legal@example.com',
 } as const;
@@ -829,8 +867,39 @@ describe('ai-crawler-directive-verify', () => {
     expect(runAi(aiSite(MATCHING_ROBOTS, empty)).outcome).toBe('not-applicable');
   });
 
-  it('fails a site with a policy and no robots.txt to express it', () => {
-    expect(runAi(aiSite(null)).outcome).toBe('fail');
+  it('fails when there is no robots.txt to keep out a crawler the policy excluded', () => {
+    const observation = runAi(aiSite(null));
+    expect(observation.outcome).toBe('fail');
+    expect(observation.data?.['disagreements']).toContainEqual({
+      agent: 'GPTBot',
+      policy: 'disallow',
+      robotsTxt: 'absent (allows all)',
+    });
+  });
+
+  // v5.0 2.1: absence is a policy decision, and it allows everything.
+  it('accepts no robots.txt when the policy allows every crawler it names', () => {
+    const open = { ...POLICY, agents: { 'OAI-SearchBot': 'allow' } };
+    const observation = runAi(aiSite(null, open, [uaTest('OAI-SearchBot', 200)]));
+    expect(observation.outcome).toBe('pass');
+  });
+
+  // v5.0 2.9: "Google-Extended is tested as a product token, not a fictitious fetcher".
+  it('checks a product token in robots.txt alone and expects no request under its name', () => {
+    const tokenOnly = { ...POLICY, agents: { 'Google-Extended': 'disallow' } };
+    const robots = 'User-agent: Google-Extended\nDisallow: /\n';
+    const observation = runAi(aiSite(robots, tokenOnly));
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data?.['productTokens']).toEqual(['Google-Extended']);
+    expect(observation.data?.['simulatedRequests']).toBe(0);
+  });
+
+  it('warns when a user-directed fetcher the policy disallows is still served', () => {
+    const noUsers = { ...POLICY, agents: { 'ChatGPT-User': 'disallow' } };
+    const robots = 'User-agent: ChatGPT-User\nDisallow: /\n';
+    const observation = runAi(aiSite(robots, noUsers, [uaTest('ChatGPT-User', 200)]));
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toMatch(/may not follow robots\.txt/);
   });
 
   it('fails when robots.txt turns away a crawler the policy welcomes', () => {
@@ -858,7 +927,7 @@ describe('ai-crawler-directive-verify', () => {
 
   it('fails when the edge blocks a crawler the policy welcomes', () => {
     const observation = runAi(
-      aiSite(MATCHING_ROBOTS, POLICY, [uaTest('Google-Extended', 403)]),
+      aiSite(MATCHING_ROBOTS, POLICY, [uaTest('OAI-SearchBot', 403)]),
     );
     expect(observation.outcome).toBe('fail');
     expect(observation.summary).toMatch(/turned away at the edge/);
@@ -873,16 +942,114 @@ describe('ai-crawler-directive-verify', () => {
 
   it('passes when robots.txt and the edge both match the policy', () => {
     const observation = runAi(
-      aiSite(MATCHING_ROBOTS, POLICY, [uaTest('GPTBot', 200), uaTest('Google-Extended', 200)]),
+      aiSite(MATCHING_ROBOTS, POLICY, [uaTest('GPTBot', 200), uaTest('OAI-SearchBot', 200)]),
     );
     expect(observation.outcome).toBe('pass');
     expect(observation.data?.['approvedAt']).toBe('2026-09-01');
+    // v5.0 2.9: a user-agent string is a simulation, and the evidence says so.
+    expect(observation.summary).toMatch(/simulated request/);
+    expect(observation.data?.['simulatedRequests']).toBe(2);
   });
 
   it('warns when robots.txt agrees but no user-agent test was run', () => {
     const observation = runAi(aiSite(MATCHING_ROBOTS));
     expect(observation.outcome).toBe('warn');
     expect(observation.summary).toMatch(/edge behaviour is unverified/);
+  });
+});
+
+// --- 2.1 robots-txt and sitemap-validity -------------------------------------
+
+/** A site as the 2.1 detectors see it: robots.txt and sitemap documents. */
+const discoverySite = (over: Partial<CrawlResult> = {}): SiteContext => {
+  const base = siteOf([page({ path: '/' })]);
+  return { ...base, crawl: { ...base.crawl, ...over } };
+};
+
+const readable = (text: string): Partial<CrawlResult> => ({
+  robots: parseRobots(text),
+  robotsTxt: text,
+  robotsStatus: 200,
+});
+
+describe('robots-txt', () => {
+  // v5.0 2.1: "Missing robots.txt is an explicit policy decision".
+  it('holds a site with no robots.txt for a person to record the decision', () => {
+    const observation = siteProbe('robots-txt').run(discoverySite({ robotsStatus: 404 }));
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toMatch(/every URL as allowed/);
+  });
+
+  it('fails a robots.txt that answers a server error', () => {
+    const observation = siteProbe('robots-txt').run(
+      discoverySite({ ...readable('User-agent: *\nDisallow: /\n'), robotsStatus: 503 }),
+    );
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/answers 503/);
+  });
+
+  it('fails a robots.txt that does not answer at all', () => {
+    const observation = siteProbe('robots-txt').run(discoverySite({ robotsStatus: null }));
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/did not answer/);
+  });
+
+  it('passes a readable robots.txt that declares no sitemap, since v5.0 does not ask for one', () => {
+    const observation = siteProbe('robots-txt').run(
+      discoverySite(readable('User-agent: *\nAllow: /\n')),
+    );
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('warns when rules sit past the 500 KiB crawlers read', () => {
+    const huge = `User-agent: *\n${'Disallow: /private-path-that-is-long/\n'.repeat(15_000)}`;
+    const observation = siteProbe('robots-txt').run(discoverySite(readable(huge)));
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toMatch(/500 KiB/);
+  });
+});
+
+describe('sitemap-validity', () => {
+  const doc = (
+    url: string,
+    over: Partial<CrawlResult['sitemaps'][number]> = {},
+  ): CrawlResult['sitemaps'][number] => ({
+    url,
+    status: 200,
+    urlCount: 1,
+    truncated: false,
+    videoCount: 0,
+    ...over,
+  });
+
+  // v5.0 2.1: sitemaps "are not a universal indexing prerequisite".
+  it('holds a site that publishes no sitemap for its omission decision', () => {
+    const observation = siteProbe('sitemap-validity').run(discoverySite());
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toMatch(/No sitemap is published/);
+  });
+
+  it('fails a sitemap robots.txt declares that does not answer', () => {
+    const declared = `${ORIGIN}/sitemap.xml`;
+    const observation = siteProbe('sitemap-validity').run(
+      discoverySite({
+        ...readable(`Sitemap: ${declared}\n`),
+        sitemaps: [doc(declared, { status: 404, urlCount: 0 })],
+      }),
+    );
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/do not answer/);
+  });
+
+  it("fails a sitemap file past the protocol's 50,000 URLs", () => {
+    const observation = siteProbe('sitemap-validity').run(
+      discoverySite({
+        sitemapUrls: [`${ORIGIN}/`],
+        sitemaps: [doc(`${ORIGIN}/sitemap.xml`, { urlCount: 50_001 })],
+      }),
+    );
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/50,000/);
   });
 });
 
@@ -1450,6 +1617,27 @@ describe('video-watch-page', () => {
     expect(runVideoPage('video-watch-page', plain, videoSite([plain])).outcome).toBe(
       'not-applicable',
     );
+  });
+
+  // v5.0 2.14: "A product/article page with supplemental video is not claimed
+  // as a dedicated watch page."
+  it('does not judge a product page as the watch page for its video', () => {
+    const target = watchPage({
+      schema: { '@context': 'https://schema.org', '@type': 'Product', name: 'Blue shirt' },
+      head: '<meta name="robots" content="noindex">',
+    });
+    const observation = runVideoPage('video-watch-page', target, videoSite([target]));
+    expect(observation.outcome).toBe('not-applicable');
+    expect(observation.summary).toMatch(/a product/);
+  });
+
+  it('does not judge an article as the watch page for its video', () => {
+    const target = watchPage({
+      schema: { '@context': 'https://schema.org', '@type': 'NewsArticle', headline: 'How we make it' },
+    });
+    const observation = runVideoPage('video-watch-page', target, videoSite([target]));
+    expect(observation.outcome).toBe('not-applicable');
+    expect(observation.summary).toMatch(/an article/);
   });
 
   it('passes an indexable page with a player, a thumbnail and context', () => {

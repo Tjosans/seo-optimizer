@@ -44,6 +44,10 @@ describe('crawl', () => {
     expect(document?.videoCount).toBe(0);
   });
 
+  it('records the status robots.txt answered with, since absent and unreachable differ', () => {
+    expect(result.robotsStatus).toBe(200);
+  });
+
   it('records the whole redirect chain rather than only the destination', () => {
     const redirected = page('/old');
     expect(redirected?.fetch.status).toBe(200);

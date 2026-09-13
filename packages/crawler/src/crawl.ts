@@ -154,6 +154,15 @@ export interface CrawlResult {
   readonly pages: readonly CrawledPage[];
   readonly robots: Robots;
   readonly robotsTxt: string | null;
+  /**
+   * The HTTP status robots.txt answered with, or null when no response came
+   * back at all. Absent when the crawl did not ask (`respectRobots: false`).
+   *
+   * `robots.absent` cannot tell these apart, and they mean different things: a
+   * 404 is a site with no rules, which crawlers read as "everything allowed",
+   * while a 5xx, a 429 or no answer at all is one crawlers read as "stay out".
+   */
+  readonly robotsStatus?: number | null;
   /** Every URL the site's own sitemaps declare, normalized. */
   readonly sitemapUrls: readonly string[];
   /** Every sitemap document the crawl asked for, in the order it asked. */
@@ -245,7 +254,7 @@ async function loadRobots(
   origin: string,
   options: CrawlOptions,
   request: typeof fetchPage,
-): Promise<{ robots: Robots; text: string | null }> {
+): Promise<{ robots: Robots; text: string | null; status?: number | null }> {
   if (options.respectRobots === false) return { robots: ALLOW_ALL, text: null };
   const result = await request(new URL('/robots.txt', origin).toString(), {
     userAgent: options.userAgent,
@@ -254,10 +263,10 @@ async function loadRobots(
   // A 4xx means no rules exist. A 5xx means the site could not tell us, and
   // the conservative reading — the one Google applies — is to stay out.
   if (result.status !== null && result.status >= 500) {
-    return { robots: { groups: [{ agents: ['*'], rules: [{ allow: false, path: '/' }] }], sitemaps: [], absent: false }, text: result.body };
+    return { robots: { groups: [{ agents: ['*'], rules: [{ allow: false, path: '/' }] }], sitemaps: [], absent: false }, text: result.body, status: result.status };
   }
-  if (result.status === null || result.status >= 400) return { robots: ALLOW_ALL, text: null };
-  return { robots: parseRobots(result.body), text: result.body };
+  if (result.status === null || result.status >= 400) return { robots: ALLOW_ALL, text: null, status: result.status };
+  return { robots: parseRobots(result.body), text: result.body, status: result.status };
 }
 
 interface LoadedSitemaps {
@@ -360,7 +369,7 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
   if (firstSeed === undefined) throw new Error('a crawl needs at least one seed URL');
 
   stopIfCancelled(options.signal);
-  const { robots, text: robotsTxt } = await loadRobots(firstSeed, options, request);
+  const { robots, text: robotsTxt, status: robotsStatus } = await loadRobots(firstSeed, options, request);
   const delayMs = Math.max(options.requestDelayMs ?? 0, crawlDelayMs(robots, options.userAgent));
 
   const sitemaps: LoadedSitemaps = options.followSitemaps === false
@@ -531,6 +540,7 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
     pages,
     robots,
     robotsTxt,
+    ...(robotsStatus === undefined ? {} : { robotsStatus }),
     sitemapUrls,
     sitemaps: sitemaps.documents,
     sitemapVideos: sitemaps.videos,

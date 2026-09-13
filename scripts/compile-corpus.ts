@@ -37,8 +37,8 @@
  *     corpus/source/v<version>-sources.tsv   the Sources sheet (falls back to
  *                                            sources.tsv, with a warning)
  *
- *     npm run corpus:compile -- 4.5                    # from corpus/source/v4.5.tsv
- *     npm run corpus:compile -- 4.5 --reviewed 2026-09-07
+ *     npm run corpus:compile -- 5.0                    # from corpus/source/v5.0.tsv
+ *     npm run corpus:compile -- 5.0 --reviewed 2026-09-11
  *     npm run corpus:compile -- 4.4 --force            # deliberate re-bootstrap
  *
  * `--force` discards every hand edit in that version's YAML. It exists for
@@ -49,7 +49,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AutomationTier, RemediationClass, Role, SourceRef } from '../packages/core/src/check.ts';
-import { TRIAGE } from './triage.ts';
+import { triageFor } from './triage.ts';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const SRC = join(ROOT, 'corpus', 'source');
@@ -77,7 +77,7 @@ function readArgs(argv: readonly string[]): {
   if (version === undefined || !/^\d+\.\d+$/.test(version)) {
     throw new Error(
       'usage: npm run corpus:compile -- <version> [--reviewed YYYY-MM-DD] [--force]\n' +
-        '       e.g. npm run corpus:compile -- 4.5',
+        '       e.g. npm run corpus:compile -- 5.0',
     );
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(reviewed)) {
@@ -126,6 +126,23 @@ const APPLICABILITY: Readonly<Record<string, Applicability>> = {
   'Sites with hierarchical content or category structures': [false, ['hierarchical']],
   'YMYL, regulated, product or consequential factual claims': [false, ['ymyl']],
   'Sites allowing public UGC, marketplace listings, partner pages or other third-party content': [false, ['ugc']],
+
+  // v5.0 wordings. Five checks that were universal in v4.4 became conditional
+  // here (0.5, 2.2, 3.9, 6.8, 7.8), which is why a site profile is tied to the
+  // version it was declared against — see `profileCorpusVersion` on `sites`.
+  'Sites documenting organization/person identity and relevant official profiles': [false, ['entity-identity']],
+  'Migration / redesign / URL change; inherited or previously used domain': [false, ['migration', 'inherited-domain']],
+  'Sites serving public or private non-HTML files': [false, ['non-html-files']],
+  // A site that declares meaningful media or image search has on-page images
+  // by definition, so either brings the alt-text gate into scope.
+  'Sites with on-page images or image-based controls': [false, ['images', 'media', 'image-search']],
+  'Sites with paywalled or registration-gated publishing, whether indexed or deliberately excluded': [false, ['paywall']],
+  'Sites selecting Discover presentation or an optional Preferred Sources user flow': [false, ['discover']],
+  'News publishers with a news programme in the release scope': [false, ['news']],
+  'Bulk/programmatic publishing or materially AI-generated batches': [false, ['bulk-publishing']],
+  'Sites with public UGC, listings, third-party publishing or review collection, solicitation or display': [false, ['ugc', 'reviews']],
+  'Sites investigating material inbound-link risk or inherited link schemes': [false, ['link-risk', 'inherited-domain']],
+  'Sites needing crawl or incident log diagnostics': [false, ['log-diagnostics']],
 };
 
 // --- owners: free text -> normalized roles ----------------------------------
@@ -137,9 +154,11 @@ const ROLE_TOKENS: ReadonlyArray<readonly [token: string, role: Role]> = [
   ['accessibility', 'accessibility'], ['localization', 'localization'],
   ['operations', 'operations'], ['analytics', 'analytics'],
   ['marketing', 'marketing'], ['developer', 'developer'],
+  ['development', 'developer'], ['compliance', 'legal'],
   ['designer', 'designer'], ['security', 'security'],
   ['audience', 'audience'], ['business', 'business'],
-  ['content', 'content'], ['product', 'product'],
+  ['publisher', 'business'], ['content', 'content'], ['editor', 'content'],
+  ['product', 'product'], ['design', 'designer'],
   ['privacy', 'privacy'], ['legal', 'legal'], ['seo', 'seo'],
 ];
 
@@ -213,8 +232,38 @@ function tokens(text: string): Set<string> {
   );
 }
 
-/** Resolve "See Sources: X and Y." in Notes to Sources-sheet rows. */
-function matchSources(notes: string, sources: readonly SourceRef[]): SourceRef[] {
+/**
+ * Resolve a check's citations to Sources-sheet rows.
+ *
+ * From v5.0 the workbook gives each source a stable id and Notes cite it
+ * exactly ("Source IDs: SRC006; SRC040"), so those are looked up, and an id
+ * the Sources sheet does not hold is returned in `unresolved` for the compile
+ * to refuse. Older exports cite by topic name ("See Sources: X and Y."), which
+ * only a fuzzy match can resolve; that path is kept for them.
+ */
+function matchSources(
+  notes: string,
+  sources: readonly SourceRef[],
+): { refs: SourceRef[]; unresolved: string[] } {
+  const cited = [...notes.matchAll(/Source IDs?:\s*([^.]+)/g)].flatMap((m) =>
+    (m[1] ?? '').split(/[;,]/).map((id) => id.trim()).filter((id) => id !== ''),
+  );
+  if (cited.length > 0) {
+    const byId = new Map(sources.filter((s) => s.id).map((s) => [s.id, s]));
+    const refs: SourceRef[] = [];
+    const unresolved: string[] = [];
+    for (const id of new Set(cited)) {
+      const source = byId.get(id);
+      if (source) refs.push(source);
+      else unresolved.push(id);
+    }
+    return { refs, unresolved };
+  }
+  return { refs: matchSourcesByTopic(notes, sources), unresolved: [] };
+}
+
+/** Resolve "See Sources: X and Y." in Notes to Sources-sheet rows by topic. */
+function matchSourcesByTopic(notes: string, sources: readonly SourceRef[]): SourceRef[] {
   const out: SourceRef[] = [];
   const seen = new Set<string>();
 
@@ -319,7 +368,11 @@ function emitCheck(c: CompiledCheck): string {
   if (c.sources.length > 0) {
     lines.push(`${p}sources:`);
     for (const s of c.sources) {
-      lines.push(`${p}  - topic: "${s.topic}"`);
+      if (s.id) {
+        lines.push(`${p}  - id: "${s.id}"`, `${p}    topic: "${s.topic}"`);
+      } else {
+        lines.push(`${p}  - topic: "${s.topic}"`);
+      }
       lines.push(`${p}    url: "${s.url}"`);
       lines.push(`${p}    usedFor: ${yStr(s.usedFor, i + 4)}`);
       lines.push(`${p}    verified: "${s.verified}"`);
@@ -380,6 +433,8 @@ function main(): number {
     .slice(1)
     .filter((r) => r.length >= 4 && (r[0] ?? '').trim() !== '')
     .map((r) => ({
+      // Column E carries a stable source id from v5.0 on; older exports stop at D.
+      ...(cell(r, 4) === '' ? {} : { id: cell(r, 4) }),
       topic: r[0] as string,
       url: r[1] as string,
       usedFor: r[2] as string,
@@ -410,9 +465,17 @@ function main(): number {
 
   mkdirSync(OUT, { recursive: true });
 
+  const TRIAGE = triageFor(CORPUS_VERSION);
+  if (TRIAGE === undefined) {
+    console.error(`no triage table for v${CORPUS_VERSION} in scripts/triage.ts`);
+    console.error('every version is triaged, and signed off, before it compiles.');
+    return 1;
+  }
+
   const checks: CompiledCheck[] = [];
   const unmapped: Array<[string, string]> = [];
   const untriaged: string[] = [];
+  const uncited: Array<[string, string]> = [];
 
   for (const row of data) {
     const id = cell(row, 0);
@@ -430,6 +493,8 @@ function main(): number {
 
     const cadence = parseCadence(cell(row, 11));
     const notes = row[13] ?? '';
+    const citations = matchSources(notes, sources);
+    for (const sourceId of citations.unresolved) uncited.push([id, sourceId]);
 
     checks.push({
       id, phase, phaseLabel,
@@ -446,7 +511,7 @@ function main(): number {
       cadenceSource: cell(row, 11),
       notes: notes.trim(),
       automation, remediationClass, detectors,
-      sources: matchSources(notes, sources),
+      sources: citations.refs,
     });
   }
 
@@ -499,12 +564,16 @@ function main(): number {
     for (const [id, text] of unmapped) console.log(`   ${id}: ${text}`);
   }
   if (untriaged.length > 0) console.log(`UNTRIAGED: ${untriaged.join(', ')}`);
+  if (uncited.length > 0) {
+    console.log('UNRESOLVED source ids:');
+    for (const [id, sourceId] of uncited) console.log(`   ${id}: ${sourceId}`);
+  }
 
-  return unmapped.length > 0 || untriaged.length > 0 ? 1 : 0;
+  return unmapped.length > 0 || untriaged.length > 0 || uncited.length > 0 ? 1 : 0;
 }
 
-// Non-zero when the compile found rows it could not map or triage, or when it
-// refused to run at all.
+// Non-zero when the compile found rows it could not map, triage or cite, or
+// when it refused to run at all.
 try {
   process.exitCode = main();
 } catch (cause) {

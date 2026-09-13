@@ -95,3 +95,40 @@ export function parseAiCrawlerPolicy(raw: unknown): AiCrawlerPolicy | null {
     ...(typeof notes === 'string' && notes !== '' ? { notes } : {}),
   };
 }
+
+/**
+ * robots.txt tokens that name a use of content, not a crawler.
+ *
+ * `Google-Extended` decides whether Googlebot's fetches may train Gemini, and
+ * `Applebot-Extended` does the same for Applebot; neither sends a request of
+ * its own. Corpus v5.0 2.9 says so outright — Google-Extended "is tested as a
+ * product token, not a fictitious fetcher" — so robots.txt is the whole of what
+ * can be checked, and a request arriving under that name would be a test of a
+ * visitor that does not exist.
+ */
+export const PRODUCT_TOKENS: readonly string[] = ['Google-Extended', 'Applebot-Extended'];
+
+/**
+ * Agents that fetch a page because a person asked an assistant to, and which
+ * their operators say may not follow robots.txt: OpenAI documents that robots
+ * may not apply to ChatGPT-User, and Perplexity-User generally ignores it
+ * (corpus v5.0 2.9). For these a robots.txt disallow is a request nobody reads,
+ * and only an edge rule enforces a decision to keep them out.
+ */
+export const USER_DIRECTED_AGENTS: readonly string[] = ['ChatGPT-User', 'Perplexity-User'];
+
+const named = (list: readonly string[], agent: string): boolean =>
+  list.some((token) => token.toLowerCase() === agent.toLowerCase());
+
+/** Whether an agent name is a product token rather than a crawler. */
+export const isProductToken = (agent: string): boolean => named(PRODUCT_TOKENS, agent);
+
+/** Whether an agent is a user-directed fetcher that may not follow robots.txt. */
+export const isUserDirectedAgent = (agent: string): boolean => named(USER_DIRECTED_AGENTS, agent);
+
+/**
+ * The agents in a policy worth arriving as: every one a request can simulate,
+ * which is every agent except a product token.
+ */
+export const simulatableAgents = (policy: AiCrawlerPolicy): string[] =>
+  Object.keys(policy.agents).filter((agent) => !isProductToken(agent));

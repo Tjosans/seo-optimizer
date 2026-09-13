@@ -49,14 +49,17 @@ export const canonicalization: PageProbe = {
   id: 'canonicalization',
   scope: 'page',
   htmlOnly: true,
-  title: 'Every page declares one canonical URL',
+  title: 'A page that declares a canonical declares a usable one',
   run({ page }) {
     const extracted = page.extracted;
     if (extracted === null) return notApplicable(NO_HTML);
 
     const canonical = extracted.canonical;
     if (canonical === null) {
-      return fail('No rel=canonical; the page does not state its own address.');
+      // v5.0 1.3 asks for self-canonicals "where appropriate": a page with no
+      // duplicate needs none, and whether this one has a duplicate is not
+      // something one page can show. A missing canonical is a gap, not a defect.
+      return warn('No rel=canonical; the page does not state its own address.');
     }
     const declared = normalizeUrl(canonical);
     const actual = normalizeUrl(page.fetch.finalUrl);

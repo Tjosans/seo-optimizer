@@ -61,7 +61,7 @@ describe.skipIf(!url)('an audit across a restart', () => {
   beforeAll(async () => {
     const [row] = await db
       .insert(sites)
-      .values({ name: 'fixture-recovery', origin: site.origin, flags: ['hierarchical'] })
+      .values({ name: 'fixture-recovery', origin: site.origin, flags: ['hierarchical'], profileCorpusVersion: '4.4' })
       .returning({ id: sites.id });
     siteId = row!.id;
   });
@@ -343,6 +343,11 @@ describe.skipIf(!url)('an audit across a restart', () => {
         row = await auditRow(submitted.auditId);
       }
       expect(row?.readiness).not.toBeNull();
+
+      // The row reads `complete` before the queue removes the job — the handler
+      // returns first, and the removal follows — so wait for the survivor to
+      // settle it rather than racing that write.
+      await survivor.drain();
 
       // Settled by its new owner, and gone from the namespace both share.
       const [left] = await db

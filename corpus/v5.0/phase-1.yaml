@@ -1,0 +1,896 @@
+# Corpus v5.0 - phase 1: 1 — Day 1 architecture
+# Bootstrapped by scripts/compile-corpus.ts from corpus/source/v5.0.tsv.
+# This file is the source of record now: edit it directly. The compiler
+# refuses to overwrite an existing version, so these edits are safe.
+
+- id: "1.1"
+  phase: 1
+  phaseLabel: "1 — Day 1 architecture"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Rendering strategy and raw/rendered parity
+  whatToDo: >-
+    Choose rendering for the intended crawlers. Prefer server-delivered critical content as a reliability policy; SSR/SSG is not a universal Google requirement. Test initial and rendered metadata, content and links, resource/API access, hydration, deep links and missing-page behavior without user interaction. Record and justify meaningful differences against the URL matrix.
+  doneWhen: >-
+    Every indexable template exposes required content and crawlable links to intended crawlers. Raw/rendered directives and canonicals do not conflict; initial noindex is absent on approved indexable pages. Resource failures and missing routes are tested. Required output stays inside the verified fetch envelope in 1.5.
+  owners: ["developer"]
+  ownerSource: >-
+    Developer
+  tools: >-
+    curl; View Source; URL Inspection
+  cadence:
+    triggers: ["every-template"]
+    source: >-
+      Every new template
+  notes: >-
+    Purpose: indexing/discovery. C02/D01. Successful browser rendering alone does not prove every crawler can render. Sources: JavaScript SEO basics; JavaScript troubleshooting; Googlebot fetch limits. Source IDs: SRC038; SRC039; SRC040.
+  automation: automated
+  remediationClass: structural
+  detectors: ["raw-rendered-parity", "rendering-strategy-classifier"]
+  sources:
+    - id: "SRC038"
+      topic: "JavaScript SEO basics"
+      url: "https://developers.google.com/search/docs/crawling-indexing/javascript/javascript-seo-basics"
+      usedFor: >-
+        1.1, 1.10: rendering, raw noindex, canonical consistency and crawlable output; SSR is a reliability policy.
+      verified: "2026-09-08"
+    - id: "SRC039"
+      topic: "JavaScript troubleshooting"
+      url: "https://developers.google.com/search/docs/crawling-indexing/javascript/fix-search-javascript"
+      usedFor: >-
+        1.1: renderer limitations, resource/API access and reproducible raw/rendered diagnostics.
+      verified: "2026-09-08"
+    - id: "SRC040"
+      topic: "Googlebot fetch limits"
+      url: "https://developers.google.com/search/docs/crawling-indexing/googlebot"
+      usedFor: >-
+        1.1, 1.5, 0.3: uncompressed per-file fetch caps; Search: 2 MB non-PDF, 64 MB PDF; separate resources. Reverify with crawler/payload changes.
+      verified: "2026-09-08"
+- id: "1.2"
+  phase: 1
+  phaseLabel: "1 — Day 1 architecture"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Semantic HTML and crawlable links
+  whatToDo: >-
+    Use real a href links, semantic landmarks, one clear primary page heading and a logical heading hierarchy. Do not treat a strict single-H1 rule as a ranking requirement.
+  doneWhen: >-
+    Priority URLs are reachable through normal links; landmarks, link purpose and heading hierarchy are usable by crawlers and assistive technology.
+  owners: ["developer", "designer"]
+  ownerSource: >-
+    Developer + designer
+  tools: >-
+    HTML validator; Screaming Frog
+  cadence:
+    triggers: ["every-template"]
+    source: >-
+      Every template
+  notes: >-
+    Purpose: indexing/discovery; legal/accessibility. Source IDs: SRC014; SRC103.
+  automation: automated
+  remediationClass: structural
+  detectors: ["semantic-html", "crawlable-links", "heading-outline"]
+  sources:
+    - id: "SRC014"
+      topic: "WCAG 2.2"
+      url: "https://www.w3.org/TR/WCAG22/"
+      usedFor: >-
+        0.9, 4.4: declared target and conformance requirements, including full pages/processes, supported use and non-interference; qualified scope determines obligations.
+      verified: "2026-09-09"
+    - id: "SRC103"
+      topic: "Crawlable links and anchor text"
+      url: "https://developers.google.com/search/docs/crawling-indexing/links-crawlable"
+      usedFor: >-
+        1.2 / 3.3: crawlable anchors and href attributes, descriptive contextual links and links to important pages. Few clicks is a project usability target, not a numeric Google rule.
+      verified: "2026-09-10"
+- id: "1.3"
+  phase: 1
+  phaseLabel: "1 — Day 1 architecture"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Routing and canonicalization
+  whatToDo: >-
+    Document descriptive, stable URL paths and host/slash/parameter conventions. Preserve meaningful case-sensitive paths. For equivalent duplicates choose a permanent 301/308 redirect, or document an intentional 200 duplicate with consistent canonical signals. Align internal links and sitemaps with the preferred accessible, indexable URL; use self-canonicals where appropriate.
+  doneWhen: >-
+    Sampled variants follow the approved mapping. Retained 200 duplicates have a justified canonical policy; targets work and are indexable. No conflicting signals, loops or accidental duplicates exist on priority patterns. Controlled redirects use one hop where feasible; external chains are assessed by impact.
+  owners: ["developer"]
+  ownerSource: >-
+    Developer
+  tools: >-
+    curl -I; Screaming Frog; Search Console
+  cadence:
+    triggers: ["on-change"]
+    source: >-
+      Launch + after URL changes
+  notes: >-
+    Purpose: indexing/discovery. C03. Canonical declarations express a preference, not guaranteed selection. Sources: Canonicalization; Redirects and Google Search; URL structure. Source IDs: SRC010; SRC024; SRC041.
+  automation: assisted
+  remediationClass: config
+  detectors: ["canonicalization", "url-convention", "host-slash-policy"]
+  sources:
+    - id: "SRC010"
+      topic: "Canonicalization"
+      url: "https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls"
+      usedFor: >-
+        1.3, 1.6, 1.16: retained duplicates, preferred-URL signals, supported non-HTML Link canonical; selection is not guaranteed.
+      verified: "2026-09-08"
+    - id: "SRC024"
+      topic: "URL structure"
+      url: "https://developers.google.com/search/docs/crawling-indexing/url-structure"
+      usedFor: >-
+        Descriptive URL paths, characters and parameter best practices
+      verified: "2026-08-26"
+    - id: "SRC041"
+      topic: "Redirects and Google Search"
+      url: "https://developers.google.com/search/docs/crawling-indexing/301-redirects"
+      usedFor: >-
+        1.3, 1.6: permanent/temporary redirect choices, 301/308 and usable destination mappings.
+      verified: "2026-09-08"
+- id: "1.4"
+  phase: 1
+  phaseLabel: "1 — Day 1 architecture"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    HTTP status handling
+  whatToDo: >-
+    Test successful responses, permanent/temporary redirects, missing/removed URLs, internal search, invalid facets/pagination and application failures. Use 404/410 for genuinely absent resources, 503 for temporary service unavailability and 429 for deliberate throttling. Follow the indexability matrix for valid search-result states, normally 200 with noindex. Never mask application failures as indexable 200 pages.
+  doneWhen: >-
+    Representative responses match the matrix. Valid empty search states are distinguished from nonexistent/error-like URLs and invalid facets. Missing resources return genuine errors with useful UX; no unintended soft 404, redirect loop or indexable error response remains. Excluded search states stay out of ordinary sitemaps.
+  owners: ["developer"]
+  ownerSource: >-
+    Developer
+  tools: >-
+    curl -I; Screaming Frog; server logs
+  cadence:
+    triggers: []
+    interval: weekly
+    windowDays: 30
+    source: >-
+      Launch + weekly for 30 days
+  notes: >-
+    Purpose: indexing/discovery. C04. A temporary outage is not a permanent removal. Correct status handling does not make an active production outage acceptable. Sources: HTTP status codes; Faceted navigation. Source IDs: SRC042; SRC043.
+  automation: assisted
+  remediationClass: code
+  detectors: ["http-status", "soft-404", "redirect-chain", "internal-search-indexability"]
+  sources:
+    - id: "SRC042"
+      topic: "HTTP status codes"
+      url: "https://developers.google.com/crawling/docs/troubleshooting/http-status-codes"
+      usedFor: >-
+        1.4: 4xx, 429 and 5xx behavior; distinguish genuine absence, temporary failure and success.
+      verified: "2026-09-08"
+    - id: "SRC043"
+      topic: "Faceted navigation"
+      url: "https://developers.google.com/crawling/docs/faceted-navigation"
+      usedFor: >-
+        1.12, 1.4: bounded crawl spaces, stable filters and 404 for no-result/nonsensical filters and nonexistent pages.
+      verified: "2026-09-08"
+- id: "1.5"
+  phase: 1
+  phaseLabel: "1 — Day 1 architecture"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Performance acceptance criteria, diagnostics and fetch budgets
+  whatToDo: >-
+    Before testing, classify per-template LCP, CLS, TBT, asset/request and TTFB budgets as launch thresholds or diagnostics. Freeze devices, network, cache state, journeys and repeat/summary method. Expose the LCP resource promptly without lazy-loading it. Separately measure each uncompressed document/resource against current crawler limits and a margin. Test fonts, fallback metrics, required glyphs, layout shifts and delivery of changed cached assets.
+  doneWhen: >-
+    The versioned policy identifies each launch threshold, diagnostic target, test profile and owner. Templates meet current acceptance criteria and per-file fetch limits. Required text/glyphs remain usable during font delay/failure; changed cached assets reach returning users. Diagnostic overruns have impact, owner and due date. A failed criterion remains failed until corrected or formally revised and retested; an exception alone cannot pass the gate.
+  owners: ["developer"]
+  ownerSource: >-
+    Developer
+  tools: >-
+    Lighthouse CI; WebPageTest; PageSpeed Insights; bundle analyzer
+  cadence:
+    triggers: []
+    interval: monthly
+    windowDays: 30
+    source: >-
+      Launch; weekly 30 days; monthly
+  notes: >-
+    Purpose: measurement; security/governance. C08/D01/D05. TBT is a lab diagnostic, not field INP. Keep crawler byte limits separate from total page weight and project budgets: Googlebot Search verified 2026-09-08 at 2 MB per non-PDF and 64 MB per PDF, uncompressed, with separate CSS/JS fetches. Font subsets need permission and required glyphs; system fonts are valid. Sources: Web Vitals metrics; Googlebot fetch limits; Font performance; HTTP cache and versioned assets. Source IDs: SRC006; SRC040; SRC048; SRC049; SRC053; SRC093.
+  automation: assisted
+  remediationClass: code
+  detectors: ["lab-perf-budget", "lcp-element-strategy", "crawler-fetch-limit"]
+  sources:
+    - id: "SRC006"
+      topic: "Lab versus field data"
+      url: "https://web.dev/articles/lab-and-field-data-differences"
+      usedFor: >-
+        1.5, 4.5, 4.11: controlled lab profiles versus real-user distributions; results and populations are not interchangeable.
+      verified: "2026-09-09"
+    - id: "SRC040"
+      topic: "Googlebot fetch limits"
+      url: "https://developers.google.com/search/docs/crawling-indexing/googlebot"
+      usedFor: >-
+        1.1, 1.5, 0.3: uncompressed per-file fetch caps; Search: 2 MB non-PDF, 64 MB PDF; separate resources. Reverify with crawler/payload changes.
+      verified: "2026-09-08"
+    - id: "SRC048"
+      topic: "HTTP cache and versioned assets"
+      url: "https://web.dev/articles/http-cache"
+      usedFor: >-
+        1.5, 1.7: cache/revalidation choices and changed asset URLs for reliable updates to returning users.
+      verified: "2026-09-09"
+    - id: "SRC049"
+      topic: "Font performance"
+      url: "https://web.dev/articles/font-best-practices"
+      usedFor: >-
+        1.5: delayed/failing fonts, fallback metrics, glyph-preserving licensed subsets and layout shift; system fonts remain valid.
+      verified: "2026-09-09"
+    - id: "SRC053"
+      topic: "Web Vitals metrics"
+      url: "https://web.dev/articles/vitals"
+      usedFor: >-
+        1.5, 4.5, 6.2: LCP/INP/CLS at p75 by device; Good <=2.5 s/200 ms/0.1; TBT lab diagnostics do not replace field INP.
+      verified: "2026-09-09"
+    - id: "SRC093"
+      topic: "Googlebot fetch-limit history"
+      url: "https://developers.google.com/search/blog/2026/03/crawler-blog-post"
+      usedFor: >-
+        H07 source correction for 1.5: 2026-03-31 publication already documents 2 MB per-resource/64MB PDF limits. Use current Googlebot documentation for implementation; screenshot novelty claim is unsupported.
+      verified: "2026-09-09"
+- id: "1.6"
+  phase: 1
+  phaseLabel: "1 — Day 1 architecture"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    HTTPS and preferred-host enforcement
+  whatToDo: >-
+    Serve the preferred production origin over valid HTTPS. Redirect controlled HTTP and equivalent non-preferred hosts permanently with appropriate 301/308 responses. Document any intentional retained duplicate-host exception and its canonical/access policy. Test certificate coverage, mixed content and each controlled variant.
+  doneWhen: >-
+    Certificates and HTTPS responses are valid, with no mixed content. Controlled equivalent variants reach the intended destination without loops, preferably in one hop. Any retained duplicate or unavoidable external chain has reviewed evidence and consistent canonical behavior.
+  owners: ["infrastructure", "developer"]
+  ownerSource: >-
+    Developer / infrastructure
+  tools: >-
+    curl; SSL test; crawler
+  cadence:
+    triggers: ["on-change"]
+    source: >-
+      Launch and after domain/CDN changes
+  notes: >-
+    Purpose: indexing/discovery; security/governance. C03. Distinct sites or meaningful routes must not be blindly collapsed. Sources: Canonicalization; Redirects and Google Search. Source IDs: SRC010; SRC041.
+  automation: assisted
+  remediationClass: config
+  detectors: ["https-enforcement", "mixed-content", "host-redirect"]
+  sources:
+    - id: "SRC010"
+      topic: "Canonicalization"
+      url: "https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls"
+      usedFor: >-
+        1.3, 1.6, 1.16: retained duplicates, preferred-URL signals, supported non-HTML Link canonical; selection is not guaranteed.
+      verified: "2026-09-08"
+    - id: "SRC041"
+      topic: "Redirects and Google Search"
+      url: "https://developers.google.com/search/docs/crawling-indexing/301-redirects"
+      usedFor: >-
+        1.3, 1.6: permanent/temporary redirect choices, 301/308 and usable destination mappings.
+      verified: "2026-09-08"
+- id: "1.7"
+  phase: 1
+  phaseLabel: "1 — Day 1 architecture"
+  priority: P1
+  profile: extended
+  launchGate: false
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Infrastructure, cache policy and monitoring design
+  whatToDo: >-
+    Document actual hosting/CDN layers, cache keys and bypass/revalidation rules, compression, appropriate security headers and protocol choices. Cover public, excluded, private, locale and cookie/header variants. Plan invalidation and versioned assets. Inventory third-party scripts with owners and budgets. Assign monitoring owners, response targets and log needs before launch; implement and prove readiness in 4.2/4.12.
+  doneWhen: >-
+    Infrastructure and script choices have accountable owners and testable policies. Private responses are not shared across users; public indexing signals remain consistent through caches and edge rules. Conditional components and absent layers are explicitly recorded. Required preflight evidence is linked from 4.2 and 4.12.
+  owners: ["developer"]
+  ownerSource: >-
+    Developer
+  tools: >-
+    Hosting/CDN configuration; browser network tools; HTTP probes; alert routing and runbook
+  cadence:
+    triggers: ["on-change"]
+    source: >-
+      Launch + after infra changes
+  notes: >-
+    Purpose: security/governance. D05/F03. Implementation and risk control, not a requirement to use a CDN or HTTP/3. Private/no-store caching rules do not replace authorization. Critical access/privacy failures block 4.2; missing monitoring readiness blocks 4.12. Sources: HTTP caching standard; HTTP cache and versioned assets; Monitoring distributed systems. Source IDs: SRC047; SRC048; SRC050; SRC051.
+  automation: assisted
+  remediationClass: config
+  detectors: ["security-headers", "http-version", "compression-cache", "third-party-budget", "private-response-caching"]
+  sources:
+    - id: "SRC047"
+      topic: "HTTP caching standard"
+      url: "https://www.rfc-editor.org/rfc/rfc9111.html"
+      usedFor: >-
+        1.7, 4.2, 5.1: shared/private cache behavior, request variants and sensitive-response isolation; directives do not replace authorization.
+      verified: "2026-09-09"
+    - id: "SRC048"
+      topic: "HTTP cache and versioned assets"
+      url: "https://web.dev/articles/http-cache"
+      usedFor: >-
+        1.5, 1.7: cache/revalidation choices and changed asset URLs for reliable updates to returning users.
+      verified: "2026-09-09"
+    - id: "SRC050"
+      topic: "Verify Google crawler requests"
+      url: "https://developers.google.com/crawling/docs/crawlers-fetchers/verify-google-requests"
+      usedFor: >-
+        1.7,2.9,5.5,2.15: genuine crawler identity differs from synthetic user-agent probes; use documented DNS/IP methods before trusting crawler-only access.
+      verified: "2026-09-09"
+    - id: "SRC051"
+      topic: "Monitoring distributed systems"
+      url: "https://sre.google/sre-book/monitoring-distributed-systems/"
+      usedFor: >-
+        1.7, 4.12, 5.5: actionable symptoms, clear alert routing and external behavior checks; project readiness tests are an operating-policy application.
+      verified: "2026-09-09"
+- id: "1.8"
+  phase: 1
+  phaseLabel: "1 — Day 1 architecture"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Staging and preview environment protection
+  whatToDo: >-
+    Password-protect or IP-restrict staging and preview environments. Use environment-conditional robots/meta controls as defense in depth and automated tests to ensure staging noindex rules cannot ship to production.
+  doneWhen: >-
+    Staging and preview environments require effective access control. For production, every URL pattern approved as indexable is crawlable and has no unintended noindex in the response headers or HTML. Every intentionally excluded public pattern retains the approved indexing directives, and every private pattern retains effective authorization. The environment-specific URL matrix, including both indexable and excluded examples, matches the observed raw and rendered behavior. The preflight evidence proves these rules on the release candidate; the applicable launch-day checks confirm them on production after cutover.
+  owners: ["developer"]
+  ownerSource: >-
+    Developer
+  tools: >-
+    Host auth/basic auth; env vars; robots.txt; meta robots; Search Console
+  cadence:
+    triggers: ["before-launch"]
+    source: >-
+      Go-live checklist; every new environment
+  notes: >-
+    Purpose: indexing/discovery; security/governance. Do not remove intentional noindex from internal-search or other deliberately excluded public pages. Robots.txt is not confidentiality or guaranteed deindexing; preserve crawl access where needed to read a relied-upon noindex. Production verification belongs to the live checks in Phase 5. Test both allowed and excluded patterns; never treat a clean indexable homepage as proof for the whole matrix. Source IDs: SRC009; SRC038; SRC094.
+  automation: assisted
+  remediationClass: config
+  detectors: ["staging-protection"]
+  sources:
+    - id: "SRC009"
+      topic: "Robots meta and X-Robots-Tag"
+      url: "https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag"
+      usedFor: >-
+        B03 and 0.3, 1.10, 1.16: intentional noindex needs crawl access; headers cover non-HTML files. Directives do not replace authorization.
+      verified: "2026-09-08"
+    - id: "SRC038"
+      topic: "JavaScript SEO basics"
+      url: "https://developers.google.com/search/docs/crawling-indexing/javascript/javascript-seo-basics"
+      usedFor: >-
+        1.1, 1.10: rendering, raw noindex, canonical consistency and crawlable output; SSR is a reliability policy.
+      verified: "2026-09-08"
+    - id: "SRC094"
+      topic: "Google technical requirements"
+      url: "https://developers.google.com/search/docs/essentials/technical"
+      usedFor: >-
+        E02: basic technical indexing eligibility is distinct from project release dependencies; indexing is not guaranteed.
+      verified: "2026-09-10"
+- id: "1.9"
+  phase: 1
+  phaseLabel: "1 — Day 1 architecture"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: false
+    any: ["media"]
+    source: >-
+      Sites with meaningful images or video
+  task: >-
+    Responsive media pipeline
+  whatToDo: >-
+    Compress media, generate responsive sizes, set dimensions or aspect-ratio, use modern formats, lazy-load only below-fold media and provide captions/transcripts or alternatives where required.
+  doneWhen: >-
+    Representative templates serve appropriately sized media without layout shift; the LCP asset is not lazy-loaded; accessibility alternatives are present.
+  owners: ["developer"]
+  ownerSource: >-
+    Developer
+  tools: >-
+    Image CDN/build pipeline; PageSpeed
+  cadence:
+    triggers: ["every-template"]
+    source: >-
+      Every new template
+  notes: >-
+    Purpose: indexing/discovery; legal/accessibility. v4: conditional launch gate when media ships. Source IDs: SRC014; SRC098; SRC106; SRC107.
+  automation: automated
+  remediationClass: code
+  detectors: ["responsive-media", "image-dimensions", "lcp-not-lazy", "media-alternatives"]
+  sources:
+    - id: "SRC014"
+      topic: "WCAG 2.2"
+      url: "https://www.w3.org/TR/WCAG22/"
+      usedFor: >-
+        0.9, 4.4: declared target and conformance requirements, including full pages/processes, supported use and non-interference; qualified scope determines obligations.
+      verified: "2026-09-09"
+    - id: "SRC098"
+      topic: "Image text alternatives"
+      url: "https://www.w3.org/WAI/tutorials/images/"
+      usedFor: >-
+        2.2: actual informative, functional and decorative image inventory determines applicable text-alternative checks.
+      verified: "2026-09-10"
+    - id: "SRC106"
+      topic: "LCP resource discovery and priority"
+      url: "https://web.dev/articles/optimize-lcp"
+      usedFor: >-
+        1.9: avoid lazy-loading the LCP image and make its resource discoverable promptly. This is performance guidance, not a requirement to adopt SSR.
+      verified: "2026-09-10"
+    - id: "SRC107"
+      topic: "Responsive image sizing and loading"
+      url: "https://web.dev/learn/design/responsive-images"
+      usedFor: >-
+        1.9: reserve image dimensions, use srcset/sizes for appropriate assets and lazy-load suitable below-fold images. Verify the actual chosen resources and page layout.
+      verified: "2026-09-10"
+- id: "1.10"
+  phase: 1
+  phaseLabel: "1 — Day 1 architecture"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Critical SEO release regression guards
+  whatToDo: >-
+    Block release for unintended noindex on approved indexable patterns, unintended crawler blocks, conflicting canonicals and broken critical internal links. Run automated checks in CI for relevant changes where supported; otherwise use an equivalent repeatable CMS release check with recorded results and an accountable release owner.
+  doneWhen: >-
+    Seeded unintended-noindex, canonical, crawler-access and critical-link defects are detected and prevent the affected release until corrected. Approved exclusions remain intact. A clean release passes the same repeatable check; the evidence identifies the build or CMS revision.
+  owners: ["developer"]
+  ownerSource: >-
+    Developer
+  tools: >-
+    CI / browser assertions / crawler; documented CMS release QA
+  cadence:
+    triggers: []
+    interval: quarterly
+    source: >-
+      Every relevant change and release; review rules quarterly
+  notes: >-
+    Purpose: indexing/discovery; security/governance. C02. This is a project release safeguard, not a Google requirement to use CI or a specific framework. Sources: JavaScript SEO basics; Robots meta and X-Robots-Tag. Source IDs: SRC009; SRC038.
+  automation: assisted
+  remediationClass: config
+  detectors: ["ci-seo-guards"]
+  sources:
+    - id: "SRC009"
+      topic: "Robots meta and X-Robots-Tag"
+      url: "https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag"
+      usedFor: >-
+        B03 and 0.3, 1.10, 1.16: intentional noindex needs crawl access; headers cover non-HTML files. Directives do not replace authorization.
+      verified: "2026-09-08"
+    - id: "SRC038"
+      topic: "JavaScript SEO basics"
+      url: "https://developers.google.com/search/docs/crawling-indexing/javascript/javascript-seo-basics"
+      usedFor: >-
+        1.1, 1.10: rendering, raw noindex, canonical consistency and crawlable output; SSR is a reliability policy.
+      verified: "2026-09-08"
+- id: "1.11"
+  phase: 1
+  phaseLabel: "1 — Day 1 architecture"
+  priority: P1
+  profile: extended
+  launchGate: false
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Extended SEO and performance automation
+  whatToDo: >-
+    Add broader checks for duplicate or missing metadata, heading quality, all internal links, schema validation, asset budgets and accessibility regressions without blocking releases on noisy rules until thresholds are proven.
+  doneWhen: >-
+    Rules have owners, low false-positive rates and documented severity; high-confidence failures can be promoted to launch gates later.
+  owners: ["accessibility", "developer", "seo"]
+  ownerSource: >-
+    Developer + SEO + accessibility
+  tools: >-
+    Lighthouse CI; crawler; Playwright; axe; test runner
+  cadence:
+    triggers: ["every-pr"]
+    interval: quarterly
+    source: >-
+      Every PR; review quarterly
+  notes: >-
+    Purpose: measurement; security/governance. Operating design; no external ranking claim. Related controls: 1.10, 4.5, 4.6, 4.4.
+  automation: assisted
+  remediationClass: config
+  detectors: ["ci-extended-checks"]
+  sources: []
+- id: "1.12"
+  phase: 1
+  phaseLabel: "1 — Day 1 architecture"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: false
+    any: ["faceted-nav"]
+    source: >-
+      Large catalogues / faceted navigation
+  task: >-
+    Faceted-navigation and parameter URL controls
+  whatToDo: >-
+    Choose useful indexable filter combinations. Define deterministic parameter order and bound discovery of unwanted combinations. Test repeated/invalid parameters, no-result or nonsensical combinations and out-of-range pages. Use real 404 responses for nonexistent states; keep crawl restrictions separate from deindexing and canonicalization decisions.
+  doneWhen: >-
+    Approved filter pages are useful, accessible and linked. Unwanted combinations do not create uncontrolled crawl paths or enter ordinary sitemaps. Negative fixtures return the documented errors. Any noindex relied on for removal remains readable; robots blocking is justified separately.
+  owners: ["developer", "seo"]
+  ownerSource: >-
+    Developer + SEO
+  tools: >-
+    Screaming Frog; GSC
+  cadence:
+    triggers: ["on-feature-ship"]
+    source: >-
+      When filters ship
+  notes: >-
+    Purpose: indexing/discovery. C06. Source: Faceted navigation. Test absent results and duplicate filters at their actual URLs; do not redirect all such states to one common error URL. Source IDs: SRC043.
+  automation: automated
+  remediationClass: structural
+  detectors: ["faceted-nav-control", "parameter-crawl-space"]
+  sources:
+    - id: "SRC043"
+      topic: "Faceted navigation"
+      url: "https://developers.google.com/crawling/docs/faceted-navigation"
+      usedFor: >-
+        1.12, 1.4: bounded crawl spaces, stable filters and 404 for no-result/nonsensical filters and nonexistent pages.
+      verified: "2026-09-08"
+- id: "1.13"
+  phase: 1
+  phaseLabel: "1 — Day 1 architecture"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: false
+    any: ["pagination"]
+    source: >-
+      Long listings / pagination / infinite scroll
+  task: >-
+    Pagination and infinite-scroll crawl path
+  whatToDo: >-
+    Give listing pages stable distinct URLs and sequential anchor links beneath load-more/infinite-scroll interfaces. Links and item discovery must work for intended crawlers without clicking controls or scrolling. Prefer server-delivered links for reliability; test any rendered-link approach. Give distinct paginated content its own canonical URL.
+  doneWhen: >-
+    Page 2+ and important items are discoverable through crawlable links with valid hrefs. URLs load directly and use intentional canonicals, not blanket page-1 canonicals or fragment-only page numbers. Nonexistent pages and repeated parameters pass the negative tests in 1.12/1.4.
+  owners: ["developer"]
+  ownerSource: >-
+    Developer
+  tools: >-
+    curl; crawler
+  cadence:
+    triggers: ["on-feature-ship"]
+    source: >-
+      When listing templates ship
+  notes: >-
+    Purpose: indexing/discovery. C02/C06. Source: Pagination. Server rendering is a reliability choice; discoverability and correct output for the intended crawler are the acceptance requirement. Source IDs: SRC044.
+  automation: automated
+  remediationClass: structural
+  detectors: ["pagination-crawl-path"]
+  sources:
+    - id: "SRC044"
+      topic: "Pagination"
+      url: "https://developers.google.com/search/docs/specialty/ecommerce/pagination-and-incremental-page-loading"
+      usedFor: >-
+        1.13: unique page URLs, crawlable sequential links and separate canonicals; no click/scroll dependency.
+      verified: "2026-09-08"
+- id: "1.14"
+  phase: 1
+  phaseLabel: "1 — Day 1 architecture"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: false
+    any: ["multilingual"]
+    source: >-
+      Multilingual / multi-country
+  task: >-
+    International technical implementation
+  whatToDo: >-
+    Implement stable locale URLs with localized visible content and accurate HTML lang, including language changes where required by the accessibility target. Use supported hreflang codes and fully qualified URLs with self/return references for intended equivalents. Align canonicals with 0.7, including reviewed same-language regional consolidation. Use x-default only for the chosen unmatched-language fallback; keep switching user controlled.
+  doneWhen: >-
+    Distinct translations remain accessible and indexable; any regional duplicate consolidation matches the approved plan. Hreflang, canonicals, language declarations and switching are consistent. No forced routing hides variants, no alternate points to an unavailable or unrelated page, and the chosen fallback behaves as intended.
+  owners: ["localization", "developer", "seo"]
+  ownerSource: >-
+    Developer + SEO + localization
+  tools: >-
+    Crawler; hreflang validator; Sources sheet
+  cadence:
+    triggers: ["on-feature-ship"]
+    source: >-
+      When locale templates are built
+  notes: >-
+    Purpose: indexing/discovery; legal/accessibility. C07. Google determines page language from visible content; accurate lang supports assistive technology. Hreflang does not replace translation or justify cross-language canonical collapse. Sources: International sites; Localized versions / hreflang; Declaring language in HTML. Source IDs: SRC012; SRC013; SRC057.
+  automation: automated
+  remediationClass: config
+  detectors: ["hreflang-implementation", "locale-canonical", "lang-attribute"]
+  sources:
+    - id: "SRC012"
+      topic: "International sites"
+      url: "https://developers.google.com/search/docs/specialty/international/managing-multi-regional-sites"
+      usedFor: >-
+        0.7, 1.14, 4.9: stable locale URLs, visible language, user choice and documented same-language regional canonical consolidation.
+      verified: "2026-09-09"
+    - id: "SRC013"
+      topic: "Localized versions / hreflang"
+      url: "https://developers.google.com/search/docs/specialty/international/localized-versions"
+      usedFor: >-
+        0.7, 1.14, 4.9: supported codes, fully qualified equivalent URLs, self/return references and intentional x-default fallback.
+      verified: "2026-09-09"
+    - id: "SRC057"
+      topic: "Declaring language in HTML"
+      url: "https://www.w3.org/International/questions/qa-html-language-declarations"
+      usedFor: >-
+        1.14: accurate document language and language changes support processing and assistive technology; separate from Google's visible-language detection.
+      verified: "2026-09-09"
+- id: "1.15"
+  phase: 1
+  phaseLabel: "1 — Day 1 architecture"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: false
+    any: ["ecommerce"]
+    source: >-
+      E-commerce / product catalogue
+  task: >-
+    Product URL, variant and lifecycle architecture
+  whatToDo: >-
+    Choose one stable canonical rule per product and variant; keep useful out-of-stock URLs available; define discontinued-product handling, categories, filters, pagination and internal links before catalogue routes ship.
+  doneWhen: >-
+    Variant URLs do not create uncontrolled duplicates; product states have intentional status, canonical, sitemap and internal-link rules.
+  owners: ["merchandising", "developer", "seo"]
+  ownerSource: >-
+    Developer + SEO + merchandising
+  tools: >-
+    URL inventory; crawler; catalogue specification
+  cadence:
+    triggers: ["before-build"]
+    source: >-
+      Before product templates ship
+  notes: >-
+    Purpose: indexing/discovery; security/governance. Source IDs: SRC010; SRC011; SRC042; SRC074.
+  automation: automated
+  remediationClass: structural
+  detectors: ["product-variant-canonical", "product-lifecycle-state"]
+  sources:
+    - id: "SRC010"
+      topic: "Canonicalization"
+      url: "https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls"
+      usedFor: >-
+        1.3, 1.6, 1.16: retained duplicates, preferred-URL signals, supported non-HTML Link canonical; selection is not guaranteed.
+      verified: "2026-09-08"
+    - id: "SRC011"
+      topic: "Google site moves"
+      url: "https://developers.google.com/search/docs/crawling-indexing/site-move-with-url-changes"
+      usedFor: >-
+        0.8, 4.8, 5.2: domain history, URL outcomes, destination/redirect sequencing and at-least-one-year redirect guidance. Keep the tool's separate 180-day effect distinct.
+      verified: "2026-09-09"
+    - id: "SRC042"
+      topic: "HTTP status codes"
+      url: "https://developers.google.com/crawling/docs/troubleshooting/http-status-codes"
+      usedFor: >-
+        1.4: 4xx, 429 and 5xx behavior; distinguish genuine absence, temporary failure and success.
+      verified: "2026-09-08"
+    - id: "SRC074"
+      topic: "Product variants"
+      url: "https://developers.google.com/search/docs/appearance/structured-data/product-variants"
+      usedFor: >-
+        2.11,4.10: variant/group IDs, direct variant selection, correct image/offer/cart state and distinct single-page versus multi-page canonical models.
+      verified: "2026-09-09"
+- id: "1.16"
+  phase: 1
+  phaseLabel: "1 — Day 1 architecture"
+  priority: P0
+  profile: extended
+  launchGate: true
+  applicability:
+    universal: false
+    any: ["non-html-files"]
+    source: >-
+      Sites serving public or private non-HTML files
+  task: >-
+    Non-HTML indexing and X-Robots-Tag controls
+  whatToDo: >-
+    Inventory uploaded/generated PDFs, feeds and other non-HTML patterns whether indexable, intentionally excluded or private. Record expected HTTP status, indexing, supported X-Robots-Tag/Link canonical and discovery links. Keep exclusion directives crawl-readable while relying on them; use authorization for private files.
+  doneWhen: >-
+    Headers and access tests cover every important non-HTML pattern. Intended public exclusions and indexable resources follow the matrix; private files cannot be fetched without authorization. Canonical headers are used only where supported and appropriate, with working targets.
+  owners: ["developer", "seo"]
+  ownerSource: >-
+    Developer + SEO
+  tools: >-
+    curl -I; crawler; Sources sheet
+  cadence:
+    triggers: ["before-build"]
+    source: >-
+      Before file templates or downloads ship
+  notes: >-
+    Purpose: indexing/discovery; security/governance. C05. Applicability depends on serving files, not on wanting them indexed. Sources: Robots meta and X-Robots-Tag; Canonicalization. Source IDs: SRC009; SRC010.
+  automation: automated
+  remediationClass: config
+  detectors: ["x-robots-tag-non-html"]
+  sources:
+    - id: "SRC009"
+      topic: "Robots meta and X-Robots-Tag"
+      url: "https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag"
+      usedFor: >-
+        B03 and 0.3, 1.10, 1.16: intentional noindex needs crawl access; headers cover non-HTML files. Directives do not replace authorization.
+      verified: "2026-09-08"
+    - id: "SRC010"
+      topic: "Canonicalization"
+      url: "https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls"
+      usedFor: >-
+        1.3, 1.6, 1.16: retained duplicates, preferred-URL signals, supported non-HTML Link canonical; selection is not guaranteed.
+      verified: "2026-09-08"
+- id: "1.17"
+  phase: 1
+  phaseLabel: "1 — Day 1 architecture"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Release, backup and rollback architecture
+  whatToDo: >-
+    Define a deployable recovery target, required backups, recovery owner, cutover window, DNS/CDN dependencies and measurable triggers for availability, indexability and in-scope conversions. For first launch, choose a known-good deployable state or approved holding mode. For an existing site, preserve the prior release and required content/data state. Set recovery-time and acceptable-data-loss targets, including treatment of writes made after cutover.
+  doneWhen: >-
+    The owner has a usable recovery procedure, required access and recoverable assets/data. The first-launch or existing-site target and timing/data-loss limits are approved. Any holding mode has a defined duration, owner and expected response/indexing behavior. Schedule the timed rehearsal in 4.12; a plan alone is not restoration proof.
+  owners: ["operations", "developer"]
+  ownerSource: >-
+    Developer / operations
+  tools: >-
+    Hosting platform; backup system; runbook
+  cadence:
+    triggers: ["before-launch", "on-change"]
+    source: >-
+      Before launch; test after platform changes
+  notes: >-
+    Purpose: security/governance. F04. A new site need not invent a previous release. Restoration and controlled holding behavior protect availability and data; they are operational controls. Baseline data limitations are recorded in 4.11. Source: Contingency planning and recovery testing. Source IDs: SRC063.
+  automation: attested
+  remediationClass: config
+  detectors: []
+  sources:
+    - id: "SRC063"
+      topic: "Contingency planning and recovery testing"
+      url: "https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final"
+      usedFor: >-
+        1.17, 4.12: risk-based recovery planning, targets and exercises. Adapted operational practice; not a universal SEO or legal requirement.
+      verified: "2026-09-09"
+- id: "1.18"
+  phase: 1
+  phaseLabel: "1 — Day 1 architecture"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Domain registration, ownership and renewal continuity
+  whatToDo: >-
+    Record the registrar, registrant/organization owner, renewal method, expiry date, recovery contacts and privileged access. Enable auto-renew where appropriate, registrar/transfer lock, MFA and monitored billing/recovery paths. For migrations, keep old domains under control for at least as long as redirects are retained.
+  doneWhen: >-
+    Production and any migration-source domains have a named owner, working recovery path, protected registrar access and no near-term expiry/renewal risk; old-domain retention matches the migration plan.
+  owners: ["business", "operations"]
+  ownerSource: >-
+    Business owner + operations
+  tools: >-
+    Registrar account; password manager; domain monitoring
+  cadence:
+    triggers: ["before-launch"]
+    interval: quarterly
+    source: >-
+      Before launch; verify quarterly and before migrations
+  notes: >-
+    Purpose: security/governance. New in v4.3. Domain expiry is a continuity failure that DNS/SSL monitoring cannot prevent. Source IDs: SRC011; SRC063.
+  automation: automated
+  remediationClass: config
+  detectors: ["domain-expiry-rdap"]
+  sources:
+    - id: "SRC011"
+      topic: "Google site moves"
+      url: "https://developers.google.com/search/docs/crawling-indexing/site-move-with-url-changes"
+      usedFor: >-
+        0.8, 4.8, 5.2: domain history, URL outcomes, destination/redirect sequencing and at-least-one-year redirect guidance. Keep the tool's separate 180-day effect distinct.
+      verified: "2026-09-09"
+    - id: "SRC063"
+      topic: "Contingency planning and recovery testing"
+      url: "https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final"
+      usedFor: >-
+        1.17, 4.12: risk-based recovery planning, targets and exercises. Adapted operational practice; not a universal SEO or legal requirement.
+      verified: "2026-09-09"
+- id: "1.19"
+  phase: 1
+  phaseLabel: "1 — Day 1 architecture"
+  priority: P1
+  profile: extended
+  launchGate: false
+  applicability:
+    universal: false
+    any: ["experiments"]
+    source: >-
+      Sites running A/B tests, personalization or experiments
+  task: >-
+    SEO-safe testing, personalization and alternate experiences
+  whatToDo: >-
+    Design experiments so users and crawlers are not intentionally shown deceptive content. For alternate test URLs, use a canonical to the original when appropriate; use temporary redirects for short-lived redirect tests; keep core content and crawl paths available; end experiments when the decision is made rather than leaving variants indefinitely.
+  doneWhen: >-
+    Experiment routing, canonicals/redirects and crawl behavior are documented; no cloaking pattern or permanent duplicate variant is created; test retirement has an owner/date.
+  owners: ["developer", "product", "seo"]
+  ownerSource: >-
+    Product + developer + SEO
+  tools: >-
+    Experiment platform; browser/curl; crawler; Search Console
+  cadence:
+    triggers: ["before-build"]
+    source: >-
+      Before each experiment; remove after decision
+  notes: >-
+    Purpose: indexing/discovery; security/governance. New in v4.3. Conditional guidance for experimentation-heavy sites. See Sources: website testing. Source IDs: SRC027.
+  automation: assisted
+  remediationClass: config
+  detectors: ["experiment-cloaking-divergence"]
+  sources:
+    - id: "SRC027"
+      topic: "Website testing"
+      url: "https://developers.google.com/search/docs/crawling-indexing/website-testing"
+      usedFor: >-
+        A/B testing, alternate URLs, canonicals, temporary redirects and cloaking cautions
+      verified: "2026-08-26"

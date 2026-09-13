@@ -1,0 +1,542 @@
+# Corpus v5.0 citations, from the workbook Sources sheet.
+
+- topic: "Google AI features"
+  url: "https://developers.google.com/search/docs/appearance/ai-features"
+  usedFor: >-
+    Googlebot, preview controls, noindex and Google-Extended distinction
+  verified: "2026-08-26"
+- topic: "OpenAI crawlers"
+  url: "https://developers.openai.com/api/docs/bots"
+  usedFor: >-
+    0.6/2.9: independent OAI-SearchBot search and GPTBot training controls, user-directed ChatGPT-User whose requests may not follow robots, current provider identity evidence.
+  verified: "2026-09-09"
+- topic: "OpenAI publisher guidance"
+  url: "https://help.openai.com/en/articles/12627856-publishers-and-developers-faq"
+  usedFor: >-
+    OAI-SearchBot versus GPTBot and referral behavior
+  verified: "2026-08-26"
+- topic: "Google Consent Mode"
+  url: "https://developers.google.com/tag-platform/security/concepts/consent-mode"
+  usedFor: >-
+    0.4, 2.6, 5.6: Basic/Advanced behavior, consent types and limitations. Denied storage can still involve transmission in Advanced mode; mode selection follows qualified scope.
+  verified: "2026-09-09"
+- topic: "Core Web Vitals tools"
+  url: "https://web.dev/articles/vitals-tools"
+  usedFor: >-
+    Rolling field data, 75th percentile and diagnostic workflow
+  verified: "2026-08-26"
+- topic: "Lab versus field data"
+  url: "https://web.dev/articles/lab-and-field-data-differences"
+  usedFor: >-
+    1.5, 4.5, 4.11: controlled lab profiles versus real-user distributions; results and populations are not interchangeable.
+  verified: "2026-09-09"
+- topic: "Google Search documentation updates"
+  url: "https://developers.google.com/search/updates"
+  usedFor: >-
+    2.7, 7.9: current feature changes, including Google FAQ rich-result withdrawal. Also tracks AI, migration and review-policy changes; verify each specific claim before use.
+  verified: "2026-09-09"
+- topic: "Structured-data guidelines"
+  url: "https://developers.google.com/search/docs/appearance/structured-data/sd-policies"
+  usedFor: >-
+    2.7/4.6/7.9 and E02: validate the selected feature, content accuracy and visibility; feature eligibility is distinct from general web ranking and does not guarantee display.
+  verified: "2026-09-10"
+- topic: "Robots meta and X-Robots-Tag"
+  url: "https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag"
+  usedFor: >-
+    B03 and 0.3, 1.10, 1.16: intentional noindex needs crawl access; headers cover non-HTML files. Directives do not replace authorization.
+  verified: "2026-09-08"
+- topic: "Canonicalization"
+  url: "https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls"
+  usedFor: >-
+    1.3, 1.6, 1.16: retained duplicates, preferred-URL signals, supported non-HTML Link canonical; selection is not guaranteed.
+  verified: "2026-09-08"
+- topic: "Google site moves"
+  url: "https://developers.google.com/search/docs/crawling-indexing/site-move-with-url-changes"
+  usedFor: >-
+    0.8, 4.8, 5.2: domain history, URL outcomes, destination/redirect sequencing and at-least-one-year redirect guidance. Keep the tool's separate 180-day effect distinct.
+  verified: "2026-09-09"
+- topic: "International sites"
+  url: "https://developers.google.com/search/docs/specialty/international/managing-multi-regional-sites"
+  usedFor: >-
+    0.7, 1.14, 4.9: stable locale URLs, visible language, user choice and documented same-language regional canonical consolidation.
+  verified: "2026-09-09"
+- topic: "Localized versions / hreflang"
+  url: "https://developers.google.com/search/docs/specialty/international/localized-versions"
+  usedFor: >-
+    0.7, 1.14, 4.9: supported codes, fully qualified equivalent URLs, self/return references and intentional x-default fallback.
+  verified: "2026-09-09"
+- topic: "WCAG 2.2"
+  url: "https://www.w3.org/TR/WCAG22/"
+  usedFor: >-
+    0.9, 4.4: declared target and conformance requirements, including full pages/processes, supported use and non-interference; qualified scope determines obligations.
+  verified: "2026-09-09"
+- topic: "Accessibility evaluation"
+  url: "https://www.w3.org/WAI/test-evaluate/"
+  usedFor: >-
+    0.9, 4.3, 4.4: early assessment with knowledgeable human evaluation; tools alone cannot establish accessibility conformance.
+  verified: "2026-09-09"
+- topic: "European Accessibility Act"
+  url: "https://eur-lex.europa.eu/eli/dir/2019/882/oj"
+  usedFor: >-
+    EU scope and microenterprise service exemption context
+  verified: "2026-08-26"
+- topic: "IndexNow"
+  url: "https://www.indexnow.org/documentation"
+  usedFor: >-
+    2.10: added/updated/deleted notifications, host/key/path validation,200 receipt versus 202 pending verification and error handling; current participating engines share notifications, not indexing guarantees.
+  verified: "2026-09-09"
+- topic: "Search AI control"
+  url: "https://support.google.com/webmasters/answer/16908024?hl=en"
+  usedFor: >-
+    0.6/2.9: worldwide 2026-08-31 announcement, effective inherited/overridden property choice, specific Search AI inclusion scope distinct from training and other Search ranking.
+  verified: "2026-09-09"
+- topic: "URL Inspection: live vs indexed"
+  url: "https://support.google.com/webmasters/answer/9012289?hl=en"
+  usedFor: >-
+    B04: live evidence cannot establish Google-selected canonical
+  verified: "2026-09-07"
+- topic: "Excel data-validation limitations"
+  url: "https://support.microsoft.com/en-us/excel/more-on-data-validation"
+  usedFor: >-
+    B01: runtime checks also cover values entering outside typed validation
+  verified: "2026-09-07"
+- topic: "Excel worksheet protection"
+  url: "https://support.microsoft.com/en-us/excel/protect-a-worksheet"
+  usedFor: >-
+    B01/B05: accidental edit protection and sorting limits; not security
+  verified: "2026-09-07"
+- topic: "Favicon in Search"
+  url: "https://developers.google.com/search/docs/appearance/favicon-in-search"
+  usedFor: >-
+    2.13: CDN permitted; supported formats, square 8x8 minimum and recommendation above 48x48; homepage/asset crawler access and hostname scope.
+  verified: "2026-09-09"
+- topic: "Site names"
+  url: "https://developers.google.com/search/docs/appearance/site-names"
+  usedFor: >-
+    2.13: WebSite name/url on eligible domain/subdomain homepage, consistent duplicates and signals, reuse existing node; no separate subdirectory site names.
+  verified: "2026-09-09"
+- topic: "URL structure"
+  url: "https://developers.google.com/search/docs/crawling-indexing/url-structure"
+  usedFor: >-
+    Descriptive URL paths, characters and parameter best practices
+  verified: "2026-08-26"
+- topic: "Discover"
+  url: "https://developers.google.com/search/docs/appearance/google-discover"
+  usedFor: >-
+    2.3,2.16: indexed/policy eligibility beyond publishers, no special markup, recommended image dimensions/crops/large previews and no appearance guarantee.
+  verified: "2026-09-09"
+- topic: "Video SEO"
+  url: "https://developers.google.com/search/docs/appearance/video"
+  usedFor: >-
+    2.14: dedicated main-video watch page, discoverable player/resources, third-party access, accurate structured data and optional sitemap; supplemental video differs.
+  verified: "2026-09-09"
+- topic: "Website testing"
+  url: "https://developers.google.com/search/docs/crawling-indexing/website-testing"
+  usedFor: >-
+    A/B testing, alternate URLs, canonicals, temporary redirects and cloaking cautions
+  verified: "2026-08-26"
+- topic: "Paywalled content"
+  url: "https://developers.google.com/search/docs/appearance/structured-data/paywalled-content"
+  usedFor: >-
+    2.15: intended crawler access to indexed paid content; required isAccessibleForFree and recommended section granularity; access and preview choices.
+  verified: "2026-09-09"
+- topic: "Spam policies"
+  url: "https://developers.google.com/search/docs/essentials/spam-policies"
+  usedFor: >-
+    3.9,3.13: scaled-content, doorway, link-spam and current site-reputation policy; actual third-party arrangements and integration factors, not a blanket ban on contributors.
+  verified: "2026-09-09"
+- topic: "Outbound-link qualification"
+  url: "https://developers.google.com/search/docs/crawling-indexing/qualify-outbound-links"
+  usedFor: >-
+    3.13: sponsored preferred for paid placements with nofollow accepted; appropriate UGC treatment and contextual exceptions; link attributes do not prevent target indexing.
+  verified: "2026-09-09"
+- topic: "Search Console associations"
+  url: "https://support.google.com/webmasters/answer/9419894"
+  usedFor: >-
+    Google Analytics and Merchant Center associations with Search Console
+  verified: "2026-08-26"
+- topic: "Preferred Sources"
+  url: "https://developers.google.com/search/docs/appearance/preferred-sources"
+  usedFor: >-
+    2.16: optional user selection, current domain/subdomain eligibility and supported button/link; no distinct subdirectory source or guaranteed general ranking benefit.
+  verified: "2026-09-09"
+- topic: "Helpful content"
+  url: "https://developers.google.com/search/docs/fundamentals/creating-helpful-content"
+  usedFor: >-
+    0.2,3.5,3.10: real user purpose, original value, supported claims and contextual authorship/creation transparency; formatting alone does not establish quality.
+  verified: "2026-09-09"
+- topic: "Search AI performance report"
+  url: "https://support.google.com/webmasters/answer/16984139"
+  usedFor: >-
+    6.4: Search AI impressions, actual availability, separate Discover/Labs scope, property/page aggregation, PT dates and missing values becoming zeros on export; no click/CTR or all-AI visibility interpretation.
+  verified: "2026-09-09"
+- topic: "Schema.org FAQPage"
+  url: "https://schema.org/FAQPage"
+  usedFor: >-
+    2.7, 7.9: FAQPage remains vocabulary for FAQ content. This replaces an obsolete FAQ API-history proof link; Google feature availability is checked in the separate updates source.
+  verified: "2026-09-09"
+- topic: "Breadcrumb navigation"
+  url: "https://developers.google.com/search/docs/appearance/structured-data/breadcrumb"
+  usedFor: >-
+    2.17: actual useful hierarchy, at least two ordered ListItems, required properties and last-item exception; current Google feature is desktop only.
+  verified: "2026-09-09"
+- topic: "Google AI optimization"
+  url: "https://developers.google.com/search/docs/fundamentals/ai-optimization-guide"
+  usedFor: >-
+    0.6: no required llms.txt, special AI markup or Markdown for Google Search; such files are ignored for Google visibility/ranking. Other services need their own documented case.
+  verified: "2026-09-09"
+- topic: "JavaScript SEO basics"
+  url: "https://developers.google.com/search/docs/crawling-indexing/javascript/javascript-seo-basics"
+  usedFor: >-
+    1.1, 1.10: rendering, raw noindex, canonical consistency and crawlable output; SSR is a reliability policy.
+  verified: "2026-09-08"
+- topic: "JavaScript troubleshooting"
+  url: "https://developers.google.com/search/docs/crawling-indexing/javascript/fix-search-javascript"
+  usedFor: >-
+    1.1: renderer limitations, resource/API access and reproducible raw/rendered diagnostics.
+  verified: "2026-09-08"
+- topic: "Googlebot fetch limits"
+  url: "https://developers.google.com/search/docs/crawling-indexing/googlebot"
+  usedFor: >-
+    1.1, 1.5, 0.3: uncompressed per-file fetch caps; Search: 2 MB non-PDF, 64 MB PDF; separate resources. Reverify with crawler/payload changes.
+  verified: "2026-09-08"
+- topic: "Redirects and Google Search"
+  url: "https://developers.google.com/search/docs/crawling-indexing/301-redirects"
+  usedFor: >-
+    1.3, 1.6: permanent/temporary redirect choices, 301/308 and usable destination mappings.
+  verified: "2026-09-08"
+- topic: "HTTP status codes"
+  url: "https://developers.google.com/crawling/docs/troubleshooting/http-status-codes"
+  usedFor: >-
+    1.4: 4xx, 429 and 5xx behavior; distinguish genuine absence, temporary failure and success.
+  verified: "2026-09-08"
+- topic: "Faceted navigation"
+  url: "https://developers.google.com/crawling/docs/faceted-navigation"
+  usedFor: >-
+    1.12, 1.4: bounded crawl spaces, stable filters and 404 for no-result/nonsensical filters and nonexistent pages.
+  verified: "2026-09-08"
+- topic: "Pagination"
+  url: "https://developers.google.com/search/docs/specialty/ecommerce/pagination-and-incremental-page-loading"
+  usedFor: >-
+    1.13: unique page URLs, crawlable sequential links and separate canonicals; no click/scroll dependency.
+  verified: "2026-09-08"
+- topic: "Sitemap construction"
+  url: "https://developers.google.com/search/docs/crawling-indexing/sitemaps/build-sitemap"
+  usedFor: >-
+    2.1: UTF-8, escaping, absolute URLs, 50,000 URL/50 MB uncompressed limits and meaningful lastmod.
+  verified: "2026-09-08"
+- topic: "robots.txt interpretation"
+  url: "https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec"
+  usedFor: >-
+    2.1, 5.5: GET scope, groups, 500 KiB, cache/error behavior. Most 4xx except 429 mean no restrictions; failures may retain cached rules.
+  verified: "2026-09-08"
+- topic: "HTTP caching standard"
+  url: "https://www.rfc-editor.org/rfc/rfc9111.html"
+  usedFor: >-
+    1.7, 4.2, 5.1: shared/private cache behavior, request variants and sensitive-response isolation; directives do not replace authorization.
+  verified: "2026-09-09"
+- topic: "HTTP cache and versioned assets"
+  url: "https://web.dev/articles/http-cache"
+  usedFor: >-
+    1.5, 1.7: cache/revalidation choices and changed asset URLs for reliable updates to returning users.
+  verified: "2026-09-09"
+- topic: "Font performance"
+  url: "https://web.dev/articles/font-best-practices"
+  usedFor: >-
+    1.5: delayed/failing fonts, fallback metrics, glyph-preserving licensed subsets and layout shift; system fonts remain valid.
+  verified: "2026-09-09"
+- topic: "Verify Google crawler requests"
+  url: "https://developers.google.com/crawling/docs/crawlers-fetchers/verify-google-requests"
+  usedFor: >-
+    1.7,2.9,5.5,2.15: genuine crawler identity differs from synthetic user-agent probes; use documented DNS/IP methods before trusting crawler-only access.
+  verified: "2026-09-09"
+- topic: "Monitoring distributed systems"
+  url: "https://sre.google/sre-book/monitoring-distributed-systems/"
+  usedFor: >-
+    1.7, 4.12, 5.5: actionable symptoms, clear alert routing and external behavior checks; project readiness tests are an operating-policy application.
+  verified: "2026-09-09"
+- topic: "Secure logging guidance"
+  url: "https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html"
+  usedFor: >-
+    4.12, 7.8: verify logging, limit sensitive fields, restrict access and apply approved retention/deletion obligations; duration is context dependent.
+  verified: "2026-09-09"
+- topic: "Web Vitals metrics"
+  url: "https://web.dev/articles/vitals"
+  usedFor: >-
+    1.5, 4.5, 6.2: LCP/INP/CLS at p75 by device; Good <=2.5 s/200 ms/0.1; TBT lab diagnostics do not replace field INP.
+  verified: "2026-09-09"
+- topic: "CrUX API collection window"
+  url: "https://developer.chrome.com/docs/crux/api"
+  usedFor: >-
+    4.11, 6.2: recorded 28-day collectionPeriod may contain fewer observed days; identify URL/origin and form factor.
+  verified: "2026-09-09"
+- topic: "CrUX methodology and coverage"
+  url: "https://developer.chrome.com/docs/crux/methodology"
+  usedFor: >-
+    4.11, 6.2: public discoverability and undisclosed popularity thresholds; missing coverage is not a performance grade.
+  verified: "2026-09-09"
+- topic: "Search Console CWV groups"
+  url: "https://support.google.com/webmasters/answer/9205520"
+  usedFor: >-
+    6.2: device-specific URL groups and origin fallback; distinguish group evidence from an individual URL measurement.
+  verified: "2026-09-09"
+- topic: "Declaring language in HTML"
+  url: "https://www.w3.org/International/questions/qa-html-language-declarations"
+  usedFor: >-
+    1.14: accurate document language and language changes support processing and assistive technology; separate from Google's visible-language detection.
+  verified: "2026-09-09"
+- topic: "Mobile-first indexing"
+  url: "https://developers.google.com/search/docs/crawling-indexing/mobile/mobile-sites-mobile-first-indexing"
+  usedFor: >-
+    4.3: mobile primary content, directives, metadata, structured data and resources; no interaction-dependent primary loading; correct separate-URL relationships.
+  verified: "2026-09-09"
+- topic: "Change of Address"
+  url: "https://support.google.com/webmasters/answer/9370220"
+  usedFor: >-
+    0.8, 4.8, 5.2: eligible/excluded moves, same-account ownership, source property/variant scope and submission after live redirects; tool effect is 180 days.
+  verified: "2026-09-09"
+- topic: "Manual actions"
+  url: "https://support.google.com/webmasters/answer/9044175"
+  usedFor: >-
+    0.8, 6.5: inspect actual report findings, including inherited-site actions, and verify remediation/review outcomes.
+  verified: "2026-09-09"
+- topic: "Security issues"
+  url: "https://support.google.com/webmasters/answer/9044101"
+  usedFor: >-
+    0.8, 6.5: inherited-site problems, investigation and remediation; reported example URLs are not necessarily exhaustive.
+  verified: "2026-09-09"
+- topic: "site: search limitations"
+  url: "https://developers.google.com/search/docs/monitor-debug/search-operators/all-search-site"
+  usedFor: >-
+    3.10 and inherited-domain review: site: results are not a complete inventory or proof of absence; use the actual maintained URL inventory and relevant account evidence.
+  verified: "2026-09-09"
+- topic: "Contingency planning and recovery testing"
+  url: "https://csrc.nist.gov/pubs/sp/800/34/r1/upd1/final"
+  usedFor: >-
+    1.17, 4.12: risk-based recovery planning, targets and exercises. Adapted operational practice; not a universal SEO or legal requirement.
+  verified: "2026-09-09"
+- topic: "Consent Mode implementation timing"
+  url: "https://developers.google.com/tag-platform/security/guides/consent"
+  usedFor: >-
+    2.6, 4.7: defaults before config/events, updates before page transitions, choice persistence and withdrawal; validate the actual implementation.
+  verified: "2026-09-09"
+- topic: "Analytics PII prevention"
+  url: "https://support.google.com/analytics/answer/6366371"
+  usedFor: >-
+    2.5, 4.7, 5.6: remove prohibited identifiers from URLs, titles and collected fields; redaction settings are not complete payload verification.
+  verified: "2026-09-09"
+- topic: "GA4 SPA measurement"
+  url: "https://developers.google.com/analytics/devguides/collection/ga4/single-page-applications"
+  usedFor: >-
+    2.5, 4.7: deliberate virtual-pageview emission, avoid double tracking, inspect current page_location/page_referrer and navigation behavior.
+  verified: "2026-09-09"
+- topic: "GA4 transaction IDs"
+  url: "https://support.google.com/analytics/answer/12313109"
+  usedFor: >-
+    2.5, 4.7, 5.6: web purchase deduplication needs unique nonempty transaction IDs without customer-identifying data; avoid reused IDs and generic deduplication claims.
+  verified: "2026-09-09"
+- topic: "Search Console and GA4 linking"
+  url: "https://support.google.com/analytics/answer/10737381"
+  usedFor: >-
+    0.4, 2.5: optional integration of matching page scope, web stream and properties; verify permissions and reporting limits if selected.
+  verified: "2026-09-09"
+- topic: "GA4 cross-domain measurement"
+  url: "https://support.google.com/analytics/answer/10071811?hl=en"
+  usedFor: >-
+    2.5, 4.7: selected cross-domain journeys use consistent configuration; verify destination functionality and preserved linker parameters through redirects.
+  verified: "2026-09-09"
+- topic: "Structured-data formats and interpretation"
+  url: "https://developers.google.com/search/docs/appearance/structured-data/intro-structured-data"
+  usedFor: >-
+    4.6: structured-data vocabulary and formats, interpreting page content and relevant Google feature requirements.
+  verified: "2026-09-09"
+- topic: "Google structured data features"
+  url: "https://developers.google.com/search/docs/appearance/structured-data/search-gallery"
+  usedFor: >-
+    2.7, 4.6, 7.9: select currently supported features and follow the relevant individual guidance; vocabulary validity alone is not feature support.
+  verified: "2026-09-09"
+- topic: "Product structured data"
+  url: "https://developers.google.com/search/docs/appearance/structured-data/product"
+  usedFor: >-
+    2.11,4.10: distinct product snippets, merchant listings and Merchant Center choices; accuracy and chosen-surface requirements.
+  verified: "2026-09-09"
+- topic: "Merchant listing requirements"
+  url: "https://developers.google.com/search/docs/appearance/structured-data/merchant-listing"
+  usedFor: >-
+    2.11,4.10: purchasable product pages, offer data, currency-specific URLs and required versus recommended properties; not every catalogue has checkout.
+  verified: "2026-09-09"
+- topic: "Product variants"
+  url: "https://developers.google.com/search/docs/appearance/structured-data/product-variants"
+  usedFor: >-
+    2.11,4.10: variant/group IDs, direct variant selection, correct image/offer/cart state and distinct single-page versus multi-page canonical models.
+  verified: "2026-09-09"
+- topic: "Business Profile representation guidelines"
+  url: "https://support.google.com/business/answer/3038177?hl=en"
+  usedFor: >-
+    2.12: eligibility before listing creation; real name/location/service area, address visibility, ownership and duplicate/location exceptions.
+  verified: "2026-09-09"
+- topic: "Google News policies"
+  url: "https://support.google.com/news/publisher-center/answer/6204050?hl=en"
+  usedFor: >-
+    2.18: accountable publisher, company/authors/contact, clear dates/bylines, sponsorship disclosure and news-surface policy eligibility.
+  verified: "2026-09-09"
+- topic: "News sitemaps"
+  url: "https://developers.google.com/search/docs/crawling-indexing/sitemaps/news-sitemap"
+  usedFor: >-
+    2.18: optional news feed; last-two-days metadata, at most 1,000 news entries per file, original publication dates and required publication/language/title; intentional empty feed allowed.
+  verified: "2026-09-09"
+- topic: "Schema.org sameAs"
+  url: "https://schema.org/sameAs"
+  usedFor: >-
+    0.5: a reference page must unambiguously identify the same entity; controlled profiles are one possible reference, not a compulsory list.
+  verified: "2026-09-09"
+- topic: "Generative AI content guidance"
+  url: "https://developers.google.com/search/docs/fundamentals/using-gen-ai-content"
+  usedFor: >-
+    3.9: AI can support useful work; bulk generation without added user value risks scaled-content abuse. The batch-testing workflow is this checklist's operational safeguard.
+  verified: "2026-09-09"
+- topic: "Site reputation policy update"
+  url: "https://developers.google.com/search/blog/2026/08/update-site-reputation-policy"
+  usedFor: >-
+    3.13: August2026 update distinguishes effects for searchers inside/outside the EEA, with Search Console notices and review routes; no ranking or immunity promise.
+  verified: "2026-09-09"
+- topic: "Disavow links to your site"
+  url: "https://support.google.com/webmasters/answer/2648487?hl=en"
+  usedFor: >-
+    6.8: both bad-link and manual-action thresholds; feasible removal first; URL-prefix ownership, existing-list replacement and delayed processing. Most sites do not need disavow.
+  verified: "2026-09-09"
+- topic: "Maps review policy"
+  url: "https://support.google.com/contributionpolicy/answer/7400114?hl=en-GB"
+  usedFor: >-
+    3.13/7.6: genuine reviews; no incentives, positive-only solicitation, pressure, dictated content or staff review quotas. Other destinations require separate policy review.
+  verified: "2026-09-09"
+- topic: "Review snippet guidelines"
+  url: "https://developers.google.com/search/docs/appearance/structured-data/review-snippet"
+  usedFor: >-
+    2.11,3.13,4.6,7.6: visible genuine item-specific reviews; no imported aggregates; self-serving Organization/LocalBusiness star restriction includes widgets and is distinct from eligible Product reviews.
+  verified: "2026-09-09"
+- topic: "Google common crawlers"
+  url: "https://developers.google.com/crawling/docs/crawlers-fetchers/google-common-crawlers"
+  usedFor: >-
+    0.6/2.9: Google-Extended is a product token without a separate HTTP UA, with specified Gemini training/grounding scope and no ordinary Google Search inclusion/ranking effect.
+  verified: "2026-09-09"
+- topic: "Anthropic bots"
+  url: "https://support.claude.com/en/articles/8896518-does-anthropic-crawl-data-from-the-web-and-how-can-site-owners-block-the-crawler"
+  usedFor: >-
+    0.6/2.9: ClaudeBot training, Claude-SearchBot search and Claude-User user-directed retrieval, with provider-documented robots compliance and identity guidance.
+  verified: "2026-09-09"
+- topic: "Perplexity crawlers"
+  url: "https://docs.perplexity.ai/docs/resources/perplexity-crawlers"
+  usedFor: >-
+    0.6/2.9: PerplexityBot search versus Perplexity-User requested fetches that generally ignore robots; current identity/IP guidance, no inferred training scope.
+  verified: "2026-09-09"
+- topic: "Search Console property types"
+  url: "https://support.google.com/webmasters/answer/34592?hl=en"
+  usedFor: >-
+    2.4/5.4: Domain versus URL-prefix scope/verification and monitoring access; adding a property is not a website Search or ranking prerequisite.
+  verified: "2026-09-09"
+- topic: "Verify site ownership"
+  url: "https://support.google.com/webmasters/answer/9008080?hl=en"
+  usedFor: >-
+    2.4: durable supported verification, retaining tokens, accountable verified ownership and recovery; multiple owners/methods possible without an arbitrary two-owner requirement.
+  verified: "2026-09-09"
+- topic: "Bing snippet controls"
+  url: "https://blogs.bing.com/webmaster/October-2025/Bing-Introduces-Support-for-the-data-nosnippet-HTML-Attribute"
+  usedFor: >-
+    2.9/5.8: Bing data-nosnippet suppresses marked content in snippets/AI summaries while keeping it indexable; verify provider-specific directives rather than copying Google semantics.
+  verified: "2026-09-09"
+- topic: "Bing AI Performance"
+  url: "https://blogs.bing.com/webmaster/February-2026/Introducing-AI-Performance-in-Bing-Webmaster-Tools-Public-Preview"
+  usedFor: >-
+    6.4: optional public-preview AI citations, cited pages and sampled grounding queries. These are not clicks, rankings or comprehensive AI visibility. General Bing crawl/index follow-up is an operating procedure supported separately by the sitemap guidance.
+  verified: "2026-09-11"
+- topic: "Bing sitemap guidance"
+  url: "https://blogs.bing.com/webmaster/July-2025/Keeping-Content-Discoverable-with-Sitemaps-in-AI-Powered-Search"
+  usedFor: >-
+    5.8/6.1: selected Bing sitemap discovery/processing follow-up; submission, crawl and indexing are distinct stages and no display guarantee follows.
+  verified: "2026-09-09"
+- topic: "INP historical date"
+  url: "https://web.dev/blog/responsiveness"
+  usedFor: >-
+    H07 source correction for 4.5/6.2: the page's current notice states INP replaced FID on 2024-03-12. Retain current metric controls; do not describe this as an August/September 2026 launch rule.
+  verified: "2026-09-09"
+- topic: "Googlebot fetch-limit history"
+  url: "https://developers.google.com/search/blog/2026/03/crawler-blog-post"
+  usedFor: >-
+    H07 source correction for 1.5: 2026-03-31 publication already documents 2 MB per-resource/64MB PDF limits. Use current Googlebot documentation for implementation; screenshot novelty claim is unsupported.
+  verified: "2026-09-09"
+- topic: "Google technical requirements"
+  url: "https://developers.google.com/search/docs/essentials/technical"
+  usedFor: >-
+    E02: basic technical indexing eligibility is distinct from project release dependencies; indexing is not guaranteed.
+  verified: "2026-09-10"
+- topic: "Search Essentials"
+  url: "https://developers.google.com/search/docs/essentials"
+  usedFor: >-
+    E02: distinguish technical eligibility, spam policies and helpful-content/crawlable-link best practices.
+  verified: "2026-09-10"
+- topic: "Sitemap use decision"
+  url: "https://developers.google.com/search/docs/crawling-indexing/sitemaps/overview"
+  usedFor: >-
+    2.1 / 5.4: sitemaps aid discovery and often help new/complex sites; an appropriate approved omission does not itself prevent indexing.
+  verified: "2026-09-10"
+- topic: "Page experience and ranking"
+  url: "https://developers.google.com/search/docs/appearance/page-experience"
+  usedFor: >-
+    E02 / 6.2: Google uses Core Web Vitals in ranking; other page-experience work and reporting scores do not constitute a universal ranking score or guarantee.
+  verified: "2026-09-10"
+- topic: "Image text alternatives"
+  url: "https://www.w3.org/WAI/tutorials/images/"
+  usedFor: >-
+    2.2: actual informative, functional and decorative image inventory determines applicable text-alternative checks.
+  verified: "2026-09-10"
+- topic: "Historical reference: Search Console generative AI control"
+  url: "https://blog.google/products-and-platforms/products/search/new-controls-website-owners/"
+  usedFor: >-
+    Historical only - not current support. Existence, scope and limits of the AI Overviews / AI Mode / Discover opt-out toggle
+  verified: "2026-08-26"
+- topic: "Historical reference: Generative AI performance reports"
+  url: "https://developers.google.com/search/blog/2026/06/gen-ai-performance-reports"
+  usedFor: >-
+    Historical only - not current support. Search Console generative-AI reporting scope and subset rollout
+  verified: "2026-08-26"
+- topic: "Historical reference: Search Console Search Analytics API"
+  url: "https://developers.google.com/webmaster-tools/v1/searchanalytics/query"
+  usedFor: >-
+    Historical only - not current support. FAQ search-appearance API deprecation in August 2026
+  verified: "2026-08-26"
+- topic: "Historical reference: International sites"
+  url: "https://developers.google.com/search/docs/advanced/crawling/managing-multi-regional-sites"
+  usedFor: >-
+    Historical only - not current support. Locale URLs and automatic redirect cautions
+  verified: "2026-08-26"
+- topic: "Crawlable links and anchor text"
+  url: "https://developers.google.com/search/docs/crawling-indexing/links-crawlable"
+  usedFor: >-
+    1.2 / 3.3: crawlable anchors and href attributes, descriptive contextual links and links to important pages. Few clicks is a project usability target, not a numeric Google rule.
+  verified: "2026-09-10"
+- topic: "Title links in Search"
+  url: "https://developers.google.com/search/docs/appearance/title-link"
+  usedFor: >-
+    3.1: descriptive distinct titles, a clear main visual heading, avoiding keyword repetition and boilerplate. Search title links are generated automatically; the page does not impose a fixed character limit.
+  verified: "2026-09-10"
+- topic: "Meta descriptions and snippets"
+  url: "https://developers.google.com/search/docs/appearance/snippet"
+  usedFor: >-
+    3.2: accurate page-specific descriptions; Google may select page content and vary snippets by query. Snippet truncation is display-dependent, with no fixed meta-description length limit.
+  verified: "2026-09-10"
+- topic: "LCP resource discovery and priority"
+  url: "https://web.dev/articles/optimize-lcp"
+  usedFor: >-
+    1.9: avoid lazy-loading the LCP image and make its resource discoverable promptly. This is performance guidance, not a requirement to adopt SSR.
+  verified: "2026-09-10"
+- topic: "Responsive image sizing and loading"
+  url: "https://web.dev/learn/design/responsive-images"
+  usedFor: >-
+    1.9: reserve image dimensions, use srcset/sizes for appropriate assets and lazy-load suitable below-fold images. Verify the actual chosen resources and page layout.
+  verified: "2026-09-10"
+- topic: "Open Graph protocol"
+  url: "https://ogp.me/"
+  usedFor: >-
+    2.8: the basic required properties are og:title, og:type, og:image and og:url; og:description is optional recommended metadata. Additional properties depend on the chosen object type.
+  verified: "2026-09-10"

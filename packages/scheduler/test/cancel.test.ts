@@ -56,7 +56,7 @@ describe.skipIf(!url)('cancelling an audit mid-crawl', () => {
   beforeAll(async () => {
     const [row] = await db
       .insert(sites)
-      .values({ name: 'fixture-cancel', origin: site.origin, flags: ['hierarchical'] })
+      .values({ name: 'fixture-cancel', origin: site.origin, flags: ['hierarchical'], profileCorpusVersion: '4.4' })
       .returning({ id: sites.id });
     siteId = row!.id;
   });

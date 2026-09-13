@@ -62,6 +62,7 @@ describe.skipIf(!url)('an audit of a site with an AI crawler policy', () => {
         name: 'fixture-ai',
         origin: site.origin,
         flags: ['ai-policy'],
+        profileCorpusVersion: '4.4',
         aiPolicy: aiPolicy as never,
       })
       .returning({ id: sites.id });

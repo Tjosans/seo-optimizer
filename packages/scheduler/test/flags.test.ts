@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { eq } from 'drizzle-orm';
 import { loadCorpus } from '@seo/corpus';
 import { audits, crawls, createDatabase, sites } from '@seo/db';
-import { AuditScheduler, PermanentAuditError } from '@seo/scheduler';
+import { AuditScheduler, PermanentAuditError, StaleSiteProfileError } from '@seo/scheduler';
 import type { CrawlBudget } from '@seo/scheduler';
 import { startFixtureSite } from '@seo/testkit';
 import type { FixtureSite } from '@seo/testkit';
@@ -56,11 +56,14 @@ describe.skipIf(!url)('a site profile the corpus does not recognise', () => {
     await handle.close();
   });
 
-  const siteWith = async (flags: readonly string[]): Promise<string> => {
+  const siteWith = async (
+    flags: readonly string[],
+    profileCorpusVersion: string | null = CORPUS.version,
+  ): Promise<string> => {
     await db.delete(sites).where(eq(sites.origin, site.origin));
     const [row] = await db
       .insert(sites)
-      .values({ name: 'fixture-flags', origin: site.origin, flags: [...flags] })
+      .values({ name: 'fixture-flags', origin: site.origin, flags: [...flags], profileCorpusVersion })
       .returning({ id: sites.id });
     return row!.id;
   };
@@ -101,6 +104,45 @@ describe.skipIf(!url)('a site profile the corpus does not recognise', () => {
 
     await scheduler.close();
   }, 30_000);
+
+  it('refuses a profile declared against another corpus version, before the crawl', async () => {
+    // 2.2 became conditional on `images` between v4.4 and v5.0: a profile from
+    // the older version would have that launch gate excused without a word.
+    const siteId = await siteWith(['ecommerce'], '4.3');
+    const scheduler = new AuditScheduler({ db, corpus, crawl: BUDGET });
+    const submitted = await scheduler.submit({ siteId, corpusVersion: '4.4' });
+
+    await expect(submitted.done).rejects.toThrow(StaleSiteProfileError);
+    await expect(submitted.done).rejects.toThrow(/against corpus 4\.3, but this audit is pinned to corpus 4\.4/);
+    await scheduler.drain();
+    expect(scheduler.status(submitted.auditId)?.attempt).toBe(1);
+    expect(await db.select().from(crawls).where(eq(crawls.auditId, submitted.auditId))).toEqual(
+      [],
+    );
+
+    await scheduler.close();
+  }, 30_000);
+
+  it('refuses a profile with no recorded corpus version', async () => {
+    const siteId = await siteWith(['ecommerce'], null);
+    const scheduler = new AuditScheduler({ db, corpus, crawl: BUDGET, retry: false });
+    const submitted = await scheduler.submit({ siteId, corpusVersion: '4.4' });
+
+    await expect(submitted.done).rejects.toThrow(/against no recorded corpus version/);
+
+    await scheduler.close();
+  }, 30_000);
+
+  it('lets an empty profile run without a version, since it states nothing', async () => {
+    const siteId = await siteWith([], null);
+    const scheduler = new AuditScheduler({ db, corpus, crawl: BUDGET, retry: false });
+    const submitted = await scheduler.submit({ siteId, corpusVersion: '4.4' });
+
+    const outcome = await submitted.done;
+    expect(outcome.pagesCrawled).toBeGreaterThan(0);
+
+    await scheduler.close();
+  }, 60_000);
 
   it('lets a profile the corpus does recognise straight through', async () => {
     const siteId = await siteWith(['ecommerce', 'hierarchical']);

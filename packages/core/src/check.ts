@@ -101,6 +101,8 @@ export interface Cadence {
 
 /** A citation from the corpus Sources sheet. */
 export interface SourceRef {
+  /** Stable id from the Sources sheet (`SRC006`), from corpus v5.0 on. */
+  readonly id?: string;
   readonly topic: string;
   readonly url: string;
   readonly usedFor: string;

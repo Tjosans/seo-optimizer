@@ -59,6 +59,22 @@ export const internalSearchIndexability: SiteProbe = {
 };
 
 /**
+ * Whether two hreflang values name one language in different regions.
+ *
+ * Compared on the primary language subtag. `x-default` names no language, so it
+ * never matches: a canonical onto the fallback is a cross-language collapse
+ * until someone shows otherwise.
+ */
+const sameLanguage = (a: string, b: string): boolean => {
+  const language = (value: string): string | null => {
+    const primary = value.trim().toLowerCase().split(/[-_]/)[0] ?? '';
+    return primary === '' || primary === 'x' ? null : primary;
+  };
+  const left = language(a);
+  return left !== null && left === language(b) && a.trim().toLowerCase() !== b.trim().toLowerCase();
+};
+
+/**
  * Whether a locale variant is allowed to be indexed as itself.
  *
  * The defect this exists for is quiet and common: a template ships with the
@@ -66,6 +82,12 @@ export const internalSearchIndexability: SiteProbe = {
  * address. Every hreflang annotation on the site can be perfect and the French
  * page still never appears, because canonical outranks hreflang — the site
  * asked for one page and got it.
+ *
+ * Corpus v5.0 draws the line this detector follows: distinct translations must
+ * stay independently indexable, so a canonical onto another language fails,
+ * while "same-language regional consolidation" is allowed when the locale plan
+ * (0.7) documents it, so a canonical onto another region of the same language
+ * holds the check for the person who owns that plan.
  *
  * "Is this a locale variant?" is answered from the cluster rather than from the
  * page, on purpose. A page that carries no annotation of its own but is named
@@ -119,7 +141,9 @@ export const localeCanonical: PageProbe = {
 
     const canonical = extracted.canonical;
     if (canonical === null) {
-      return fail('A locale variant with no rel=canonical leaves a search engine to pick which locale to keep.', {
+      // v5.0 asks for self-canonicals "where appropriate" rather than on every
+      // page, so a missing one is a gap to close, not a contradiction.
+      return warn('A locale variant with no rel=canonical leaves a search engine to pick which locale to keep.', {
         alternates: alternates.slice(0, 10),
       });
     }
@@ -133,6 +157,17 @@ export const localeCanonical: PageProbe = {
     }
 
     const locale = cluster.get(declared);
+    const own = [...selves].map((url) => cluster.get(url)).find((value) => value !== undefined);
+    if (locale !== undefined && own !== undefined && sameLanguage(own, locale)) {
+      // v5.0 0.7 and 1.14 allow "same-language regional consolidation" when the
+      // locale plan documents it — en-GB onto en-US is a choice a site may make.
+      // Only the plan can say it was chosen, so it holds for a person.
+      return warn(
+        `Canonicalizes the "${own}" page to its same-language "${locale}" variant at ${declared}; ` +
+          'confirm the locale plan consolidates these regions deliberately.',
+        { canonical: declared, locale, own, pageUrl: page.normalizedUrl },
+      );
+    }
     if (locale !== undefined) {
       return fail(
         `Canonicalizes to the "${locale}" locale at ${declared}, so this locale cannot be indexed separately.`,

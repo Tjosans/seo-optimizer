@@ -52,6 +52,12 @@ export interface AuditJob {
   readonly origin: string;
   readonly flags: readonly string[];
   /**
+   * The corpus version `flags` were declared against, or null. Optional
+   * because a job written to the store before this field existed has none,
+   * which reads the same as null.
+   */
+  readonly profileCorpusVersion?: string | null;
+  /**
    * The site's approved AI crawler policy, or null. Carried on the job rather
    * than re-read at run time for the same reason the flags are: an audit
    * reports on the site as it was described when it was submitted.
@@ -101,6 +107,35 @@ export class UnknownSiteFlagsError extends Error {
     this.name = 'UnknownSiteFlagsError';
     this.siteId = siteId;
     this.unknown = unknown;
+  }
+}
+
+/**
+ * The site's flags were declared against a different corpus version than the
+ * one the audit is pinned to, or against none on record.
+ *
+ * Permanent, and raised before the crawl, for the reason `UnknownSiteFlagsError`
+ * is: a version can make a universal check conditional on a flag the profile's
+ * author never saw, and `resolveScope` would read that flag's absence as a
+ * decision and excuse the check — 2.2, a launch gate, is exactly that case
+ * between v4.4 and v5.0. Only a person re-reading the profile can say whether
+ * the site has what the new conditions ask about.
+ */
+export class StaleSiteProfileError extends Error {
+  readonly siteId: string;
+  readonly declaredFor: string | null;
+
+  constructor(siteId: string, declaredFor: string | null, corpusVersion: string) {
+    super(
+      `site ${siteId} declares flags against ` +
+        `${declaredFor === null ? 'no recorded corpus version' : `corpus ${declaredFor}`}, ` +
+        `but this audit is pinned to corpus ${corpusVersion}: review the flags against ` +
+        `${corpusVersion}'s "Applies to" conditions and set sites.profile_corpus_version ` +
+        `to '${corpusVersion}'`,
+    );
+    this.name = 'StaleSiteProfileError';
+    this.siteId = siteId;
+    this.declaredFor = declaredFor;
   }
 }
 

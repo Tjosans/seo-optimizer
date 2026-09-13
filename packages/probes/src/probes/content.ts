@@ -1,7 +1,11 @@
 /**
- * Answer-first formatting and entity clarity: corpus check 3.9, read from markup.
+ * Clear answers and accountable authorship, read from markup: corpus check 3.5
+ * under v5.0, which took this subject over from v4.4's 3.9 when v5.0 gave 3.9
+ * to batch publishing. v5.0's 3.5 asks that priority content "serves its stated
+ * purpose clearly" and that "authorship and dates are accurate where needed";
+ * the reading below is the one first written against v4.4's wording.
  *
- * 3.9 asks that a machine and a hurried human can take a correct, attributable
+ * v4.4's 3.9 asks that a machine and a hurried human can take a correct, attributable
  * answer from a page — descriptive subheadings, direct answers near their
  * questions, sources where claims need them — and that articles say who wrote
  * them and when. Its "Done when" closes on a reader's judgement: whether the
@@ -49,7 +53,7 @@ const articleNode = (blocks: readonly unknown[]): Record<string, unknown> | null
  * make — and it is exactly how sites with no structured data at all declare
  * their articles: Smashing Magazine and WordPress's own news, checked live.
  */
-const declaresArticle = (extracted: Extracted): boolean =>
+export const declaresArticle = (extracted: Extracted): boolean =>
   articleNode(extracted.jsonLd) !== null ||
   (/^article$/i.test(extracted.openGraph['og:type'] ?? '') && text(extracted.authorship.publishedTime) !== null);
 

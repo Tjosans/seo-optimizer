@@ -1,0 +1,387 @@
+# Corpus v5.0 - phase 5: 5 — Launch day
+# Bootstrapped by scripts/compile-corpus.ts from corpus/source/v5.0.tsv.
+# This file is the source of record now: edit it directly. The compiler
+# refuses to overwrite an existing version, so these edits are safe.
+
+- id: "5.1"
+  phase: 5
+  phaseLabel: "5 — Launch day"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    DNS cutover and production smoke test
+  whatToDo: >-
+    After cutover test the public hostname: DNS, certificates, preferred host, statuses, robots, sitemap, canonicals, assets, forms and critical journeys. Repeat 4.2's applicable cold/warm cache, invalidation, locale and private-session checks on production. Check edge challenges/rate limits and required resources. Use available provider-triggered tools and verified request logs; identify the actual crawler/fetcher category observed.
+  doneWhen: >-
+    Production matches the approved matrix with no critical availability, indexing, required-access or privacy defect. Record public-path probes and verified provider requests separately. Mark an unobserved organic crawl Unavailable in evidence, with an owner and first-week follow-up in 6.1; do not claim verification or failure solely because no visit has occurred. Known required-access failures block acceptance.
+  owners: ["developer", "seo"]
+  ownerSource: >-
+    Developer + SEO
+  tools: >-
+    Browser; HTTP probes; provider live-fetch tools; trusted edge/server logs; provider identity verification
+  cadence:
+    triggers: ["launch-day"]
+    source: >-
+      Launch day
+  notes: >-
+    Purpose: indexing/discovery; security/governance. D05. A spoofed user agent tests a rule only. Verify Google requests with the correct published IP category or reverse DNS plus forward match and an exact official domain boundary. A user-triggered fetch does not prove common Googlebot access. Never let bot identity bypass private-account authorization. Source: Verify Google crawler requests. Source IDs: SRC047; SRC050.
+  automation: assisted
+  remediationClass: config
+  detectors: ["production-smoke-test"]
+  sources:
+    - id: "SRC047"
+      topic: "HTTP caching standard"
+      url: "https://www.rfc-editor.org/rfc/rfc9111.html"
+      usedFor: >-
+        1.7, 4.2, 5.1: shared/private cache behavior, request variants and sensitive-response isolation; directives do not replace authorization.
+      verified: "2026-09-09"
+    - id: "SRC050"
+      topic: "Verify Google crawler requests"
+      url: "https://developers.google.com/crawling/docs/crawlers-fetchers/verify-google-requests"
+      usedFor: >-
+        1.7,2.9,5.5,2.15: genuine crawler identity differs from synthetic user-agent probes; use documented DNS/IP methods before trusting crawler-only access.
+      verified: "2026-09-09"
+- id: "5.2"
+  phase: 5
+  phaseLabel: "5 — Launch day"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: false
+    any: ["migration"]
+    source: >-
+      Migration / redesign / domain or URL change
+  task: >-
+    Migration cutover and live redirect verification
+  whatToDo: >-
+    After destination readiness and 4.8 pass, activate the approved redirects at the planned cutover. Test every inventoried live status/target and the approved content/SEO-signal sample, including host/query variants and assets. Then submit eligible Change of Address requests from the required verified source variants using the owning account. Record tool outcomes, retain domain/redirect continuity and hand monitoring to the named owner.
+  doneWhen: >-
+    Live outcomes match the approved map, including intentional 404/410 retirements and relevant consolidations. No required destination, mapping or signal check fails. Eligible Change of Address requests have passed required prechecks and show the move in progress; ineligible cases have a recorded reason. Old domains/variants remain controlled and monitored under 0.8. A submission does not prove indexing or ranking recovery.
+  owners: ["developer", "seo"]
+  ownerSource: >-
+    Developer + SEO
+  tools: >-
+    Old-site crawl; redirect tester; GSC
+  cadence:
+    triggers: ["cutover"]
+    source: >-
+      At cutover and immediately afterward; monitor through migration
+  notes: >-
+    Purpose: indexing/discovery; security/governance. C21. Prepare destinations before cutover; submit Change of Address only after the site is moved and redirects work. The tool's 180-day effect does not shorten the at-least-one-year redirect policy. Sources: Google site moves; Change of Address. Source IDs: SRC011; SRC059.
+  automation: assisted
+  remediationClass: config
+  detectors: ["migration-redirects-live"]
+  sources:
+    - id: "SRC011"
+      topic: "Google site moves"
+      url: "https://developers.google.com/search/docs/crawling-indexing/site-move-with-url-changes"
+      usedFor: >-
+        0.8, 4.8, 5.2: domain history, URL outcomes, destination/redirect sequencing and at-least-one-year redirect guidance. Keep the tool's separate 180-day effect distinct.
+      verified: "2026-09-09"
+    - id: "SRC059"
+      topic: "Change of Address"
+      url: "https://support.google.com/webmasters/answer/9370220"
+      usedFor: >-
+        0.8, 4.8, 5.2: eligible/excluded moves, same-account ownership, source property/variant scope and submission after live redirects; tool effect is 180 days.
+      verified: "2026-09-09"
+- id: "5.3"
+  phase: 5
+  phaseLabel: "5 — Launch day"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Production crawl and indexability verification
+  whatToDo: >-
+    Crawl the public site after launch and reconcile status, robots, canonicals, metadata, internal links, sitemap URLs and rendered content against the signed release candidate and indexability matrix.
+  doneWhen: >-
+    No critical production-only difference or blocked priority URL remains; exceptions have owners and immediate decisions.
+  owners: ["developer", "seo"]
+  ownerSource: >-
+    SEO + developer
+  tools: >-
+    Crawler; URL Inspection; crawl diff
+  cadence:
+    triggers: ["launch-day"]
+    source: >-
+      Launch day and after emergency fixes
+  notes: >-
+    Purpose: indexing/discovery. Source IDs: SRC009; SRC010; SRC038.
+  automation: automated
+  remediationClass: config
+  detectors: ["production-crawl-verify"]
+  sources:
+    - id: "SRC009"
+      topic: "Robots meta and X-Robots-Tag"
+      url: "https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag"
+      usedFor: >-
+        B03 and 0.3, 1.10, 1.16: intentional noindex needs crawl access; headers cover non-HTML files. Directives do not replace authorization.
+      verified: "2026-09-08"
+    - id: "SRC010"
+      topic: "Canonicalization"
+      url: "https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls"
+      usedFor: >-
+        1.3, 1.6, 1.16: retained duplicates, preferred-URL signals, supported non-HTML Link canonical; selection is not guaranteed.
+      verified: "2026-09-08"
+    - id: "SRC038"
+      topic: "JavaScript SEO basics"
+      url: "https://developers.google.com/search/docs/crawling-indexing/javascript/javascript-seo-basics"
+      usedFor: >-
+        1.1, 1.10: rendering, raw noindex, canonical consistency and crawlable output; SSR is a reliability policy.
+      verified: "2026-09-08"
+- id: "5.4"
+  phase: 5
+  phaseLabel: "5 — Launch day"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Verify production sitemap and priority URLs; record submission status
+  whatToDo: >-
+    On the production origin, verify sitemap fetchability when a sitemap is used; otherwise confirm the approved omission and internal-discovery evidence and inspect the homepage and representative priority templates for response, crawl/indexing directives, declared canonical and rendered content. If a sitemap is used, submit it in the correctly scoped Search Console property when account/service access is available, recording actual status/time. Use live URL Inspection where available alongside direct HTTP/rendered evidence. Record unavailable access or service functions with evidence, an owner and follow-up; never infer indexed status or Google-selected canonical from a live test.
+  doneWhen: >-
+    Production evidence matches the approved URL matrix for sampled launch-critical patterns and any intended sitemap is reachable; an approved omission has matching internal-discovery evidence. No known blocking live fetch/directive/canonical/content defect remains. For an implemented sitemap, submission is either evidenced or explicitly pending with an owner and next action; unavailable account/service access alone does not block. Record absent indexed data as Unavailable and follow up under 6.1. Delay or missing reports cannot excuse a demonstrated technical defect or replace required live evidence.
+  owners: ["seo"]
+  ownerSource: >-
+    SEO
+  tools: >-
+    Google Search Console; URL Inspection
+  cadence:
+    triggers: ["launch-day"]
+    source: >-
+      Launch day
+  notes: >-
+    Purpose: indexing/discovery; measurement. C14 dependency. This remains a live technical gate. Recommended SC setup/submission and report availability are tracked separately and do not create an artificial indexing prerequisite. Keep declared/live and Google-selected/indexed canonical evidence separate. Sources: Search Console property types; existing live URL Inspection guidance. E02: the sitemap adoption decision follows 2.1; omission does not waive production URL tests. Source: Sitemap use decision. Source IDs: SRC009; SRC010; SRC019; SRC038; SRC087; SRC096.
+  automation: assisted
+  remediationClass: config
+  detectors: ["sitemap-submit", "url-inspection"]
+  sources:
+    - id: "SRC009"
+      topic: "Robots meta and X-Robots-Tag"
+      url: "https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag"
+      usedFor: >-
+        B03 and 0.3, 1.10, 1.16: intentional noindex needs crawl access; headers cover non-HTML files. Directives do not replace authorization.
+      verified: "2026-09-08"
+    - id: "SRC010"
+      topic: "Canonicalization"
+      url: "https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls"
+      usedFor: >-
+        1.3, 1.6, 1.16: retained duplicates, preferred-URL signals, supported non-HTML Link canonical; selection is not guaranteed.
+      verified: "2026-09-08"
+    - id: "SRC019"
+      topic: "URL Inspection: live vs indexed"
+      url: "https://support.google.com/webmasters/answer/9012289?hl=en"
+      usedFor: >-
+        B04: live evidence cannot establish Google-selected canonical
+      verified: "2026-09-07"
+    - id: "SRC038"
+      topic: "JavaScript SEO basics"
+      url: "https://developers.google.com/search/docs/crawling-indexing/javascript/javascript-seo-basics"
+      usedFor: >-
+        1.1, 1.10: rendering, raw noindex, canonical consistency and crawlable output; SSR is a reliability policy.
+      verified: "2026-09-08"
+    - id: "SRC087"
+      topic: "Search Console property types"
+      url: "https://support.google.com/webmasters/answer/34592?hl=en"
+      usedFor: >-
+        2.4/5.4: Domain versus URL-prefix scope/verification and monitoring access; adding a property is not a website Search or ranking prerequisite.
+      verified: "2026-09-09"
+    - id: "SRC096"
+      topic: "Sitemap use decision"
+      url: "https://developers.google.com/search/docs/crawling-indexing/sitemaps/overview"
+      usedFor: >-
+        2.1 / 5.4: sitemaps aid discovery and often help new/complex sites; an appropriate approved omission does not itself prevent indexing.
+      verified: "2026-09-10"
+- id: "5.5"
+  phase: 5
+  phaseLabel: "5 — Launch day"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Availability, indexability and canonical canaries
+  whatToDo: >-
+    Confirm the monitoring prepared in 4.12 is active on production. Check uptime, 5xx/429, DNS/SSL expiry, robots status/content, sitemap failure, canonical and unintended-noindex canaries. Include accidental robots 4xx and failed refresh/cache cases. Use a safe synthetic signal to confirm live routing and the current response runbook; do not cause a production fault.
+  doneWhen: >-
+    Live canaries match the approved access/directive matrix. A safe test reaches the accountable monitored recipient within the target; severity and response steps cover the relevant URL, sitemap, robots and cache failures. Record delivery evidence and investigation ownership for anomalies.
+  owners: ["developer"]
+  ownerSource: >-
+    Developer
+  tools: >-
+    Uptime monitor (Better Stack, Cronitor, UptimeRobot); scheduled GitHub Action; GSC alerts
+  cadence:
+    triggers: ["launch-day", "on-change"]
+    source: >-
+      Launch day; first-month review; approved periodic interval and after monitoring changes
+  notes: >-
+    Purpose: indexing/discovery; security/governance. D02/F03. Most robots 4xx except 429 mean no crawl restrictions for Google; server/network failures can interrupt crawling and retain cached rules. Pre-cutover setup/testing belongs to 4.12; this row confirms production operation. Sources: robots.txt interpretation; Monitoring distributed systems. Source IDs: SRC046; SRC050; SRC051.
+  automation: assisted
+  remediationClass: config
+  detectors: ["availability-canary", "indexability-canary"]
+  sources:
+    - id: "SRC046"
+      topic: "robots.txt interpretation"
+      url: "https://developers.google.com/crawling/docs/robots-txt/robots-txt-spec"
+      usedFor: >-
+        2.1, 5.5: GET scope, groups, 500 KiB, cache/error behavior. Most 4xx except 429 mean no restrictions; failures may retain cached rules.
+      verified: "2026-09-08"
+    - id: "SRC050"
+      topic: "Verify Google crawler requests"
+      url: "https://developers.google.com/crawling/docs/crawlers-fetchers/verify-google-requests"
+      usedFor: >-
+        1.7,2.9,5.5,2.15: genuine crawler identity differs from synthetic user-agent probes; use documented DNS/IP methods before trusting crawler-only access.
+      verified: "2026-09-09"
+    - id: "SRC051"
+      topic: "Monitoring distributed systems"
+      url: "https://sre.google/sre-book/monitoring-distributed-systems/"
+      usedFor: >-
+        1.7, 4.12, 5.5: actionable symptoms, clear alert routing and external behavior checks; project readiness tests are an operating-policy application.
+      verified: "2026-09-09"
+- id: "5.6"
+  phase: 5
+  phaseLabel: "5 — Launch day"
+  priority: P0
+  profile: core
+  launchGate: true
+  applicability:
+    universal: false
+    any: ["analytics"]
+    source: >-
+      Sites using analytics or conversion measurement
+  task: >-
+    Live analytics and conversion smoke test
+  whatToDo: >-
+    Run the approved production smoke journeys using authorized test records. Confirm expected collection or suppression for relevant consent states and transitions, page/route events, attribution, values and deduplication. Check actual network/storage behavior and appropriate recipient diagnostics; reconcile permitted transactions with the system of record. Control test-data handling and repeat any affected failures before recording the live result.
+  doneWhen: >-
+    Required live cases match the approved 0.4/4.7 expectations: permitted events arrive accurately where expected, suppressed events remain absent, and denied paths work. No prohibited disclosure, duplicate purchase or required measurement failure remains. Record reporting latency and evidence limits without inferring receipt from configuration or demanding one analytics event for every action.
+  owners: ["analytics", "developer", "business"]
+  ownerSource: >-
+    Analytics + business + developer
+  tools: >-
+    Analytics realtime/debug view; tag debugger; transaction records
+  cadence:
+    triggers: ["launch-day"]
+    source: >-
+      Launch day
+  notes: >-
+    Purpose: measurement; legal/accessibility. C12/D06. Absence can be the correct consent outcome. Workbook completion neither promises full observability nor proves legal compliance. Keep live receipt/suppression evidence separate from later aggregate reporting. Sources: Google Consent Mode; Analytics PII prevention; GA4 transaction IDs. Source IDs: SRC004; SRC065; SRC067.
+  automation: assisted
+  remediationClass: config
+  detectors: ["live-analytics-smoke"]
+  sources:
+    - id: "SRC004"
+      topic: "Google Consent Mode"
+      url: "https://developers.google.com/tag-platform/security/concepts/consent-mode"
+      usedFor: >-
+        0.4, 2.6, 5.6: Basic/Advanced behavior, consent types and limitations. Denied storage can still involve transmission in Advanced mode; mode selection follows qualified scope.
+      verified: "2026-09-09"
+    - id: "SRC065"
+      topic: "Analytics PII prevention"
+      url: "https://support.google.com/analytics/answer/6366371"
+      usedFor: >-
+        2.5, 4.7, 5.6: remove prohibited identifiers from URLs, titles and collected fields; redaction settings are not complete payload verification.
+      verified: "2026-09-09"
+    - id: "SRC067"
+      topic: "GA4 transaction IDs"
+      url: "https://support.google.com/analytics/answer/12313109"
+      usedFor: >-
+        2.5, 4.7, 5.6: web purchase deduplication needs unique nonempty transaction IDs without customer-identifying data; avoid reused IDs and generic deduplication claims.
+      verified: "2026-09-09"
+- id: "5.7"
+  phase: 5
+  phaseLabel: "5 — Launch day"
+  priority: P0
+  profile: extended
+  launchGate: false
+  applicability:
+    universal: true
+    any: []
+    source: >-
+      All sites
+  task: >-
+    Record launch-owner decision and rollback window.
+  whatToDo: >-
+    After reviewing the current calculated launch assessment and the production evidence, the named launch owner records GO, HOLD with remediation, or rollback for the identified release and approved scope. Record the decision time, evidence reference, remaining risks, action owners and rollback-window end. Keep the responsible people available through that window. Reassess and update the record after a failed check, remediation, rollback or material release change.
+  doneWhen: >-
+    A complete dated human decision record exists and agrees with the current release, scope and evidence. A recorded GO is permitted only while the calculated final assessment is GO. Recording a HOLD or rollback can complete this administrative record; it does not change the calculated assessment.
+  owners: ["developer", "business", "seo"]
+  ownerSource: >-
+    Launch owner + developer + SEO + business
+  tools: >-
+    Launch runbook; monitoring; crawl; analytics
+  cadence:
+    triggers: ["launch-window"]
+    source: >-
+      Launch window
+  notes: >-
+    Purpose: security/governance. Decision recording is outside its own prerequisites. Calculated readiness, owner authorization, production verification and the final human decision are separate facts. Operating design; no external ranking claim. Related controls: 4.12, 5.1, 5.2, 5.3, 5.4, 5.5, 5.6.
+  automation: attested
+  remediationClass: config
+  detectors: []
+  sources: []
+- id: "5.8"
+  phase: 5
+  phaseLabel: "5 — Launch day"
+  priority: P1
+  profile: extended
+  launchGate: false
+  applicability:
+    universal: false
+    any: ["bing"]
+    source: >-
+      Sites prioritizing Bing
+  task: >-
+    Bing Webmaster Tools onboarding
+  whatToDo: >-
+    Where Bing is selected, verify the correctly scoped production property before or at launch and record the actual sitemap submission/processing state. Check adopted IndexNow events under 2.10. Assign first-week and first-month reviews under 6.1/6.3 for sitemap processing, crawl/index issues, search performance and relevant notifications. Check any Bing-specific directives against current Bing documentation; do not copy Google semantics by assumption.
+  doneWhen: >-
+    The property and monitoring access are verified before marking this setup Passed; otherwise keep it unfinished with a reason, owner and next action. Record actual submission receipt and processing separately from indexed status. First-week and first-month checks have dates and owners and feed the reporting review. Optional AI citation reporting is handled separately under 6.4.
+  owners: ["seo"]
+  ownerSource: >-
+    SEO
+  tools: >-
+    Bing Webmaster Tools
+  cadence:
+    triggers: []
+    source: >-
+      Before or at launch if selected; first week and first month; thereafter via 6.3
+  notes: >-
+    Purpose: measurement. C23. Conditional monitoring, not a search-ranking or universal launch requirement. Source: Bing AI Performance announcement and Bing sitemap guidance. Source IDs: SRC089; SRC091.
+  automation: assisted
+  remediationClass: config
+  detectors: ["bing-onboarding"]
+  sources:
+    - id: "SRC089"
+      topic: "Bing snippet controls"
+      url: "https://blogs.bing.com/webmaster/October-2025/Bing-Introduces-Support-for-the-data-nosnippet-HTML-Attribute"
+      usedFor: >-
+        2.9/5.8: Bing data-nosnippet suppresses marked content in snippets/AI summaries while keeping it indexable; verify provider-specific directives rather than copying Google semantics.
+      verified: "2026-09-09"
+    - id: "SRC091"
+      topic: "Bing sitemap guidance"
+      url: "https://blogs.bing.com/webmaster/July-2025/Keeping-Content-Discoverable-with-Sitemaps-in-AI-Powered-Search"
+      usedFor: >-
+        5.8/6.1: selected Bing sitemap discovery/processing follow-up; submission, crawl and indexing are distinct stages and no display guarantee follows.
+      verified: "2026-09-09"

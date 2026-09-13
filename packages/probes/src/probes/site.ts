@@ -4,8 +4,9 @@
  * the URL space is shaped.
  */
 
-import { isAllowed, isSameSite, normalizeUrl, pathDepth } from '@seo/crawler';
+import { extract, isAllowed, isSameSite, normalizeUrl, pathDepth } from '@seo/crawler';
 import type { CrawledPage } from '@seo/crawler';
+import { isProductToken, isUserDirectedAgent } from '@seo/core';
 import type { SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
 import { checkLanguageTag } from './language-tags.js';
@@ -96,13 +97,39 @@ const LANG_TAG = /^[a-z]{2,3}(-[A-Za-z]{4})?(-([A-Za-z]{2}|\d{3}))?$/i;
 /** URL shapes a paginated series takes: ?page=2, /page/2, /p/2, ?p=2. */
 const PAGED_URL = /([?&](page|p)=\d+|\/(page|p)\/\d+)/i;
 
+/** Google parses the first 500 KiB of robots.txt and ignores the rest. */
+const ROBOTS_PARSE_LIMIT = 500 * 1024;
+
+/**
+ * robots.txt, judged as corpus v5.0 2.1 asks: its behaviour recorded,
+ * "including intentional absence and cache/error cases".
+ *
+ * Absence is a decision, not a defect. A 404 tells every crawler the whole
+ * site is open, which is what many sites intend, so it holds the check for a
+ * person to record rather than failing it. What does fail is a robots.txt
+ * crawlers read as "stay out": everything disallowed, or a file that answers
+ * with a server error, a 429 or nothing at all, which Google treats the same
+ * way. A Sitemap line is no longer asked for, since v5.0 makes the sitemap
+ * itself optional.
+ */
 export const robotsTxt: SiteProbe = {
   id: 'robots-txt',
   scope: 'site',
-  title: 'robots.txt states crawl policy and points at the sitemap',
+  title: 'robots.txt states crawl policy crawlers can read',
   run({ crawl }) {
+    const status = crawl.robotsStatus;
+    if (status === null) {
+      return fail('robots.txt did not answer; crawlers treat an unreachable robots.txt as "stay out".');
+    }
+    if (status !== undefined && (status >= 500 || status === 429)) {
+      return fail(`robots.txt answers ${status}; crawlers stop crawling while it does.`, { status });
+    }
     if (crawl.robots.absent || crawl.robotsTxt === null) {
-      return fail('No robots.txt is served; crawl policy is undeclared.');
+      return warn(
+        'No robots.txt is served, so crawlers treat every URL as allowed. ' +
+          'Record whether that is the intended policy.',
+        status === undefined ? {} : { status },
+      );
     }
     const blocksEverything = crawl.robots.groups.some(
       (group) =>
@@ -112,17 +139,22 @@ export const robotsTxt: SiteProbe = {
     if (blocksEverything) {
       return fail('robots.txt disallows everything for the default user agent.');
     }
-    if (crawl.robots.sitemaps.length === 0) {
-      return warn('robots.txt is served but declares no Sitemap line.', {
-        blockedUrls: crawl.blockedByRobots.length,
-      });
+    const bytes = Buffer.byteLength(crawl.robotsTxt, 'utf8');
+    if (bytes > ROBOTS_PARSE_LIMIT) {
+      return warn(
+        `robots.txt is ${Math.round(bytes / 1024)} KiB; rules past the first 500 KiB are ignored.`,
+        { bytes },
+      );
     }
-    return pass(`robots.txt declares ${crawl.robots.sitemaps.length} sitemap(s).`, {
-      sitemaps: crawl.robots.sitemaps,
-      blockedUrls: crawl.blockedByRobots.length,
-    });
+    return pass(
+      `robots.txt is served and readable, declaring ${crawl.robots.sitemaps.length} sitemap(s).`,
+      { sitemaps: crawl.robots.sitemaps, blockedUrls: crawl.blockedByRobots.length },
+    );
   },
 };
+
+/** The sitemap protocol's per-file entry limit. */
+const SITEMAP_URL_LIMIT = 50_000;
 
 export const sitemapValidity: SiteProbe = {
   id: 'sitemap-validity',
@@ -130,7 +162,29 @@ export const sitemapValidity: SiteProbe = {
   title: 'The XML sitemap resolves to live, on-site URLs',
   run({ crawl, origin }) {
     if (crawl.sitemapUrls.length === 0) {
-      return fail('No sitemap URLs were found via robots.txt or /sitemap.xml.');
+      // v5.0 2.1: sitemaps are "not a universal indexing prerequisite", so an
+      // omission is a decision to record. A sitemap robots.txt names that does
+      // not answer is not an omission — the site believes it publishes one.
+      const declared = new Set(crawl.robots.sitemaps);
+      const broken = crawl.sitemaps.filter(
+        (doc) => declared.has(doc.url) && (doc.status === null || doc.status >= 400),
+      );
+      if (broken.length > 0) {
+        return fail(`robots.txt declares ${broken.length} sitemap(s) that do not answer.`, {
+          samples: broken.slice(0, 10).map((doc) => ({ url: doc.url, status: doc.status })),
+        });
+      }
+      return warn(
+        'No sitemap is published. v5.0 makes one optional: record the omission and ' +
+          'check that internal links reach every page that should be found.',
+      );
+    }
+    const oversized = crawl.sitemaps.filter((doc) => doc.urlCount > SITEMAP_URL_LIMIT);
+    if (oversized.length > 0) {
+      return fail(
+        `${oversized.length} sitemap file(s) list more than 50,000 URLs; split them.`,
+        { samples: oversized.slice(0, 10).map((doc) => ({ url: doc.url, urls: doc.urlCount })) },
+      );
     }
     const offSite = crawl.sitemapUrls.filter((url) => !isSameSite(url, origin));
     const fetched = new Map(crawl.pages.map((page) => [page.normalizedUrl, page]));
@@ -631,6 +685,13 @@ export const paginationCrawlPath: SiteProbe = {
   },
 };
 
+/** The normalized rel=canonical a landing page declares, or null. */
+const landingCanonical = (body: string, url: string): string | null => {
+  if (body === '') return null;
+  const canonical = extract(body, url).canonical;
+  return canonical === null ? null : normalizeUrl(canonical);
+};
+
 /**
  * Every way of spelling the site's address ends up in the same place, once.
  *
@@ -649,7 +710,7 @@ export const paginationCrawlPath: SiteProbe = {
 export const hostRedirect: SiteProbe = {
   id: 'host-redirect',
   scope: 'site',
-  title: 'Every host and protocol variant reaches one HTTPS URL in one hop',
+  title: 'Every host and protocol variant reaches one HTTPS URL, preferably in one hop',
   run({ crawl }) {
     const variants = crawl.auxiliary.filter((entry) => entry.reason === 'host-variant');
     if (variants.length === 0) {
@@ -680,15 +741,32 @@ export const hostRedirect: SiteProbe = {
 
     const destinations = new Set(answered.map((entry) => normalizeUrl(entry.fetch.finalUrl)));
     if (destinations.size > 1) {
-      return fail(`Host variants land on ${destinations.size} different URLs, not one.`, {
-        landings: answered.map((entry) => ({ url: entry.url, landsOn: entry.fetch.finalUrl })),
-      });
+      const landings = answered.map((entry) => ({
+        url: entry.url,
+        landsOn: entry.fetch.finalUrl,
+        canonical: landingCanonical(entry.fetch.body, entry.fetch.finalUrl),
+      }));
+      // v5.0 1.6 allows "an intentional retained duplicate-host exception" with
+      // "consistent canonical behavior": two hosts serving the page, both naming
+      // one address. That is a decision for a person to evidence, not a defect.
+      // Hosts that disagree about the address, or say nothing, are the defect.
+      const canonicals = new Set(landings.map((landing) => landing.canonical));
+      if (canonicals.size === 1 && !canonicals.has(null)) {
+        return warn(
+          `Host variants land on ${destinations.size} different URLs that all declare one ` +
+            'canonical; record the retained duplicate as an intentional exception.',
+          { landings },
+        );
+      }
+      return fail(`Host variants land on ${destinations.size} different URLs, not one.`, { landings });
     }
 
-    // One hop is the budget: the variant itself, then the canonical URL.
+    // v5.0 1.6 asks for one hop "preferably", and for reviewed evidence where a
+    // variant cannot manage it, so a longer path holds the check for a person
+    // rather than failing it. A loop never arrives and is caught above.
     const long = answered.filter((entry) => entry.fetch.redirectChain.length > 1);
     if (long.length > 0) {
-      return fail(`${long.length} host variant(s) take more than one hop to arrive.`, {
+      return warn(`${long.length} host variant(s) take more than one hop to arrive.`, {
         samples: long.map((entry) => ({
           url: entry.url,
           hops: entry.fetch.redirectChain.map((hop) => hop.status),
@@ -816,32 +894,42 @@ export const faviconSiteName: SiteProbe = {
 /**
  * Does what the site does to AI crawlers match what its owners decided?
  *
- * The corpus asks for robots.txt, CDN behaviour and a dated user-agent test to
- * agree with the policy, and the policy is the part no crawl can supply — a
- * site that wants to be in AI answers and one that wants to be out of them look
- * identical from outside. So this is silent until somebody has written the
- * decision down on the site record, and that is the honest answer rather than a
- * gap: an unrecorded policy is not a policy the site is failing to keep.
+ * The corpus asks for robots.txt and edge behaviour to match the approved
+ * policy, and the policy is the part no crawl can supply — a site that wants to
+ * be in AI answers and one that wants to be out of them look identical from
+ * outside. So this is silent until somebody has written the decision down on
+ * the site record, and that is the honest answer rather than a gap: an
+ * unrecorded policy is not a policy the site is failing to keep.
  *
  * With a policy, three things are compared:
  *
  *   robots.txt against the stance, in both directions. A crawler the policy
  *   welcomes but robots.txt turns away is as much a defect as the reverse, and
  *   it is the direction people miss — a blanket disallow written years ago
- *   quietly excludes the crawler someone has since decided to court.
+ *   quietly excludes the crawler someone has since decided to court. A site
+ *   with no robots.txt allows everything, which agrees with a policy that does.
  *
  *   The edge against the stance, for crawlers the policy allows. robots.txt is
  *   a request; a CDN rule is a wall. A 403 to a welcomed crawler means the
  *   policy is being enforced by infrastructure nobody told about it.
  *
- *   Not the reverse. A disallowed crawler that still gets a 200 is the normal
- *   shape of robots-only enforcement, not a finding: robots.txt asks, and
- *   well-behaved crawlers comply without needing to be blocked.
+ *   Not the reverse, with one exception. A disallowed crawler that still gets a
+ *   200 is the normal shape of robots-only enforcement: robots.txt asks, and
+ *   well-behaved crawlers comply. User-directed fetchers are the exception —
+ *   their operators say they may not read robots.txt (`USER_DIRECTED_AGENTS`) —
+ *   so a 200 to one the policy disallows means nothing enforces the decision.
+ *
+ * Corpus v5.0 2.9 adds two limits this detector states rather than hides. The
+ * requests it makes carry a user-agent string, which makes them simulations:
+ * genuine crawler traffic is identified by the provider's IP or DNS method in
+ * the site's own logs, which a crawl cannot see. And a product token such as
+ * Google-Extended names a use of content, not a fetcher, so it is checked in
+ * robots.txt and never simulated.
  */
 export const aiCrawlerDirectiveVerify: SiteProbe = {
   id: 'ai-crawler-directive-verify',
   scope: 'site',
-  title: 'robots.txt and the edge agree with the approved AI crawler policy',
+  title: 'robots.txt and simulated crawler requests agree with the approved AI crawler policy',
   run({ crawl, aiPolicy, origin }) {
     if (aiPolicy === null || aiPolicy === undefined) {
       return notApplicable('No AI crawler policy is recorded on the site record.');
@@ -849,11 +937,6 @@ export const aiCrawlerDirectiveVerify: SiteProbe = {
     const agents = Object.entries(aiPolicy.agents);
     if (agents.length === 0) {
       return notApplicable('The recorded AI crawler policy names no crawlers.');
-    }
-    if (crawl.robots.absent || crawl.robotsTxt === null) {
-      return fail('The policy names AI crawlers, but the site serves no robots.txt.', {
-        agents: agents.map(([agent]) => agent),
-      });
     }
 
     const root = new URL('/', origin).toString();
@@ -864,7 +947,7 @@ export const aiCrawlerDirectiveVerify: SiteProbe = {
         disagrees.push({
           agent,
           policy: stance,
-          robotsTxt: allowed ? 'allow' : 'disallow',
+          robotsTxt: crawl.robots.absent ? 'absent (allows all)' : allowed ? 'allow' : 'disallow',
         });
       }
     }
@@ -875,18 +958,21 @@ export const aiCrawlerDirectiveVerify: SiteProbe = {
       });
     }
 
+    const stanceOf = (agent: string | undefined) =>
+      agent === undefined ? undefined : aiPolicy.agents[agent];
     const tests = crawl.auxiliary.filter((entry) => entry.reason === 'user-agent-test');
     const blocked = tests.filter((entry) => {
-      const stance = entry.userAgent === undefined ? undefined : aiPolicy.agents[entry.userAgent];
-      if (stance !== 'allow') return false;
+      if (stanceOf(entry.userAgent) !== 'allow') return false;
       const status = entry.fetch.status;
       return status === 401 || status === 403 || status === 429;
     });
     if (blocked.length > 0) {
       return fail(
-        `${blocked.length} crawler(s) the policy allows are turned away at the edge.`,
+        `${blocked.length} crawler(s) the policy allows are turned away at the edge ` +
+          'in simulated requests.',
         {
           approvedAt: aiPolicy.approvedAt,
+          simulated: true,
           samples: blocked.map((entry) => ({
             agent: entry.userAgent,
             status: entry.fetch.status,
@@ -895,21 +981,50 @@ export const aiCrawlerDirectiveVerify: SiteProbe = {
       );
     }
 
+    const tokens = agents.map(([agent]) => agent).filter(isProductToken);
+    const simulatable = agents.map(([agent]) => agent).filter((agent) => !isProductToken(agent));
     const detail = {
       approvedAt: aiPolicy.approvedAt,
       approvedBy: aiPolicy.approvedBy,
       agents: agents.length,
-      userAgentTests: tests.length,
+      simulatedRequests: tests.length,
+      // Checked in robots.txt only: nothing fetches under these names.
+      productTokens: tokens,
+      identityVerified: 'not observable from a crawl; use trusted logs',
     };
-    if (tests.length === 0) {
+
+    const unenforced = tests.filter(
+      (entry) =>
+        entry.userAgent !== undefined &&
+        isUserDirectedAgent(entry.userAgent) &&
+        stanceOf(entry.userAgent) === 'disallow' &&
+        entry.fetch.status !== null &&
+        entry.fetch.status < 400,
+    );
+    if (unenforced.length > 0) {
+      return warn(
+        `The policy disallows ${unenforced.map((entry) => entry.userAgent).join(', ')}, ` +
+          'user-directed fetcher(s) that may not follow robots.txt, and a simulated request ' +
+          'was served; only an edge rule would enforce that decision.',
+        {
+          ...detail,
+          samples: unenforced.map((entry) => ({ agent: entry.userAgent, status: entry.fetch.status })),
+        },
+      );
+    }
+
+    if (simulatable.length > 0 && tests.length === 0) {
       return warn(
         `robots.txt matches the policy for all ${agents.length} crawler(s), but no ` +
-          'user-agent test was run, so edge behaviour is unverified.',
+          'simulated request was made, so edge behaviour is unverified.',
         detail,
       );
     }
     return pass(
-      `robots.txt and the edge agree with the policy for all ${agents.length} crawler(s).`,
+      tests.length === 0
+        ? `robots.txt matches the policy for all ${agents.length} product token(s).`
+        : `robots.txt and ${tests.length} simulated request(s) agree with the policy for all ` +
+            `${agents.length} crawler(s); genuine crawler traffic is not observable from a crawl.`,
       detail,
     );
   },

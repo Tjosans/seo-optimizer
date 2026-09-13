@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { parseAiCrawlerPolicy } from '@seo/core';
+import { parseAiCrawlerPolicy, simulatableAgents } from '@seo/core';
 
 const VALID = {
   agents: { GPTBot: 'disallow', 'Google-Extended': 'allow' },
@@ -65,5 +65,22 @@ describe('parseAiCrawlerPolicy', () => {
     // "We considered this and chose to say nothing" is recordable; what it
     // means for a check is the probe's business, not the parser's.
     expect(parseAiCrawlerPolicy({ ...VALID, agents: {} })?.agents).toEqual({});
+  });
+});
+
+describe('simulatableAgents', () => {
+  // Corpus v5.0 2.9: Google-Extended "is tested as a product token, not a
+  // fictitious fetcher", so no request is ever sent under its name.
+  it('leaves out product tokens, whatever their case, and keeps every fetcher', () => {
+    const policy = parseAiCrawlerPolicy({
+      ...VALID,
+      agents: {
+        GPTBot: 'disallow',
+        'google-extended': 'allow',
+        'Applebot-Extended': 'disallow',
+        'ChatGPT-User': 'allow',
+      },
+    })!;
+    expect(simulatableAgents(policy)).toEqual(['GPTBot', 'ChatGPT-User']);
   });
 });

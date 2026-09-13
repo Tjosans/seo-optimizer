@@ -76,6 +76,19 @@ export const sites = pgTable('sites', {
    * identical from outside.
    */
   aiPolicy: jsonb('ai_policy'),
+  /**
+   * The corpus version whose "Applies to" conditions `flags` were declared
+   * against, e.g. '5.0'. A filled-in profile is a statement, and a statement
+   * only covers the conditions its author could see: v5.0 made 2.2 (image alt
+   * text, a launch gate) conditional, so a profile written against v4.4 says
+   * nothing about images, yet `resolveScope` would read the missing flag as
+   * "no images" and excuse the gate. An audit pinned to another version than
+   * this one refuses to run until a person re-reads the profile — the
+   * workbook's own rule that a new inventory needs a fresh scope decision.
+   *
+   * Null is fine for an empty profile, which states nothing.
+   */
+  profileCorpusVersion: text('profile_corpus_version'),
   createdAt: createdAt(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

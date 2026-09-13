@@ -13,6 +13,7 @@ import {
   auditRetryPolicy,
   isPermanentAuditFailure,
   PermanentAuditError,
+  StaleSiteProfileError,
   UnknownSiteError,
   UnknownSiteFlagsError,
 } from '@seo/scheduler';
@@ -27,6 +28,8 @@ describe('isPermanentAuditFailure', () => {
       // A profile the pinned corpus cannot read will read the same way on the
       // fourth attempt as on the first.
       new UnknownSiteFlagsError('site-1', ['ecommmerce'], '4.4'),
+      // So will a profile nobody has re-read against the pinned version.
+      new StaleSiteProfileError('site-1', '4.4', '5.0'),
       new CorpusVersionMismatchError('4.4', '4.5'),
       new TypeError("cannot read properties of undefined (reading 'pages')"),
       new RangeError('maximum call stack size exceeded'),

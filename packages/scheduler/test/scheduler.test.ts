@@ -70,7 +70,7 @@ describe.skipIf(!url)('the audit scheduler', () => {
   beforeAll(async () => {
     const [row] = await db
       .insert(sites)
-      .values({ name: 'fixture', origin: site.origin, flags: ['hierarchical'] })
+      .values({ name: 'fixture', origin: site.origin, flags: ['hierarchical'], profileCorpusVersion: '4.4' })
       .returning({ id: sites.id });
     siteId = row!.id;
   });

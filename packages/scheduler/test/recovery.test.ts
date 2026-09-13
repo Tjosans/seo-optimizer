@@ -61,7 +61,7 @@ describe.skipIf(!url)('an audit across a restart', () => {
   beforeAll(async () => {
     const [row] = await db
       .insert(sites)
-      .values({ name: 'fixture-recovery', origin: site.origin, flags: ['hierarchical'] })
+      .values({ name: 'fixture-recovery', origin: site.origin, flags: ['hierarchical'], profileCorpusVersion: '4.4' })
       .returning({ id: sites.id });
     siteId = row!.id;
   });

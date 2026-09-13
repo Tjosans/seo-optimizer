@@ -125,6 +125,7 @@ Key scripts:
 - **A site's AI crawler policy is an input, not an observation.** `sites.aiPolicy` (jsonb) holds `{ agents: { GPTBot: 'disallow', … }, approvedAt, approvedBy }` — see `AiCrawlerPolicy` in @seo/core. Nothing observable can stand in for it: a site that wants to be in AI answers and one that wants to be out look identical from outside. `ai-crawler-directive-verify` is `not-applicable` without one, and `submit()` refuses a malformed one before it writes the audit row. Agent names are text keys because new crawlers appear faster than a migration should.
 
 - **A new site-profile flag needs no migration either** — `sites.flags` is `text[]` and the corpus defines the vocabulary. But an audit now fails fast (`UnknownSiteFlagsError`, permanent) when a site declares a flag the pinned corpus does not name, because `resolveScope` would otherwise narrow those checks to `no` with a rationale that reads deliberate.
+- **A site profile is tied to the corpus version it was declared against.** `sites.profileCorpusVersion` records it, and an audit of a site with flags fails fast (`StaleSiteProfileError`, permanent) when that is not the pinned version. A version can make a universal check conditional on a flag the profile's author never saw — v5.0 did it to 2.2, image alt text, a launch gate — and a missing flag would read as a decision. An empty profile needs no version, because it states nothing. Migration 0007 recorded `4.4` on every profile filled in before the column existed.
 
 ### What the grader will and will not say
 
@@ -195,7 +196,7 @@ packages/
   core/src/{check,state,readiness,site}.ts
   corpus/src/{load,flags}.ts
   crawler/src/{crawl,extract,fetch,protocol,robots,sitemap,url}.ts
-  db/src/{schema,enums,client}.ts  +  migrations/0000-0006
+  db/src/{schema,enums,client}.ts  +  migrations/0000-0007
   persistence/src/{crawl-sink,map,probe-results}.ts
   probes/src/{registry,types,matrix}.ts  +  src/probes/*.ts
   queue/src/{queue,retry,store,types}.ts

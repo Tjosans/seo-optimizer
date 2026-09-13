@@ -226,6 +226,7 @@ export class AuditScheduler {
         id: sites.id,
         origin: sites.origin,
         flags: sites.flags,
+        profileCorpusVersion: sites.profileCorpusVersion,
         aiPolicy: sites.aiPolicy,
       })
       .from(sites)
@@ -250,6 +251,7 @@ export class AuditScheduler {
       siteId: site.id,
       origin: site.origin,
       flags: site.flags,
+      profileCorpusVersion: site.profileCorpusVersion,
       aiPolicy,
       corpusVersion: request.corpusVersion,
       options,

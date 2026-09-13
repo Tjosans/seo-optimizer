@@ -33,7 +33,7 @@
 import { CorpusVersionMismatchError } from '@seo/grader';
 import { exponentialBackoff, JobCancelledError, JobLeaseLostError } from '@seo/queue';
 import type { RetryPolicy } from '@seo/queue';
-import { UnknownSiteError, UnknownSiteFlagsError } from './types.js';
+import { StaleSiteProfileError, UnknownSiteError, UnknownSiteFlagsError } from './types.js';
 import type { AuditJob } from './types.js';
 
 /**
@@ -72,6 +72,7 @@ export function isPermanentAuditFailure(cause: unknown): boolean {
     cause instanceof PermanentAuditError ||
     cause instanceof UnknownSiteError ||
     cause instanceof UnknownSiteFlagsError ||
+    cause instanceof StaleSiteProfileError ||
     cause instanceof CorpusVersionMismatchError ||
     isProgrammerError(cause)
   );

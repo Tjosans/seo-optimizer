@@ -133,6 +133,7 @@ Key scripts:
 ### What the grader will and will not say
 
 - A machine may **fail** a check; only an `automated` check may be **passed** by one. `assisted` means the engine proposes and a person confirms.
+- A warning holds a check `in-progress` with basis `held-by-warning`, on an `assisted` check as on an automated one, so the person confirming it sees the warning rather than "none failed".
 - A detector that is unimplemented, errored, or observed nothing leaves the check `not-started` / `unknown`. Missing evidence is never good news, and never bad news either.
 - Scope comes from `sites.flags`: an empty profile leaves conditional checks at `review`; a filled-in one narrows non-matching checks to `no` with a written rationale.
 - Only 55 of v5.0's 134 detectors exist, so today 17 of 26 automated checks can be graded end to end and most audits come back mostly ungraded. That is the honest answer, not a bug. `npm run probes:matrix` prints the current figure; do not quote one from memory.

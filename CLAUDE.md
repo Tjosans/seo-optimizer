@@ -10,8 +10,8 @@ seo-optimizer is an SEO launch-readiness auditor. It crawls a site, runs it agai
 
 - **@seo/core** — types for checks, check state, readiness scoring, and the site inputs a person supplies (AI crawler policy)
 - **@seo/corpus** — loader for the versioned check corpus (YAML phases 0-7, source TSV); `CURRENT_CORPUS_VERSION` names the methodology the detectors follow (5.0), and v4.4 stays on disk so audits pinned to it can be re-graded
-- **@seo/crawler** — site crawler respecting robots.txt, redirect chains, sitemaps (and the video entries they declare), flagging any response body it had to cut; stops between requests on a caller's signal; makes the auxiliary requests probes are not allowed to make themselves
-- **@seo/probes** — 11 detector categories (accessibility, commerce, content, delivery, facets, indexability, markup, media, metadata, site, video)
+- **@seo/crawler** — site crawler respecting robots.txt, redirect chains, sitemaps (and the video and news entries they declare), flagging any response body it had to cut; stops between requests on a caller's signal; makes the auxiliary requests probes are not allowed to make themselves
+- **@seo/probes** — 12 detector categories (accessibility, commerce, content, delivery, facets, indexability, markup, media, metadata, news, site, video)
 - **@seo/persistence** — sink that streams crawls and probe runs into Postgres
 - **@seo/queue** — in-process job queue: bounded concurrency, one crawl at a time per origin, retries on a caller's policy, outstanding work written to an optional durable store and held on a lease it renews
 - **@seo/job-store** — the Postgres `JobStore` behind that queue, so a restart resumes what was queued
@@ -136,7 +136,7 @@ Key scripts:
 - A warning holds a check `in-progress` with basis `held-by-warning`, on an `assisted` check as on an automated one, so the person confirming it sees the warning rather than "none failed".
 - A detector that is unimplemented, errored, or observed nothing leaves the check `not-started` / `unknown`. Missing evidence is never good news, and never bad news either.
 - Scope comes from `sites.flags`: an empty profile leaves conditional checks at `review`; a filled-in one narrows non-matching checks to `no` with a written rationale.
-- Only 55 of v5.0's 134 detectors exist, so today 17 of 26 automated checks can be graded end to end and most audits come back mostly ungraded. That is the honest answer, not a bug. `npm run probes:matrix` prints the current figure; do not quote one from memory.
+- Only 56 of v5.0's 134 detectors exist, so today 17 of 26 automated checks can be graded end to end and most audits come back mostly ungraded. That is the honest answer, not a bug. `npm run probes:matrix` prints the current figure; do not quote one from memory.
 - A row a human attested is never overwritten by a re-grade, and it counts in the frozen readiness.
 
 ### Guarantees the sink relies on
@@ -165,9 +165,11 @@ Faceted navigation is the fourth, split into crawl and index. `parameter-crawl-s
 
 Content is the fifth, split by how many pages a question needs. Both detectors grade 3.5 under v5.0 (3.9 under v4.4, whose 3.9 v5.0 replaced with batch publishing). `answer-first-structure` reads one page's reading matter — the main landmark, a lone article, or the body without navigation, asides and page chrome — and asks whether it is signposted and whether every question heading has text beneath it. `author-date-signals` reads every page declaring itself an article — a schema.org Article type, or an Open Graph article with a publication time, never `og:type` alone — together, because the failure the corpus names outright, bylines and dates "as site-wide boilerplate", cannot be seen from inside one page: a `dateModified` identical to the second on every article is a build, not an edit. Both fail only what is false on its face, and the check is `assisted` in either version, because whether a page answers its query is a reader's call.
 
+News is the sixth, and the one where only half the subject is built. 2.18 declares `news-sitemap` and `news-article-policy`. The first judges the feed — news metadata only on articles from the last two days, at most 1,000 entries to a file, a publication name, language, W3C publication date and title on every entry — and only where a site publishes one: v5.0 says ordinary websites need no news sitemap and that an empty feed is acceptable. Age is measured against `SitemapFetch.fetchedAt`, the moment the file was served, never the clock when the probe runs. The second, the publisher's accountability and sponsorship disclosure, is not built, so 2.18 stays ungraded end to end.
+
 ## Testing
 
-Unit tests (no database needed): `packages/corpus/test/{corpus,provenance,provenance-v5.0,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,fetch,protocol,robots,sitemap,url}.test.ts`, `packages/probes/test/{probes,detectors,facets,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store,lease}.test.ts`, `packages/grader/test/grade.test.ts`, `packages/scheduler/test/{retry,lane}.test.ts`.
+Unit tests (no database needed): `packages/corpus/test/{corpus,provenance,provenance-v5.0,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,fetch,protocol,robots,sitemap,url}.test.ts`, `packages/probes/test/{probes,detectors,facets,news,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store,lease}.test.ts`, `packages/grader/test/grade.test.ts`, `packages/scheduler/test/{retry,lane}.test.ts`.
 
 Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/{scheduler,recovery,cancel,flags,ai-policy}.test.ts`, `packages/job-store/test/postgres.test.ts`, `packages/grader/test/record.test.ts`.
 
@@ -228,4 +230,4 @@ scripts/{compile-corpus,probe-matrix,triage}.ts
 
 ## What to pick up next
 
-`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; lease expiry (@seo/job-store, @seo/queue) is in, so a second worker can share a queue namespace, and lanes hold across workers, so two of them never crawl one host together; what remains is detector coverage — 79 of v5.0's 134 detectors are unimplemented, which is the single thing most limiting what an audit can say — and the v5.0 workbook's second assessment (READY FOR CUTOVER, evidence classes, review freshness). Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.
+`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; lease expiry (@seo/job-store, @seo/queue) is in, so a second worker can share a queue namespace, and lanes hold across workers, so two of them never crawl one host together; what remains is detector coverage — 78 of v5.0's 134 detectors are unimplemented, which is the single thing most limiting what an audit can say — and the v5.0 workbook's second assessment (READY FOR CUTOVER, evidence classes, review freshness). Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.

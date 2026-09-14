@@ -69,6 +69,50 @@ describe('the sitemap parser, fed as the bytes arrive', () => {
     expect(parsed.videos[0]?.description).toBe('The <first> one.');
   });
 
+  // The news extension nests its publication one level deeper than any video
+  // field, and binds its prefix wherever the file's author chose to.
+  it('reads news entries, publication fields included, under any prefix', () => {
+    const parsed = extractSitemapUrls(`<?xml version="1.0" encoding="UTF-8"?>
+      <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+              xmlns:n="http://www.google.com/schemas/sitemap-news/0.9">
+        <url>
+          <loc>https://example.com/2026/09/14/story</loc>
+          <n:news>
+            <n:publication>
+              <n:name>The Example Times</n:name>
+              <n:language>en</n:language>
+            </n:publication>
+            <n:publication_date>2026-09-14T08:30:00+02:00</n:publication_date>
+            <n:title>Rates &amp; what they mean</n:title>
+            <n:keywords>ignored</n:keywords>
+          </n:news>
+        </url>
+        <url>
+          <loc>https://example.com/2026/09/13/brief</loc>
+          <n:news><n:publication_date>2026-09-13</n:publication_date></n:news>
+        </url>
+      </urlset>`);
+
+    expect(parsed.urls).toHaveLength(2);
+    expect(parsed.videos).toEqual([]);
+    expect(parsed.news).toEqual([
+      {
+        loc: 'https://example.com/2026/09/14/story',
+        publicationName: 'The Example Times',
+        language: 'en',
+        publicationDate: '2026-09-14T08:30:00+02:00',
+        title: 'Rates & what they mean',
+      },
+      {
+        loc: 'https://example.com/2026/09/13/brief',
+        publicationName: null,
+        language: null,
+        publicationDate: '2026-09-13',
+        title: null,
+      },
+    ]);
+  });
+
   it('does not add half a URL to the crawl frontier', () => {
     const cutAt = VIDEO_SITEMAP.indexOf('/about') + 3;
     const parser = createSitemapParser();
@@ -164,7 +208,7 @@ describe('a video sitemap larger than the page body limit', () => {
     });
 
     expect(result.sitemaps).toEqual([
-      { url: `${origin}/sitemap-videos.xml`, status: 200, urlCount: ENTRIES, videoCount: ENTRIES, truncated: false },
+      { url: `${origin}/sitemap-videos.xml`, status: 200, urlCount: ENTRIES, videoCount: ENTRIES, newsCount: 0, truncated: false, fetchedAt: expect.any(String) },
     ]);
     expect(result.sitemapVideos).toHaveLength(ENTRIES);
     expect(result.sitemapVideos.at(-1)?.loc).toBe(`https://videos.test/watch/${ENTRIES - 1}`);
@@ -182,7 +226,7 @@ describe('a video sitemap larger than the page body limit', () => {
         auxiliary: false,
       });
       expect(result.sitemaps).toEqual([
-        { url: `${origin}/sitemap-videos.xml.gz`, status: 200, urlCount: ENTRIES, videoCount: ENTRIES, truncated: false },
+        { url: `${origin}/sitemap-videos.xml.gz`, status: 200, urlCount: ENTRIES, videoCount: ENTRIES, newsCount: 0, truncated: false, fetchedAt: expect.any(String) },
       ]);
       expect(result.sitemapVideos).toHaveLength(ENTRIES);
     } finally {

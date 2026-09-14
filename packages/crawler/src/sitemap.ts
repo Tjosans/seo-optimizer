@@ -44,12 +44,33 @@ export interface SitemapVideo {
   readonly playerUrl: string | null;
 }
 
+/**
+ * One `<news:news>` entry, as a sitemap declares it.
+ *
+ * Google reads four fields from it — the publication's name and language, the
+ * article's original publication date and its title — and ignores the rest the
+ * extension once defined (`keywords`, `genres`, `stock_tickers`, `access`).
+ * Each is recorded as written, or null when the entry omits it. The date stays
+ * a string: whether it is a W3C datetime at all is part of what is judged.
+ */
+export interface SitemapNews {
+  /** The `<loc>` of the `<url>` entry carrying it: the article. */
+  readonly loc: string;
+  /** `news:publication/news:name`. */
+  readonly publicationName: string | null;
+  /** `news:publication/news:language`. */
+  readonly language: string | null;
+  readonly publicationDate: string | null;
+  readonly title: string | null;
+}
+
 export interface ParsedSitemap {
   /** `<loc>` of every `<url>` in a urlset. */
   readonly urls: string[];
   /** `<loc>` of every `<sitemap>` in a sitemap index. */
   readonly sitemaps: string[];
   readonly videos: SitemapVideo[];
+  readonly news: SitemapNews[];
 }
 
 export interface SitemapParser {
@@ -84,26 +105,39 @@ interface OpenEntry {
   /** Every `<loc>` the entry carried; the first names the page. */
   readonly locs: string[];
   readonly videos: Record<string, string>[];
+  readonly news: Record<string, string>[];
 }
+
+/**
+ * The `<news:news>` fields read, by local name.
+ *
+ * Named rather than taken wholesale as a video's are, because the news
+ * extension nests: `name` and `language` sit one level down, inside
+ * `<news:publication>`, and gathering text for the container would swallow
+ * both.
+ */
+const NEWS_FIELDS = new Set(['name', 'language', 'publication_date', 'title']);
 
 /**
  * A parser that can be fed a sitemap as it arrives.
  *
  * It recognises the same shapes as the DOM reading it replaced — `urlset > url
- * > loc`, `sitemapindex > sitemap > loc`, and a video extension as any child of
- * a `<url>` whose local name is `video` — by tracking the path of open
- * elements. Text is gathered for whichever field is open, across however many
- * chunks and entity boundaries it arrives in.
+ * > loc`, `sitemapindex > sitemap > loc`, and a video or news extension as any
+ * child of a `<url>` whose local name is `video` or `news` — by tracking the
+ * path of open elements. Text is gathered for whichever field is open, across
+ * however many chunks and entity boundaries it arrives in.
  */
 export function createSitemapParser(): SitemapParser {
   const urls: string[] = [];
   const sitemaps: string[] = [];
   const videos: SitemapVideo[] = [];
+  const newsItems: SitemapNews[] = [];
 
   /** Names of the elements currently open, outermost first. */
   const path: string[] = [];
   let entry: OpenEntry | null = null;
   let video: Record<string, string> | null = null;
+  let news: Record<string, string> | null = null;
   /** Text of the field being read, and the depth it closes at. */
   let text: { depth: number; value: string } | null = null;
   let ending = false;
@@ -116,13 +150,18 @@ export function createSitemapParser(): SitemapParser {
         const [root, parent] = path;
 
         if (root === 'urlset' && depth === 2 && name === 'url') {
-          entry = { locs: [], videos: [] };
+          entry = { locs: [], videos: [], news: [] };
         } else if (entry !== null && depth === 3 && name === 'loc') {
           text = { depth, value: '' };
         } else if (entry !== null && depth === 3 && localName(name) === 'video') {
           video = {};
           entry.videos.push(video);
+        } else if (entry !== null && depth === 3 && localName(name) === 'news') {
+          news = {};
+          entry.news.push(news);
         } else if (video !== null && depth === 4) {
+          text = { depth, value: '' };
+        } else if (news !== null && (depth === 4 || depth === 5) && NEWS_FIELDS.has(localName(name))) {
           text = { depth, value: '' };
         } else if (root === 'sitemapindex' && parent === 'sitemap' && depth === 3 && name === 'loc') {
           text = { depth, value: '' };
@@ -147,10 +186,15 @@ export function createSitemapParser(): SitemapParser {
             entry.locs.push(value);
             urls.push(value);
           } else if (video !== null) video[localName(name)] = value;
+          else if (news !== null) news[localName(name)] = value;
           return;
         }
         if (video !== null && depth === 3) {
           video = null;
+          return;
+        }
+        if (news !== null && depth === 3) {
+          news = null;
           return;
         }
         if (entry !== null && depth === 2) {
@@ -164,6 +208,15 @@ export function createSitemapParser(): SitemapParser {
                 thumbnailUrl: field['thumbnail_loc'] ?? null,
                 contentUrl: field['content_loc'] ?? null,
                 playerUrl: field['player_loc'] ?? null,
+              });
+            }
+            for (const field of entry.news) {
+              newsItems.push({
+                loc,
+                publicationName: field['name'] ?? null,
+                language: field['language'] ?? null,
+                publicationDate: field['publication_date'] ?? null,
+                title: field['title'] ?? null,
               });
             }
           }
@@ -181,7 +234,7 @@ export function createSitemapParser(): SitemapParser {
     end(complete) {
       ending = !complete;
       parser.end();
-      return { urls, sitemaps, videos };
+      return { urls, sitemaps, videos, news: newsItems };
     },
   };
 }

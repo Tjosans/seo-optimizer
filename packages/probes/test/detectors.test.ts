@@ -71,6 +71,7 @@ const siteOf = (
     sitemapUrls,
     sitemaps: [],
     sitemapVideos: [],
+    sitemapNews: [],
     blockedByRobots: [],
     notReached: [],
     auxiliary,
@@ -840,6 +841,7 @@ const aiSite = (
     sitemapUrls: [],
     sitemaps: [],
     sitemapVideos: [],
+    sitemapNews: [],
     blockedByRobots: [],
     notReached: [],
     auxiliary: tests,
@@ -1019,6 +1021,8 @@ describe('sitemap-validity', () => {
     urlCount: 1,
     truncated: false,
     videoCount: 0,
+    newsCount: 0,
+    fetchedAt: '2026-09-14T12:00:00.000Z',
     ...over,
   });
 
@@ -1588,6 +1592,7 @@ const videoSite = (
     sitemapUrls: (extra.sitemapVideos ?? []).map((entry) => entry.loc),
     sitemaps: extra.sitemaps ?? [],
     sitemapVideos: extra.sitemapVideos ?? [],
+    sitemapNews: [],
     blockedByRobots: [],
     notReached: [],
     auxiliary: [],
@@ -1792,6 +1797,8 @@ describe('video-sitemap', () => {
             status: 404,
             urlCount: 0,
             videoCount: 0,
+            newsCount: 0,
+            fetchedAt: '2026-09-14T12:00:00.000Z',
             truncated: false,
           },
         ],
@@ -1879,7 +1886,9 @@ describe('a truncated sitemap', () => {
     status: 200,
     urlCount: 3608,
     videoCount,
+    newsCount: 0,
     truncated: true,
+    fetchedAt: '2026-09-14T12:00:00.000Z',
   });
 
   it('stops video-sitemap judging the entries it managed to read', () => {

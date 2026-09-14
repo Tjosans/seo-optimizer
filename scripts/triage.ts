@@ -170,7 +170,7 @@ const V4_4: TriageTable = {
 /**
  * Automation triage for the v5.0 corpus: 98 checks.
  *
- * DRAFTED 2026-09-14, AWAITING MAINTAINER SIGN-OFF. Every row was re-read
+ * Signed off 2026-09-14 by the maintainer, all 98 rows. Every row was re-read
  * against its v5.0 "Done when". A row not listed below reads the same under
  * v5.0 as it did under v4.4 — its wording may have moved, but not in a way
  * that changes who can close it — and inherits its v4.4 entry.

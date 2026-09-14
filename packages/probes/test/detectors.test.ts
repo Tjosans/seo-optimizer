@@ -1,5 +1,5 @@
 /**
- * The detectors added for corpus checks 1.6, 1.7, 1.9, 1.13, 1.14, 1.15, 2.7, 2.13,
+ * The detectors added for corpus checks 1.5, 1.6, 1.7, 1.9, 1.13, 1.14, 1.15, 2.7, 2.13,
  * 2.14, 2.17, 3.9, 3.11 and 4.9.
  *
  * These run against hand-built pages rather than the fixture site, because each
@@ -2314,5 +2314,99 @@ describe('author-date-signals', () => {
     const observation = check([cut, post('/a')]);
     expect(observation.outcome).toBe('pass');
     expect(observation.data?.['cutAtSizeLimit']).toBe(1);
+  });
+});
+
+// --- 1.5 crawler-fetch-limit -----------------------------------------------
+
+describe('crawler-fetch-limit', () => {
+  const sized = (
+    byteLength: number,
+    { contentType = 'text/html; charset=utf-8', truncated = false, headers = {}, status = 200 }: {
+      contentType?: string;
+      truncated?: boolean;
+      headers?: Record<string, string>;
+      status?: number;
+    } = {},
+  ): CrawledPage => {
+    const base = page({ path: '/big', status });
+    return {
+      ...base,
+      fetch: {
+        ...base.fetch,
+        contentType,
+        headers: { 'content-type': contentType, ...headers },
+        byteLength,
+        truncated,
+      },
+    };
+  };
+
+  const check = (target: CrawledPage): Observation => runPage('crawler-fetch-limit', target, [target]);
+
+  it('passes a document well inside the 2 MB limit', () => {
+    const observation = check(sized(48_000));
+    expect(observation.outcome).toBe('pass');
+    expect(observation.summary).toBe("48,000 bytes uncompressed, 2% of Googlebot's 2 MB per-file limit.");
+  });
+
+  it('holds a document inside the limit but within its margin', () => {
+    expect(check(sized(1_499_999)).outcome).toBe('pass');
+    const observation = check(sized(1_700_000));
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toContain('85% of');
+    expect(observation.summary).toContain('25% margin');
+  });
+
+  it('fails a document past the limit however "2MB" is counted', () => {
+    const observation = check(sized(2_097_153));
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('Search indexes the first 2 MB and nothing after it');
+  });
+
+  // Google does not say which megabyte. en.wikipedia.org/wiki/World_War_II
+  // measured 2,068,037 bytes on 2026-09-14: past one reading, inside the other.
+  it('holds, without failing, a document between the decimal and binary readings', () => {
+    const observation = check(sized(2_068_037));
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toContain('Google does not say which');
+    expect(check(sized(2_097_152)).outcome).toBe('warn');
+  });
+
+  // The default cut is 5 MB, so a cut body is already more than 2 MB of file.
+  it('fails a body the crawler cut past the limit, as at least that large', () => {
+    const observation = check(sized(5_000_000, { truncated: true }));
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/^At least 5,000,000 bytes/);
+    expect(observation.data?.['exact']).toBe(false);
+  });
+
+  it('reports a body cut inside the limit as unobservable, unless Content-Length says the size', () => {
+    expect(check(sized(1_000_000, { truncated: true })).outcome).toBe('error');
+
+    const declared = check(sized(1_000_000, { truncated: true, headers: { 'content-length': '2400000' } }));
+    expect(declared.outcome).toBe('fail');
+    expect(declared.data?.['measuredFrom']).toBe('content-length');
+
+    // Behind Content-Encoding the header is the compressed size, which says nothing here.
+    const encoded = sized(1_000_000, { truncated: true, headers: { 'content-length': '2400000', 'content-encoding': 'gzip' } });
+    expect(check(encoded).outcome).toBe('error');
+  });
+
+  it('measures a PDF against its 64 MB limit', () => {
+    const pdf = { contentType: 'application/pdf' };
+    expect(check(sized(3_000_000, pdf)).outcome).toBe('pass');
+    expect(check(sized(50_000_000, pdf)).outcome).toBe('warn');
+    expect(check(sized(67_108_865, pdf)).outcome).toBe('fail');
+    const cut = check(sized(5_000_000, { ...pdf, truncated: true }));
+    expect(cut.outcome).toBe('error');
+    expect(cut.summary).toContain('inside the 64 MB limit');
+    expect(check(sized(5_000_000, { ...pdf, truncated: true, headers: { 'content-length': '70000000' } })).outcome).toBe('fail');
+  });
+
+  it('leaves media and failed responses alone', () => {
+    expect(check(sized(9_000_000, { contentType: 'video/mp4', truncated: true })).outcome).toBe('not-applicable');
+    expect(check(sized(3_000_000, { contentType: 'image/png' })).outcome).toBe('not-applicable');
+    expect(check(sized(3_000_000, { status: 404 })).outcome).toBe('not-applicable');
   });
 });

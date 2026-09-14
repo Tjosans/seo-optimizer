@@ -87,6 +87,10 @@ describe('page probes against a site with known defects', () => {
     expect(on('compression-cache', '/')).toBe('warn');
   });
 
+  it('measures each document against the fetch limit', () => {
+    expect(on('crawler-fetch-limit', '/')).toBe('pass');
+  });
+
   it('skips probes whose applicability the site profile does not claim', () => {
     // The profile claims 'hierarchical', so breadcrumbs are in scope below root.
     expect(on('breadcrumblist-schema', '/deep/one')).toBe('fail');

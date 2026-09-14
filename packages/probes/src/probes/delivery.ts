@@ -4,6 +4,7 @@
  * markup, so they apply to every response, not just HTML.
  */
 
+import type { FetchResult } from '@seo/crawler';
 import type { PageProbe, SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
 
@@ -201,6 +202,119 @@ export const httpVersion: SiteProbe = {
   },
 };
 
+/**
+ * Googlebot's per-file fetch limits for Search, uncompressed: v5.0 1.5, SRC040,
+ * verified 2026-09-08. Google writes "2MB" and "64MB" without saying which
+ * megabyte, so each limit is held as the two readings: past the binary one is
+ * past it however Google counts, and between the two is past it only perhaps.
+ */
+export const GOOGLEBOT_FETCH_LIMIT = { decimal: 2_000_000, binary: 2 * 1024 * 1024, label: '2 MB' } as const;
+export const GOOGLEBOT_PDF_FETCH_LIMIT = { decimal: 64_000_000, binary: 64 * 1024 * 1024, label: '64 MB' } as const;
+
+/** The share of a limit, on its stricter reading, a file may reach before it is held for a person. */
+export const FETCH_LIMIT_MARGIN = 0.75;
+
+/** Media other crawlers fetch, or nothing indexes as a document. */
+const NOT_A_DOCUMENT = /^(image|video|audio|font)\/|^application\/(octet-stream|zip|gzip|x-gzip|wasm)$/;
+
+const mediaType = (contentType: string | null): string | null =>
+  contentType === null ? null : (contentType.split(';')[0] ?? '').trim().toLowerCase();
+
+const bytesText = (bytes: number): string => `${bytes.toLocaleString('en-US')} bytes`;
+
+/**
+ * How large a response was, uncompressed, and how sure that is.
+ *
+ * `fetch` undoes transport compression, so a body read to its end measures
+ * itself. A body the crawler cut measures only how far the read got, unless
+ * the server said how long it was: `Content-Length` is the uncompressed size
+ * exactly when no `Content-Encoding` stands between the two.
+ */
+function measure(fetch: FetchResult): { bytes: number; exact: boolean; from: 'body' | 'content-length' } {
+  if (!fetch.truncated) return { bytes: fetch.byteLength, exact: true, from: 'body' };
+  const encoding = fetch.headers['content-encoding']?.trim().toLowerCase();
+  const declared = Number(fetch.headers['content-length']);
+  if ((encoding === undefined || encoding === 'identity') && Number.isSafeInteger(declared) && declared >= fetch.byteLength) {
+    return { bytes: declared, exact: true, from: 'content-length' };
+  }
+  return { bytes: fetch.byteLength, exact: false, from: 'body' };
+}
+
+/**
+ * Whether Googlebot reads each document to its end.
+ *
+ * Search fetches the first 2 MB of a file, or 64 MB of a PDF, and indexes what
+ * it got: a page past the limit is not refused, it is quietly cut, and the
+ * links, structured data and text below the cut stop existing for Search.
+ * v5.0 1.5 asks for each document against the limit "and a margin", and keeps
+ * that apart from page weight — this is the size of one file, not of
+ * everything the page loads.
+ *
+ * Only a file past the limit on either reading of "MB" fails; one between
+ * the two readings is a `warn`, since Google may read it whole and a margin
+ * is gone regardless. A body the crawler cut at its own `maxBytes` fails when
+ * the cut is already past the limit, since the file is at least that large. Cut below the limit,
+ * with no length declared, the size is unknown, and that is an `error`.
+ */
+export const crawlerFetchLimit: PageProbe = {
+  id: 'crawler-fetch-limit',
+  scope: 'page',
+  title: "Each document fits within Googlebot's per-file fetch limit",
+  run({ page }) {
+    const { fetch } = page;
+    if (fetch.error !== null || fetch.status === null || fetch.status < 200 || fetch.status >= 300) {
+      return notApplicable('No successful response to measure (see http-status).');
+    }
+    const type = mediaType(fetch.contentType);
+    if (type !== null && NOT_A_DOCUMENT.test(type)) {
+      return notApplicable(`${type} is not a document Googlebot fetches for Search's text index.`);
+    }
+
+    const pdf = type === 'application/pdf';
+    const limit = pdf ? GOOGLEBOT_PDF_FETCH_LIMIT : GOOGLEBOT_FETCH_LIMIT;
+    const size = measure(fetch);
+    const share = Math.round((size.bytes / limit.decimal) * 100);
+    const data = {
+      url: fetch.finalUrl,
+      contentType: type,
+      bytes: size.bytes,
+      exact: size.exact,
+      measuredFrom: size.from,
+      limitBytes: limit.decimal,
+      limitBytesBinary: limit.binary,
+      share,
+    };
+    const named = `Googlebot's ${limit.label} ${pdf ? 'PDF' : 'per-file'} limit`;
+
+    if (size.bytes > limit.binary) {
+      const amount = size.exact ? bytesText(size.bytes) : `At least ${bytesText(size.bytes)} (the crawler stopped reading there)`;
+      return fail(
+        `${amount} uncompressed, past ${named}: Search indexes the first ${limit.label} and nothing after it.`,
+        data,
+      );
+    }
+    if (!size.exact) {
+      return errored(
+        `The crawler stopped reading at ${bytesText(size.bytes)}, inside the ${limit.label} limit, and no Content-Length says how large the file is.`,
+        data,
+      );
+    }
+    if (size.bytes > limit.decimal) {
+      return warn(
+        `${bytesText(size.bytes)} uncompressed: past ${named} if Google counts ${bytesText(limit.decimal)}, inside it at ${bytesText(limit.binary)}. Google does not say which, and either way there is no margin left.`,
+        data,
+      );
+    }
+    if (size.bytes >= limit.decimal * FETCH_LIMIT_MARGIN) {
+      return warn(
+        `${bytesText(size.bytes)} uncompressed, ${share}% of ${named}, inside the ${Math.round((1 - FETCH_LIMIT_MARGIN) * 100)}% margin 1.5 asks to keep.`,
+        data,
+      );
+    }
+    return pass(`${bytesText(size.bytes)} uncompressed, ${share}% of ${named}.`, data);
+  },
+};
+
 export const deliveryProbes = [
   httpStatus,
   redirectChain,
@@ -209,4 +323,5 @@ export const deliveryProbes = [
   securityHeaders,
   compressionCache,
   httpVersion,
+  crawlerFetchLimit,
 ];

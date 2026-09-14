@@ -17,6 +17,7 @@ import { indexabilityProbes } from './probes/indexability.js';
 import { markupProbes } from './probes/markup.js';
 import { mediaProbes } from './probes/media.js';
 import { metadataProbes } from './probes/metadata.js';
+import { newsProbes } from './probes/news.js';
 import { siteProbes } from './probes/site.js';
 import { videoProbes } from './probes/video.js';
 import type { PageProbe, Probe, ProbeRun, SiteContext, SiteProbe } from './types.js';
@@ -31,6 +32,7 @@ export const PROBES: readonly Probe[] = [
   ...markupProbes,
   ...mediaProbes,
   ...metadataProbes,
+  ...newsProbes,
   ...siteProbes,
   ...videoProbes,
 ];

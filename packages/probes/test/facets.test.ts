@@ -88,6 +88,7 @@ const run = (id: string, pages: readonly CrawledPage[], rest: Crawl = {}): Obser
       sitemapUrls: (rest.sitemapUrls ?? []).map((path) => `${ORIGIN}${path}`),
       sitemaps: [],
       sitemapVideos: [],
+      sitemapNews: [],
       blockedByRobots: (rest.blockedByRobots ?? []).map((path) => `${ORIGIN}${path}`),
       notReached: (rest.notReached ?? []).map((path) => `${ORIGIN}${path}`),
       auxiliary: [],

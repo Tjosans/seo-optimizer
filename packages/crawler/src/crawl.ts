@@ -19,7 +19,7 @@ import type { Robots } from './robots.js';
 import { negotiateProtocol } from './protocol.js';
 import type { ProtocolCheck } from './protocol.js';
 import { SITEMAP_MAX_BYTES, createSitemapParser } from './sitemap.js';
-import type { SitemapVideo } from './sitemap.js';
+import type { SitemapNews, SitemapVideo } from './sitemap.js';
 import { isSameSite, normalizeUrl } from './url.js';
 
 export interface CrawledPage {
@@ -142,10 +142,31 @@ export interface SitemapFetch {
   readonly truncated: boolean;
   /** Of those, how many carried a `<video:video>` extension. */
   readonly videoCount: number;
+  /**
+   * Of those, how many carried a `<news:news>` extension.
+   *
+   * Counted per document because the limit Google sets is per file: at most
+   * 1,000 news entries in one sitemap, with an index for more.
+   */
+  readonly newsCount: number;
+  /**
+   * When the response arrived, by the crawl's clock, as an ISO 8601 instant.
+   *
+   * A news sitemap is judged against the moment it was served — "the last two
+   * days" means nothing without one — and recording it here, rather than
+   * asking the clock when a probe runs, keeps a re-run over a stored crawl
+   * saying what it said the first time.
+   */
+  readonly fetchedAt: string;
 }
 
 /** A `<video:video>` entry, with the sitemap that declared it. */
 export interface SitemapVideoEntry extends SitemapVideo {
+  readonly sitemap: string;
+}
+
+/** A `<news:news>` entry, with the sitemap that declared it. */
+export interface SitemapNewsEntry extends SitemapNews {
   readonly sitemap: string;
 }
 
@@ -169,6 +190,8 @@ export interface CrawlResult {
   readonly sitemaps: readonly SitemapFetch[];
   /** Video extension entries, across every sitemap that carried any. */
   readonly sitemapVideos: readonly SitemapVideoEntry[];
+  /** News extension entries, across every sitemap that carried any. */
+  readonly sitemapNews: readonly SitemapNewsEntry[];
   /** In-scope URLs left unfetched because robots.txt disallowed them. */
   readonly blockedByRobots: readonly string[];
   /**
@@ -273,6 +296,7 @@ interface LoadedSitemaps {
   readonly urls: string[];
   readonly documents: SitemapFetch[];
   readonly videos: SitemapVideoEntry[];
+  readonly news: SitemapNewsEntry[];
 }
 
 /**
@@ -305,6 +329,7 @@ async function loadSitemaps(
   const urls = new Set<string>();
   const documents: SitemapFetch[] = [];
   const videos: SitemapVideoEntry[] = [];
+  const news: SitemapNewsEntry[] = [];
 
   let turn = 0;
   while (seen.size < MAX_SITEMAP_DOCUMENTS && lanes.some((lane) => lane.length > 0)) {
@@ -327,6 +352,7 @@ async function loadSitemaps(
       onText: (chunk) => parser.write(chunk),
       ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
     });
+    const fetchedAt = new Date().toISOString();
     if (result.body !== '') parser.write(result.body);
     const parsed = parser.end(!result.truncated);
 
@@ -336,7 +362,9 @@ async function loadSitemaps(
         status: result.status,
         urlCount: 0,
         videoCount: 0,
+        newsCount: 0,
         truncated: result.truncated,
+        fetchedAt,
       });
       continue;
     }
@@ -349,18 +377,24 @@ async function loadSitemaps(
       const normalized = normalizeUrl(video.loc);
       videos.push({ ...video, loc: normalized ?? video.loc, sitemap: next });
     }
+    for (const item of parsed.news) {
+      const normalized = normalizeUrl(item.loc);
+      news.push({ ...item, loc: normalized ?? item.loc, sitemap: next });
+    }
     documents.push({
       url: next,
       status: result.status,
       urlCount: parsed.urls.length,
       videoCount: parsed.videos.length,
+      newsCount: parsed.news.length,
       truncated: result.truncated,
+      fetchedAt,
     });
     // Back into the lane it came from, so one index's children cannot crowd
     // out another root's.
     for (const sitemap of parsed.sitemaps) lane?.push(sitemap);
   }
-  return { urls: [...urls], documents, videos };
+  return { urls: [...urls], documents, videos, news };
 }
 
 export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
@@ -373,7 +407,7 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
   const delayMs = Math.max(options.requestDelayMs ?? 0, crawlDelayMs(robots, options.userAgent));
 
   const sitemaps: LoadedSitemaps = options.followSitemaps === false
-    ? { urls: [], documents: [], videos: [] }
+    ? { urls: [], documents: [], videos: [], news: [] }
     : await loadSitemaps(robots, firstSeed, options, request);
   const sitemapUrls = sitemaps.urls;
 
@@ -544,6 +578,7 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
     sitemapUrls,
     sitemaps: sitemaps.documents,
     sitemapVideos: sitemaps.videos,
+    sitemapNews: sitemaps.news,
     blockedByRobots,
     notReached: [
       ...walk.map((entry) => entry.normalizedUrl),

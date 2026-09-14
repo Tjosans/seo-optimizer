@@ -192,6 +192,26 @@ function gradeCheck(
     };
   }
 
+  // Ahead of the assisted branch, which would otherwise swallow it: a warning
+  // on an assisted check is the thing a person confirming it most needs to
+  // see, and "none failed" alone reads the same as evidence that was clean.
+  if (counts.warn > 0) {
+    return {
+      checkId: check.id,
+      applicability: 'yes',
+      applicabilityRationale: null,
+      status: 'in-progress',
+      coverage: 'unknown',
+      basis: 'held-by-warning',
+      summary:
+        `held: ${counts.warn} of ${total} observations warned — short of a defect, ` +
+        'but not something a machine will clear' +
+        (check.automation === 'assisted' ? '; a human must also confirm this check' : ''),
+      evidenceIds,
+      counts,
+    };
+  }
+
   if (check.automation === 'assisted') {
     return {
       checkId: check.id,
@@ -203,24 +223,8 @@ function gradeCheck(
       coverage: 'unknown',
       basis: 'awaiting-confirmation',
       summary:
-        `proposed: ${total} observations, none failed; this check needs a human ` +
+        `proposed: ${total} observations, none failed or warned; this check needs a human ` +
         'to confirm',
-      evidenceIds,
-      counts,
-    };
-  }
-
-  if (counts.warn > 0) {
-    return {
-      checkId: check.id,
-      applicability: 'yes',
-      applicabilityRationale: null,
-      status: 'in-progress',
-      coverage: 'unknown',
-      basis: 'held-by-warning',
-      summary:
-        `held: ${counts.warn} of ${total} observations warned — short of a defect, ` +
-        'but not something a machine will clear',
       evidenceIds,
       counts,
     };

@@ -131,6 +131,19 @@ describe('what a machine may say about a check', () => {
     expect(basisOf(graded)).toBe('held-by-warning');
   });
 
+  // A warning must not read as "none failed" to the person confirming.
+  it('says an assisted check is held by a warning, not merely awaiting confirmation', () => {
+    const graded = gradeOne(check({ id: '1', automation: 'assisted' }), [
+      observed('alpha', 'pass'),
+      observed('alpha', 'warn'),
+    ]);
+    expect(graded.status).toBe('in-progress');
+    expect(graded.coverage).toBe('unknown');
+    expect(basisOf(graded)).toBe('held-by-warning');
+    expect(graded.summary).toContain('1 of 2 observations warned');
+    expect(graded.summary).toContain('a human must also confirm');
+  });
+
   it('clears a check whose subject is not on the site, and says so', () => {
     const graded = gradeOne(check({ id: '1' }), [
       observed('alpha', 'not-applicable'),

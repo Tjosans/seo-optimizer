@@ -1,9 +1,12 @@
 import { createServer } from 'node:http';
 import type { Server, ServerResponse } from 'node:http';
+import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import { gzipSync } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { fetchPage } from '@seo/crawler';
+import { startHttpsServer } from '@seo/testkit';
+import type { TlsServer } from '@seo/testkit';
 
 const UA = 'seo-optimizer/0.1 (+test)';
 const MB = 1_000_000;
@@ -146,5 +149,76 @@ describe('a sitemap published as a gzip file', () => {
     expect(result.truncated).toBe(true);
     expect(streamed.length).toBeGreaterThan(0);
     expect(SITEMAP.startsWith(streamed)).toBe(true);
+  });
+});
+
+describe('an HTTPS response whose server closes the connection behind it', () => {
+  // Over TLS the end of the stream arrives with the last record. When that
+  // record found the body stream full, undici 7's HTTP/1.1 client paused its
+  // parser, the socket's end then reached a paused parser, and an assertion
+  // thrown from inside a socket event — out of reach of any try/catch around
+  // `fetch` — ended the process. A gzip-encoded body served with
+  // `Connection: close`, as nytimes.com serves its sitemaps, is enough.
+  const PAGE = `<html><body>${Array.from({ length: 50_000 }, (_, i) =>
+    `<p>${i}-${((i * 2_654_435_761) % 4_294_967_296).toString(36)}</p>`).join('')}</body></html>`;
+  const ENCODED = gzipSync(PAGE);
+
+  // The global `fetch` dispatches through whichever undici claimed the global
+  // dispatcher first. In a plain `node` process that is cheerio's copy, which
+  // installs itself on import; under vitest, Node's own copy is already in
+  // place, and this suite passed against the crash. So the suite puts
+  // cheerio's copy back, which is where the crawler actually runs.
+  const DISPATCHER = Symbol.for('undici.globalDispatcher.1');
+  const globals = globalThis as Record<symbol, unknown>;
+  let previousDispatcher: unknown;
+
+  let https: TlsServer;
+  let verify: string | undefined;
+
+  beforeAll(async () => {
+    const fromCheerio = createRequire(createRequire(import.meta.url).resolve('cheerio'));
+    const undici = fromCheerio('undici') as { Agent: new () => unknown; setGlobalDispatcher(agent: unknown): void };
+    previousDispatcher = globals[DISPATCHER];
+    undici.setGlobalDispatcher(new undici.Agent());
+
+    // The testkit certificate is self-signed and guards nothing.
+    verify = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+    https = await startHttpsServer((request, response) => {
+      response.writeHead(200, {
+        'content-type': 'text/html',
+        'content-encoding': 'gzip',
+        'content-length': String(ENCODED.length),
+        connection: 'close',
+      });
+      if (request.url === '/cut.html') {
+        // Half of what the headers promised, and then the connection is gone.
+        response.write(ENCODED.subarray(0, Math.floor(ENCODED.length / 2)), () => response.socket?.end());
+        return;
+      }
+      response.end(ENCODED);
+    });
+  });
+
+  afterAll(async () => {
+    await https.close();
+    globals[DISPATCHER] = previousDispatcher;
+    globals[Symbol.for('undici.globalDispatcher.2')] = previousDispatcher;
+    if (verify === undefined) delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+    else process.env.NODE_TLS_REJECT_UNAUTHORIZED = verify;
+  });
+
+  it('is read to its end', async () => {
+    const result = await fetchPage(`${https.origin}/page.html`, { userAgent: UA });
+    expect(result.error).toBeNull();
+    expect(result.status).toBe(200);
+    expect(result.truncated).toBe(false);
+    expect(result.body).toBe(PAGE);
+  });
+
+  it('is recorded as a failed fetch when the connection closes part way through the body', async () => {
+    const result = await fetchPage(`${https.origin}/cut.html`, { userAgent: UA });
+    expect(result.status).toBeNull();
+    expect(result.error).not.toBeNull();
   });
 });

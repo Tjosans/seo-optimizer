@@ -1,16 +1,20 @@
 /**
- * A TLS server on localhost that speaks whichever protocols a test says.
+ * TLS servers on localhost.
  *
- * For the handshake the crawler makes to learn a host's HTTP version. It only
- * completes the handshake — nothing here answers a request — because the
- * question is settled before any request is sent.
+ * `startTlsServer` speaks whichever protocols a test says, for the handshake
+ * the crawler makes to learn a host's HTTP version. It only completes the
+ * handshake — nothing there answers a request — because the question is
+ * settled before any request is sent. `startHttpsServer` does answer, for the
+ * fetches whose behaviour depends on the transport being TLS.
  *
  * The certificate is self-signed for `localhost` and 127.0.0.1, good for a
  * hundred years, and guards nothing: it exists only so a test can finish a TLS
  * handshake without a network. Never trust it anywhere else.
  */
 
-import type { AddressInfo } from 'node:net';
+import type { RequestListener } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
+import type { AddressInfo, Socket } from 'node:net';
 import { createServer } from 'node:tls';
 import type { TLSSocket } from 'node:tls';
 
@@ -38,6 +42,34 @@ export interface TlsServer {
   /** `https://127.0.0.1:<port>`. */
   readonly origin: string;
   readonly close: () => Promise<void>;
+}
+
+/**
+ * An HTTPS server on localhost that answers with `listener`.
+ *
+ * For what only happens over TLS: records arrive at most 16 KB at a time and
+ * the end of the stream is delivered with the last of them, which is the
+ * timing a plain-HTTP server on loopback never reproduces. The certificate is
+ * the same self-signed one, so a client has to be told not to verify it.
+ */
+export async function startHttpsServer(listener: RequestListener): Promise<TlsServer> {
+  const sockets = new Set<Socket>();
+  const server = createHttpsServer({ key: KEY, cert: CERT }, listener);
+  server.on('connection', (socket: Socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+
+  return {
+    origin: `https://127.0.0.1:${port}`,
+    close: () =>
+      new Promise((resolve, reject) => {
+        for (const socket of sockets) socket.destroy();
+        server.close((error) => (error ? reject(error) : resolve()));
+      }),
+  };
 }
 
 /**

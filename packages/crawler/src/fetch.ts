@@ -5,7 +5,19 @@
  * chain itself is evidence: detector `redirect-chain` cannot be answered from
  * a final 200. Transport failures are returned as data rather than thrown —
  * a site that times out is a finding, not an exception.
+ *
+ * Requests go through an undici client this package owns, not through the
+ * global `fetch`. The global one dispatches through whichever copy of undici
+ * installed itself first, and in a crawler process that is cheerio's — whose
+ * HTTP/1.1 client, before undici 8, threw an assertion from inside a socket
+ * event when a TLS server closed the connection while the body was waiting on
+ * its reader. Nothing around `fetch` can catch that, so it ended the process;
+ * undici 8 finishes the body instead, or reports a body cut short as the
+ * error it is.
  */
+
+import { Agent, fetch } from 'undici';
+import type { Headers, Response } from 'undici';
 
 export interface RedirectHop {
   readonly url: string;
@@ -109,7 +121,10 @@ const DEFAULTS = {
   maxAssetBytes: 512_000,
 };
 
-const headersToObject = (headers: Headers): Record<string, string> => {
+/** One connection pool for every fetch the crawler makes. */
+const dispatcher = new Agent();
+
+const headersToObject =(headers: Headers): Record<string, string> => {
   const out: Record<string, string> = {};
   headers.forEach((value, key) => { out[key.toLowerCase()] = value; });
   return out;
@@ -267,6 +282,7 @@ export async function fetchPage(url: string, options: FetchOptions): Promise<Fet
         headers,
         redirect: 'manual',
         signal: controller.signal,
+        dispatcher,
       });
     } catch (cause) {
       clearTimeout(timer);

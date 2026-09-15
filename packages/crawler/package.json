@@ -9,6 +9,7 @@
   "dependencies": {
     "@seo/core": "*",
     "cheerio": "^1.0.0",
-    "htmlparser2": "^10.1.0"
+    "htmlparser2": "^10.1.0",
+    "undici": "^8.10.2"
   }
 }

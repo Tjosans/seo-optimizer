@@ -37,10 +37,10 @@ const ARTICLE_TYPES = new Set([
 ]);
 
 /** `https://schema.org/BlogPosting` and `schema:BlogPosting` are both `BlogPosting`. */
-const bareType = (type: string): string => type.replace(/^.*[/:#]/, '');
+export const bareType = (type: string): string => type.replace(/^.*[/:#]/, '');
 
 /** The first node on a page that declares an Article type, or null. */
-const articleNode = (blocks: readonly unknown[]): Record<string, unknown> | null =>
+export const articleNode = (blocks: readonly unknown[]): Record<string, unknown> | null =>
   jsonLdNodes(blocks).find((node) => typesOf(node).some((type) => ARTICLE_TYPES.has(bareType(type)))) ?? null;
 
 /**
@@ -158,7 +158,7 @@ const STAMP_MIN = 5;
 /** A value carrying a time of day. Only these can be a stamp: a news site publishes many stories on one date. */
 const hasTime = (value: string): boolean => /\d{1,2}:\d{2}/.test(value);
 
-const text = (value: unknown): string | null =>
+export const text = (value: unknown): string | null =>
   typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
 
 /**
@@ -166,7 +166,7 @@ const text = (value: unknown): string | null =>
  * list of them. A bare `@id` counts — Yoast writes the author as a reference
  * to a Person described elsewhere in the graph, and that still names someone.
  */
-function authorName(value: unknown): string | null {
+export function authorName(value: unknown): string | null {
   for (const item of [value].flat()) {
     const direct = text(item);
     if (direct !== null) return direct;

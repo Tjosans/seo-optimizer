@@ -10,7 +10,8 @@
  * part of the audit a machine cannot reproduce. Those rows are read, left
  * alone, and counted in the readiness that gets frozen — so the verdict on the
  * audit is the merge of what the engine found and what a person signed, not
- * whichever of the two ran last.
+ * whichever of the two ran last. An attestation that had expired by the time
+ * of the grade is still left alone, but no longer counted.
  *
  * And the write is a replace, not an upsert. Regrading the same audit against
  * more evidence has to be able to retract an evidence link, which an upsert
@@ -115,7 +116,7 @@ export async function recordGrade(
     const frozen: FrozenReadiness = {
       corpusVersion: args.grade.corpusVersion,
       gradedAt: args.grade.gradedAt,
-      ...readinessOf(args.corpus, states),
+      ...readinessOf(args.corpus, states, args.grade.gradedAt),
     };
 
     if (args.freeze !== false) {

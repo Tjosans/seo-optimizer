@@ -45,6 +45,8 @@ import {
   probeScopeEnum,
   profileEnum,
   renderModeEnum,
+  reviewEnvironmentEnum,
+  reviewResultEnum,
 } from './enums.js';
 
 const id = () => uuid('id').primaryKey().defaultRandom();
@@ -93,12 +95,117 @@ export const sites = pgTable('sites', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * One release of a site, as v5.0's Release review sheet records it —
+ * `ReleaseRecord` in @seo/core. The input to READY FOR CUTOVER.
+ *
+ * Almost every column is nullable on purpose. A release is written before it
+ * is complete, and a blank field is not an error to refuse but a scope or
+ * cutover error to count: `computeCutoverReadiness` holds on each one, exactly
+ * as the workbook does on a blank cell.
+ *
+ * The assessment time is not stored. It is the moment a reading is taken, not
+ * a property of the release; the grader assesses at `gradedAt`.
+ */
+export const releases = pgTable(
+  'releases',
+  {
+    id: id(),
+    siteId: uuid('site_id').notNull().references(() => sites.id, { onDelete: 'cascade' }),
+    /** The release's own name, e.g. "2026.09-launch". Unique per site. */
+    releaseId: text('release_id').notNull(),
+    scopeRevision: text('scope_revision'),
+    /** `https://host`, no path. Validated by the assessment, not the column. */
+    origin: text('origin'),
+    scopeApprover: text('scope_approver'),
+    scopeApprovedAt: timestamp('scope_approved_at', { withTimezone: true }),
+    scopeApprovalEvidence: text('scope_approval_evidence'),
+    decisionOwner: text('decision_owner'),
+    /** Criterion revision per check id, `{ "1.1": "v5/order02/1.1" }`. */
+    criteria: jsonb('criteria'),
+    cutoverAuthorizer: text('cutover_authorizer'),
+    cutoverAuthorizedAt: timestamp('cutover_authorized_at', { withTimezone: true }),
+    cutoverDecisionReference: text('cutover_decision_reference'),
+    cutoverAt: timestamp('cutover_at', { withTimezone: true }),
+    /**
+     * What the authorizer was shown — release, scope, origin and assessment —
+     * copied when they authorized. Never updated from the live columns: a
+     * binding that followed them would bind nothing.
+     */
+    cutoverBinding: jsonb('cutover_binding'),
+    /** The launch owner's 5.7 record, `LaunchDecision` in @seo/core. */
+    launchDecision: jsonb('launch_decision'),
+    createdAt: createdAt(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique('releases_site_release_unique').on(t.siteId, t.releaseId)],
+);
+
+/**
+ * One review run — `ReviewRun` in @seo/core. The log a gate's evidence is read
+ * from, and append-only: v5.0 says never to delete historic runs to improve
+ * readiness, and a regression is a new `reopened` run, not an edit. A trigger
+ * in migration 0008 refuses UPDATE and DELETE outright; only a site's own
+ * deletion, cascading, removes its runs.
+ *
+ * Keyed by site, not by release or audit: a run names the release it was
+ * taken for as text, and a run for another release is part of the history the
+ * assessment reads past, not an error.
+ */
+export const reviewRuns = pgTable(
+  'review_runs',
+  {
+    id: id(),
+    siteId: uuid('site_id').notNull().references(() => sites.id, { onDelete: 'cascade' }),
+    runId: text('run_id').notNull(),
+    checkId: text('check_id').notNull(),
+    releaseId: text('release_id').notNull(),
+    scopeRevision: text('scope_revision').notNull(),
+    criteriaRevision: text('criteria_revision').notNull(),
+    origin: text('origin').notNull(),
+    environment: reviewEnvironmentEnum('environment').notNull(),
+    testedAt: timestamp('tested_at', { withTimezone: true }).notNull(),
+    tester: text('tester').notNull(),
+    result: reviewResultEnum('result').notNull(),
+    evidence: text('evidence').notNull(),
+    reviewedBy: text('reviewed_by').notNull(),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }).notNull(),
+    nextReviewAt: timestamp('next_review_at', { withTimezone: true }),
+    eventTrigger: text('event_trigger'),
+    recordedAt: createdAt(),
+  },
+  (t) => [
+    unique('review_runs_site_run_unique').on(t.siteId, t.runId),
+    index('review_runs_site_check_idx').on(t.siteId, t.checkId),
+    check('review_after_test', sql`${t.reviewedAt} >= ${t.testedAt}`),
+    check(
+      'next_review_after_test',
+      sql`${t.nextReviewAt} IS NULL OR ${t.nextReviewAt} > ${t.testedAt}`,
+    ),
+    check(
+      'passed_needs_next_review',
+      sql`${t.result} <> 'passed' OR ${t.nextReviewAt} IS NOT NULL OR ${t.eventTrigger} IS NOT NULL`,
+    ),
+    check(
+      'reopened_needs_trigger',
+      sql`${t.result} <> 'reopened' OR ${t.eventTrigger} IS NOT NULL`,
+    ),
+  ],
+);
+
 /** One assessment of a site against one pinned corpus version. */
 export const audits = pgTable(
   'audits',
   {
     id: id(),
     siteId: uuid('site_id').notNull().references(() => sites.id, { onDelete: 'cascade' }),
+    /**
+     * The release this audit assesses, when there is one. Set, the grader
+     * freezes READY FOR CUTOVER beside launch readiness; null, it freezes only
+     * the latter. A release outlives any one audit of it, so deleting one
+     * leaves the audits and forgets the link.
+     */
+    releaseId: uuid('release_id').references(() => releases.id, { onDelete: 'set null' }),
     /** Pinned so a historical report can always be re-explained. */
     corpusVersion: text('corpus_version').notNull(),
     status: auditStatusEnum('status').notNull().default('pending'),

@@ -57,6 +57,7 @@ import { parseAiCrawlerPolicy } from '@seo/core';
 import type { CrawlOptions } from '@seo/crawler';
 import { audits, sites } from '@seo/db';
 import type { Database } from '@seo/db';
+import { UnknownReleaseError, findRelease } from '@seo/grader';
 import { JobQueue } from '@seo/queue';
 import type { Job, JobEvent, JobStore, RetryAttempt, RetryPolicy } from '@seo/queue';
 import { auditLane } from './lane.js';
@@ -239,10 +240,15 @@ export class AuditScheduler {
     // audit row written first would sit `pending` forever with no job to run
     // it, waiting for the reconcile sweep to explain itself.
     const aiPolicy = parseAiCrawlerPolicy(site.aiPolicy);
+    let releaseId: string | null = null;
+    if (request.release !== undefined) {
+      releaseId = await findRelease(this.#db, site.id, request.release);
+      if (releaseId === null) throw new UnknownReleaseError(request.release);
+    }
 
     const [audit] = await this.#db
       .insert(audits)
-      .values({ siteId: site.id, corpusVersion: request.corpusVersion })
+      .values({ siteId: site.id, corpusVersion: request.corpusVersion, releaseId })
       .returning({ id: audits.id });
     if (audit === undefined) throw new Error('the audit row was not created');
 

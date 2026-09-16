@@ -13,6 +13,10 @@
  * whichever of the two ran last. An attestation that had expired by the time
  * of the grade is still left alone, but no longer counted.
  *
+ * An audit that names a release also freezes READY FOR CUTOVER, read from that
+ * release and its site's review log at the grade's own time, over the same
+ * merged states.
+ *
  * And the write is a replace, not an upsert. Regrading the same audit against
  * more evidence has to be able to retract an evidence link, which an upsert
  * cannot do; deleting the check's state row first takes its `check_evidence`
@@ -20,11 +24,17 @@
  */
 
 import { and, eq, inArray } from 'drizzle-orm';
+import { computeCutoverReadiness } from '@seo/core';
 import type { CheckState, Corpus } from '@seo/core';
 import { audits, checkEvidence, checkStates } from '@seo/db';
 import type { Database } from '@seo/db';
 import { readinessOf } from './grade.js';
-import { CorpusVersionMismatchError, toCheckState } from './types.js';
+import { loadRelease } from './release.js';
+import {
+  CorpusVersionMismatchError,
+  ReleaseSiteMismatchError,
+  toCheckState,
+} from './types.js';
 import type { FrozenReadiness, GradeResult } from './types.js';
 
 /** Rows per insert. Well under the driver's parameter ceiling. */
@@ -113,10 +123,27 @@ export async function recordGrade(
     );
     for (const row of attested) states.set(row.checkId, toState(row));
 
+    const [audit] = await tx
+      .select({ siteId: audits.siteId, releaseId: audits.releaseId })
+      .from(audits)
+      .where(eq(audits.id, args.auditId));
+    let cutover: FrozenReadiness['cutover'];
+    if (audit?.releaseId != null) {
+      const { siteId, ...release } = await loadRelease(tx, audit.releaseId);
+      if (siteId !== audit.siteId) {
+        throw new ReleaseSiteMismatchError(args.auditId, audit.releaseId);
+      }
+      cutover = computeCutoverReadiness(args.corpus, states, {
+        ...release,
+        assessedAt: args.grade.gradedAt,
+      });
+    }
+
     const frozen: FrozenReadiness = {
       corpusVersion: args.grade.corpusVersion,
       gradedAt: args.grade.gradedAt,
       ...readinessOf(args.corpus, states, args.grade.gradedAt),
+      ...(cutover === undefined ? {} : { cutover }),
     };
 
     if (args.freeze !== false) {

@@ -146,7 +146,9 @@ Key scripts:
 - Evidence is complete only when the gate's latest review run *in the current context* (release, scope revision, origin, criterion revision, an environment its class allows) is `current`: passed, not past `nextReviewAt`, and agreeing with the state's status and evidence. `reopened`, `failed`, overdue, tied or invalid history holds the gate. Runs are append-only; a retest is a later run.
 - Freshness is judged at `release.assessedAt`, never the wall clock.
 - Neither result is a human decision. A 5.7 GO recorded while the calculation says HOLD comes back as `launchDecision: 'conflict'`.
-- Release records and review runs are not persisted yet (ROADMAP Phase 4), so the grader freezes only the first assessment.
+- Releases live in `releases` (one row per site and release name, blank fields allowed and counted) and review runs in `review_runs`, keyed by site. A trigger refuses any UPDATE or DELETE on `review_runs`; only a site's deletion cascades through. `recordReviewRun` (@seo/grader) refuses a run the assessment would count as an input error, because a bad row could never be removed.
+- `submit({ release: '<name>' })` sets `audits.release_id`; `recordGrade` then freezes `cutover` onto `audits.readiness`, assessed at `gradedAt`. An audit with no release freezes no cutover block.
+- A machine-verified pass is current only against a run whose `evidence` equals the grader's summary line for that check (ROADMAP Phase 4 has the open question).
 
 ### Guarantees the sink relies on
 
@@ -180,7 +182,7 @@ News is the sixth, split by who answers for it. 2.18 declares `news-sitemap` and
 
 Unit tests (no database needed): `packages/core/test/{site,cutover}.test.ts`, `packages/corpus/test/{corpus,provenance,provenance-v5.0,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,fetch,protocol,robots,sitemap,url}.test.ts`, `packages/probes/test/{probes,detectors,facets,news,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store,lease}.test.ts`, `packages/grader/test/grade.test.ts`, `packages/scheduler/test/{retry,lane}.test.ts`.
 
-Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/{scheduler,recovery,cancel,flags,ai-policy}.test.ts`, `packages/job-store/test/postgres.test.ts`, `packages/grader/test/record.test.ts`.
+Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/{scheduler,recovery,cancel,flags,ai-policy,release}.test.ts`, `packages/job-store/test/postgres.test.ts`, `packages/grader/test/{record,release}.test.ts`.
 
 All tests skip gracefully if `DATABASE_URL` is unset — which means a green local run does not prove the database layer works. `vitest.config.ts` aliases packages to source, so no build step is needed during test.
 
@@ -211,13 +213,13 @@ packages/
   core/src/{check,state,readiness,review,cutover,site}.ts
   corpus/src/{load,flags,current}.ts
   crawler/src/{crawl,extract,fetch,protocol,robots,sitemap,url}.ts
-  db/src/{schema,enums,client}.ts  +  migrations/0000-0007
+  db/src/{schema,enums,client}.ts  +  migrations/0000-0008
   persistence/src/{crawl-sink,map,probe-results}.ts
   probes/src/{registry,types,matrix}.ts  +  src/probes/*.ts
   queue/src/{queue,retry,store,types}.ts
   job-store/src/postgres.ts
   scheduler/src/{scheduler,run-audit,retry,lane,types}.ts
-  grader/src/{grade,scope,record,types}.ts
+  grader/src/{grade,scope,record,release,types}.ts
   testkit/src/{fixture-site,tls-server}.ts
 corpus/
   source/v4.4.tsv                  # immutable workbook export
@@ -240,4 +242,4 @@ scripts/{compile-corpus,probe-matrix,triage}.ts
 
 ## What to pick up next
 
-`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; lease expiry (@seo/job-store, @seo/queue) is in, so a second worker can share a queue namespace, and lanes hold across workers, so two of them never crawl one host together; what remains is detector coverage — 77 of v5.0's 134 detectors are unimplemented, which is the single thing most limiting what an audit can say — and persisting the release record and review runs so the second assessment (READY FOR CUTOVER, computed in @seo/core) can be frozen onto an audit. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.
+`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; lease expiry (@seo/job-store, @seo/queue) is in, so a second worker can share a queue namespace, and lanes hold across workers, so two of them never crawl one host together; what remains is detector coverage — 77 of v5.0's 134 detectors are unimplemented, which is the single thing most limiting what an audit can say — Releases and review runs are stored and READY FOR CUTOVER is frozen onto an audit that names a release; they can only be written from code until the audit API exists. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.

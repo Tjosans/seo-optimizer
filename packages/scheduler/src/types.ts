@@ -43,6 +43,12 @@ export interface AuditRequest {
   readonly seeds?: readonly string[];
   /** Overrides the scheduler's defaults, field by field. */
   readonly crawl?: Partial<CrawlBudget>;
+  /**
+   * The name of the site's release this audit assesses (`releases.release_id`).
+   * Named, the grader also freezes READY FOR CUTOVER for it. A name the site
+   * has no release under is refused before the audit row is written.
+   */
+  readonly release?: string;
 }
 
 /** The payload the queue carries. Everything needed to run without re-reading. */

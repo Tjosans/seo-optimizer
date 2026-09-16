@@ -1832,15 +1832,36 @@ describe('video-sitemap', () => {
     );
   });
 
-  it('fails an entry listing a watch page on another origin', () => {
+  // Google reads another host's URLs from a sitemap once the owner has
+  // verified both in Search Console, which the crawl cannot see.
+  it('holds an entry listing a watch page on another host for a person', () => {
     const target = watchPage({});
     const observation = runVideoSitemap(
-      videoSite([target], { sitemapVideos: [sitemapVideo('https://cdn.elsewhere.test/watch/1')] }),
+      videoSite([target], { sitemapVideos: [sitemapVideo('https://tv.example.com/watch/1')] }),
+    );
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toMatch(/another host/);
+    expect(observation.data).toMatchObject({ crossHost: ['https://tv.example.com/watch/1'] });
+  });
+
+  it('still fails an incomplete entry on another host', () => {
+    const observation = runVideoSitemap(
+      videoSite([watchPage({})], {
+        sitemapVideos: [sitemapVideo('https://tv.example.com/watch/1', { title: null })],
+      }),
     );
     expect(observation.outcome).toBe('fail');
-    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
-      /another origin/,
+  });
+
+  it('reports both doubts when an entry is silent and another is on another host', () => {
+    const plain = page({ path: '/watch/gone' });
+    const observation = runVideoSitemap(
+      videoSite([plain], {
+        sitemapVideos: [sitemapVideo(plain.normalizedUrl), sitemapVideo('https://tv.example.com/watch/1')],
+      }),
     );
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toMatch(/found no video on; 1 .* another host/);
   });
 
   it('fails an entry whose thumbnail robots.txt refuses', () => {

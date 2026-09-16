@@ -21,8 +21,8 @@
  * `video-sitemap` asks about the one file that states, in the site's own words,
  * which URLs are watch pages. The corpus asks for it only "when it materially
  * improves discovery", so its absence is not a finding here — what is a finding
- * is a video sitemap that 404s, lists somebody else's URLs, or declares entries
- * missing the fields that make them usable.
+ * is a video sitemap that 404s or declares entries missing the fields that
+ * make them usable; one listing another host's pages is held for a person.
  *
  * The overlap with 2.7's `schema-eligibility-matrix` is deliberate and narrow.
  * That detector judges markup that exists, for a site claiming structured-data
@@ -427,8 +427,13 @@ interface SitemapDefect {
  * Liveness of the listed URLs is `sitemap-validity`'s question, for the same
  * reason: a video sitemap's `<loc>` entries are ordinary `<url>` entries and
  * are already in `sitemapUrls`. What is left, and what is judged here, is
- * whether the video declarations themselves are complete, on this site, and
- * about videos the pages actually carry.
+ * whether the video declarations themselves are complete and about videos the
+ * pages actually carry.
+ *
+ * A watch page on another host is held for a person, not failed. Google reads
+ * a sitemap listing another host's URLs once the owner has verified both hosts
+ * in Search Console, which only the owner can see — as `news-sitemap` found on
+ * nytimes.com, whose feed lists cooking.nytimes.com.
  */
 export const videoSitemap: SiteProbe = {
   id: 'video-sitemap',
@@ -471,6 +476,7 @@ export const videoSitemap: SiteProbe = {
 
     const defects: SitemapDefect[] = [];
     const blocked: SitemapDefect[] = [];
+    const crossHost: string[] = [];
     for (const entry of entries) {
       const missing: string[] = [];
       if (entry.title === null) missing.push('video:title');
@@ -482,9 +488,7 @@ export const videoSitemap: SiteProbe = {
       if (missing.length > 0) {
         defects.push({ loc: entry.loc, issue: `missing ${missing.join(', ')}` });
       }
-      if (!isSameSite(entry.loc, origin)) {
-        defects.push({ loc: entry.loc, issue: 'lists a watch page on another origin' });
-      }
+      if (!isSameSite(entry.loc, origin)) crossHost.push(entry.loc);
       if (
         entry.thumbnailUrl !== null &&
         blockedForAgent(crawl, origin, IMAGE_AGENT, entry.thumbnailUrl)
@@ -525,12 +529,20 @@ export const videoSitemap: SiteProbe = {
       const page = byUrl.get(entry.loc);
       return page !== undefined && page.extracted !== null && !carriesVideo(page);
     });
+    const doubts: string[] = [];
+    const held: Record<string, unknown> = {};
     if (silent.length > 0) {
-      return warn(
-        `${silent.length} video sitemap entr(ies) name a page the crawl found no video on.`,
-        { ...data, samples: silent.slice(0, 5).map((entry) => entry.loc) },
-      );
+      doubts.push(`${silent.length} video sitemap entr(ies) name a page the crawl found no video on`);
+      held['samples'] = silent.slice(0, 5).map((entry) => entry.loc);
     }
+    if (crossHost.length > 0) {
+      doubts.push(
+        `${crossHost.length} video sitemap entr(ies) list a watch page on another host, which Google ` +
+          'reads only when both hosts are verified to one owner',
+      );
+      held['crossHost'] = crossHost.slice(0, 5);
+    }
+    if (doubts.length > 0) return warn(`${doubts.join('; ')}.`, { ...data, ...held });
 
     return pass(
       `${entries.length} video(s) declared across ${data.sitemaps.length} sitemap(s), each with ` +

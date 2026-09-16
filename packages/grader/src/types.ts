@@ -13,6 +13,7 @@ import type {
   CheckState,
   CheckStatus,
   Coverage,
+  CutoverReadiness,
   LaunchReadiness,
   PhaseProgress,
 } from '@seo/core';
@@ -89,6 +90,11 @@ export interface FrozenReadiness {
   readonly gradedAt: string;
   readonly readiness: LaunchReadiness;
   readonly progress: readonly PhaseProgress[];
+  /**
+   * v5.0's second assessment, for the release the audit names, assessed at
+   * `gradedAt`. Absent when the audit names no release.
+   */
+  readonly cutover?: CutoverReadiness;
 }
 
 export interface GradeResult extends FrozenReadiness {
@@ -103,6 +109,14 @@ export class CorpusVersionMismatchError extends Error {
         'grading it would produce a report that cannot be re-explained',
     );
     this.name = 'CorpusVersionMismatchError';
+  }
+}
+
+/** An audit names a release that belongs to another site. */
+export class ReleaseSiteMismatchError extends Error {
+  constructor(readonly auditId: string, readonly releaseId: string) {
+    super(`audit ${auditId} names release ${releaseId}, which belongs to another site`);
+    this.name = 'ReleaseSiteMismatchError';
   }
 }
 

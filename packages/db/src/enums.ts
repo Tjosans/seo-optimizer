@@ -27,7 +27,14 @@
  */
 
 import { pgEnum } from 'drizzle-orm/pg-core';
-import type { Applicability, CheckStatus, Coverage, Profile } from '@seo/core';
+import type {
+  Applicability,
+  CheckStatus,
+  Coverage,
+  Profile,
+  ReviewEnvironment,
+  ReviewResult,
+} from '@seo/core';
 
 /** Compiles to `true` only when the two unions have exactly the same members. */
 type AssertSame<A extends string, B extends string> = [
@@ -65,6 +72,31 @@ export const coverageEnum = pgEnum('coverage', [
   'not-applicable',
 ]);
 const _coverage: AssertSame<Coverage, (typeof coverageEnum.enumValues)[number]> = true;
+
+/** Where a review run was taken. v5.0's evidence classes each accept some of these. */
+export const reviewEnvironmentEnum = pgEnum('review_environment', [
+  'planning',
+  'pre-production',
+  'production',
+]);
+const _reviewEnvironment: AssertSame<
+  ReviewEnvironment,
+  (typeof reviewEnvironmentEnum.enumValues)[number]
+> = true;
+
+/** A review run's outcome: a check status, or `reopened` for a change logged against one. */
+export const reviewResultEnum = pgEnum('review_result', [
+  'not-started',
+  'in-progress',
+  'passed',
+  'failed',
+  'skipped',
+  'reopened',
+]);
+const _reviewResult: AssertSame<
+  ReviewResult,
+  (typeof reviewResultEnum.enumValues)[number]
+> = true;
 
 // --- run-time vocabulary, owned by the engine rather than the corpus --------
 

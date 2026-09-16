@@ -57,6 +57,13 @@
       "when": 1789337647388,
       "tag": "0007_puzzling_longshot",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789598886089,
+      "tag": "0008_bright_maverick",
+      "breakpoints": true
     }
   ]
 }

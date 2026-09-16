@@ -76,13 +76,15 @@ export function gradeAudit(input: GradeInput): GradeResult {
     gradeCheck(check, input.flags, byDetector, implemented),
   );
 
+  const gradedAt = (input.gradedAt ?? new Date()).toISOString();
   return {
     corpusVersion: input.corpus.version,
-    gradedAt: (input.gradedAt ?? new Date()).toISOString(),
+    gradedAt,
     checks,
     ...readinessOf(
       input.corpus,
       new Map(checks.map((graded) => [graded.checkId, toCheckState(graded)])),
+      gradedAt,
     ),
   };
 }
@@ -92,14 +94,17 @@ export function gradeAudit(input: GradeInput): GradeResult {
  *
  * Shared by grading, which reads its own verdicts, and by recording, which
  * reads those verdicts merged with whatever a person has already signed off.
+ * Assessed at `gradedAt`, so an attestation that had lapsed by then is on the
+ * record but no longer clears its check.
  */
 export function readinessOf(
   corpus: Corpus,
   states: ReadonlyMap<string, CheckState>,
+  gradedAt: string,
 ): Pick<FrozenReadiness, 'readiness' | 'progress'> {
   return {
-    readiness: computeLaunchReadiness(corpus.checks, states),
-    progress: computeProgress(corpus.checks, states),
+    readiness: computeLaunchReadiness(corpus.checks, states, { assessedAt: gradedAt }),
+    progress: computeProgress(corpus.checks, states, { assessedAt: gradedAt }),
   };
 }
 

@@ -205,6 +205,29 @@ describe.skipIf(!url)('recording a grade', () => {
     expect(recorded.frozen.readiness.decision).toBe('GO');
   });
 
+  it('keeps a lapsed attestation on the record but stops counting it', async () => {
+    await db.insert(checkStates).values({
+      auditId,
+      checkId: '1.2',
+      applicability: 'yes',
+      status: 'passed',
+      coverage: 'attested',
+      evidence: 'signed off last quarter',
+      attestationExpiresAt: new Date(Date.now() - 86_400_000),
+    });
+
+    const recorded = await recordGrade(db, {
+      auditId,
+      corpus: CORPUS,
+      grade: grade([evidenceFor('alpha', 'pass')]),
+    });
+
+    expect(recorded.preserved).toEqual(['1.2']);
+    expect((await statesOf()).find((row) => row.checkId === '1.2')?.status).toBe('passed');
+    expect(recorded.frozen.readiness.decision).toBe('HOLD');
+    expect(recorded.frozen.readiness.attestationsLapsed).toBe(1);
+  });
+
   it('refuses to record a grade reached against another corpus version', async () => {
     await expect(
       recordGrade(db, {

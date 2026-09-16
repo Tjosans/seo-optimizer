@@ -2,7 +2,7 @@
 
 ## Status
 Current phase: Phase 4 — Orchestration & Scaling
-Last updated: 2026-09-15
+Last updated: 2026-09-17
 
 ## Phase 0 — Foundation
 - [x] Create monorepo structure with TypeScript workspace packages
@@ -80,8 +80,9 @@ Last updated: 2026-09-15
 - [x] Give `video-sitemap` (2.14) the same cross-host allowance: it still fails an entry on another host, which Google accepts from a verified owner (@seo/probes `video.ts`: an entry on another host is a `warn`, reported alongside any entry naming a page the crawl found no video on; an incomplete or robots-blocked entry still fails wherever it is)
 - [ ] Implement `private-response-caching` (v5.0 1.7, 4.2): a response that sets a cookie or varies by one while declaring itself publicly cacheable
 - [ ] Extend `pagination-crawl-path` (v5.0 1.13) to blanket page-1 canonicals and fragment-only page numbers, and `faceted-nav-control` (v5.0 1.12) to a noindex robots.txt keeps crawlers from reading
-- [ ] Give the engine the v5.0 workbook's second assessment, READY FOR CUTOVER: an evidence class per gate (5 planning, 43 preflight, 6 live), a release and scope revision, cutover authorization, and 5.7 recording GO only while the calculated result is GO (`provenance-v5.0.test.ts` holds it as a todo)
-- [ ] Record review freshness on check states — last review, result, next review or event trigger, `reopened` — so a stale, failed or reopened review holds a gate as v5.0 requires, and an attested row stops counting once its review is overdue
+- [x] Give the engine the v5.0 workbook's second assessment, READY FOR CUTOVER: an evidence class per gate (5 planning, 43 preflight, 6 live), a release and scope revision, cutover authorization, and 5.7 recording GO only while the calculated result is GO (@seo/core `cutover.ts`: `computeCutoverReadiness`, `ReleaseRecord`, `evidenceClassOf`; `provenance-v5.0.test.ts` now reproduces the block — HOLD, 25 pre-cutover, 4 live, 8 scope errors)
+- [x] Record review freshness on check states — last review, result, next review or event trigger, `reopened` — so a stale, failed or reopened review holds a gate as v5.0 requires, and an attested row stops counting once its review is overdue (@seo/core `review.ts`: `ReviewRun`, `readReview`; `computeLaunchReadiness` and `computeProgress` take `assessedAt` and stop counting a lapsed attestation; @seo/grader: assessed at `gradedAt`, so a lapsed attestation is preserved but no longer clears its gate)
+- [ ] Persist the release record and review runs (an append-only `review_runs` table and a release record per site, with a migration) and freeze `computeCutoverReadiness` onto `audits.readiness` beside the first assessment — today both exist only in memory, so nothing the engine stores can yet say READY FOR CUTOVER
 - [ ] Refuse a pass on a failed threshold by exception alone (v5.0 1.5, 4.2, 4.5, 4.7): an attestation may record a decision, not overturn a failed measurement
 
 ## Phase 5 — Rendered Crawl
@@ -111,6 +112,11 @@ Last updated: 2026-09-15
 ## Blocked
 
 ## Decisions
+- 2026-09-17: derived a gate's evidence class from its phase (0 planning, 5 live, the rest preflight) rather than compiling it into the corpus YAML, because the v5.0 workbook's own scope check derives it the same way and flags any register row that disagrees, so a stored copy could only ever be wrong
+- 2026-09-17: collapsed the workbook's GateEvidence record into the latest current review run, because the workbook requires the two to match field for field; one record cannot disagree with itself, and a mismatched copy was the only failure the second one could add
+- 2026-09-17: defaulted a gate's criterion revision to the corpus version when the release names none, because a review taken against v5.0's wording is exactly what an audit pinned to 5.0 can check, and a release that revises one criterion can say so per id
+- 2026-09-17: made freshness depend on an explicit `assessedAt` and never on the wall clock, as the workbook's "Assessment UTC" does, so the same states always assess the same way and a frozen report can be recomputed; the grader assesses at `gradedAt`
+- 2026-09-17: read an attested state with no expiry as lapsed once an assessment time is given, because the schema already refuses such a row and an attestation nobody bounded is not one a launch should rest on
 - 2026-09-17: failed a sponsored page in `news-article-policy` only when the site itself declares it advertising — typed `AdvertiserContentArticle`, or filed under a whole path segment such as `/sponsored/` or `/partner-content/` — and nothing on it says so. Whether an unmarked page is paid for is not observable, and a disclosure word anywhere on the page, an ad slot's "Advertisement" included, counts; matched without word boundaries, because the extracted text runs a headline into the label under it ("A storyPaid post")
 - 2026-09-17: matched contact and about links by whole anchor text or whole path segment, never by a word inside one, because a front page is a list of headlines and "What we know about the storm" is not an about page
 - 2026-09-17: allowed a page date and a feed date a day apart before failing, on top of the date-only feed's whole-day span, because a page's `datePublished` in the newsroom's zone and a feed written in UTC routinely straddle midnight; a story re-dated into the two-day window is days off, not hours

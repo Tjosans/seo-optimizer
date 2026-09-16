@@ -19,7 +19,22 @@ export interface LaunchReadiness {
   readonly gatesFailed: number;
   /** Launch gates whose applicability is still unresolved (`review`). */
   readonly applicabilityDecisionsOutstanding: number;
+  /**
+   * Passed gates whose attestation had lapsed at the assessment time. Already
+   * counted in `gatesOutstanding`; reported apart so a report can say why.
+   */
+  readonly attestationsLapsed: number;
   readonly violations: readonly IntegrityViolation[];
+}
+
+export interface AssessmentOptions {
+  /**
+   * The moment the assessment is taken at, ISO. An attested pass whose
+   * `attestationExpiresAt` is not after it no longer counts. Omitted, no
+   * attestation lapses — the wall clock is never read implicitly, so the same
+   * states always assess the same way.
+   */
+  readonly assessedAt?: string | undefined;
 }
 
 export interface PhaseProgress {
@@ -34,7 +49,7 @@ export interface PhaseProgress {
   readonly scopeReview: number;
 }
 
-const stateOf = (
+export const stateOf = (
   states: ReadonlyMap<string, CheckState>,
   check: Check,
 ): CheckState => states.get(check.id) ?? {
@@ -43,6 +58,31 @@ const stateOf = (
   status: 'not-started',
   coverage: 'unknown',
 };
+
+/** Whether an attested state's attestation had run out by `assessedAt`. */
+export function attestationLapsed(state: CheckState, assessedAt: string | undefined): boolean {
+  if (assessedAt === undefined || state.coverage !== 'attested') return false;
+  const at = Date.parse(assessedAt);
+  if (!Number.isFinite(at)) return false;
+  // An attestation with no expiry cannot be relied on; the schema refuses one.
+  if (state.attestationExpiresAt === undefined) return true;
+  const expires = Date.parse(state.attestationExpiresAt);
+  return !Number.isFinite(expires) || expires <= at;
+}
+
+/**
+ * The state as an assessment at `assessedAt` reads it. A lapsed attestation
+ * stays on the record, and its check goes back to needing one: in progress,
+ * with coverage `unknown`.
+ */
+export function effectiveState(state: CheckState, assessedAt: string | undefined): CheckState {
+  if (!attestationLapsed(state, assessedAt)) return state;
+  return {
+    ...state,
+    status: state.status === 'passed' ? 'in-progress' : state.status,
+    coverage: 'unknown',
+  };
+}
 
 /**
  * Launch decision, per the methodology's stated rule: GO requires every
@@ -57,14 +97,17 @@ const stateOf = (
 export function computeLaunchReadiness(
   checks: readonly Check[],
   states: ReadonlyMap<string, CheckState>,
+  options: AssessmentOptions = {},
 ): LaunchReadiness {
   let gatesOutstanding = 0;
   let gatesFailed = 0;
   let applicabilityDecisionsOutstanding = 0;
+  let attestationsLapsed = 0;
   const violations: IntegrityViolation[] = [];
 
   for (const check of checks) {
-    const state = stateOf(states, check);
+    const recorded = stateOf(states, check);
+    const state = effectiveState(recorded, options.assessedAt);
 
     if (state.applicability === 'no' && !state.applicabilityRationale) {
       violations.push({
@@ -93,6 +136,7 @@ export function computeLaunchReadiness(
       });
     }
     if (state.status !== 'passed') gatesOutstanding += 1;
+    if (recorded.status === 'passed' && state.status !== 'passed') attestationsLapsed += 1;
   }
 
   const decision =
@@ -107,6 +151,7 @@ export function computeLaunchReadiness(
     gatesOutstanding,
     gatesFailed,
     applicabilityDecisionsOutstanding,
+    attestationsLapsed,
     violations,
   };
 }
@@ -115,6 +160,7 @@ export function computeLaunchReadiness(
 export function computeProgress(
   checks: readonly Check[],
   states: ReadonlyMap<string, CheckState>,
+  options: AssessmentOptions = {},
 ): PhaseProgress[] {
   const phases = [...new Set(checks.map((c) => c.phase))].sort((a, b) => a - b);
 
@@ -124,7 +170,7 @@ export function computeProgress(
     let passed = 0, failed = 0, skipped = 0, scopeReview = 0;
 
     for (const check of inPhase) {
-      const state = stateOf(states, check);
+      const state = effectiveState(stateOf(states, check), options.assessedAt);
       if (state.applicability === 'review') scopeReview += 1;
       if (state.applicability !== 'yes') continue;
       active += 1;

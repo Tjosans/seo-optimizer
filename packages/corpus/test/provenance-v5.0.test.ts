@@ -16,7 +16,12 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
-import { computeLaunchReadiness, computeProgress } from '@seo/core';
+import {
+  computeCutoverReadiness,
+  computeLaunchReadiness,
+  computeProgress,
+  evidenceClassOf,
+} from '@seo/core';
 import type { CheckState } from '@seo/core';
 import { loadCorpus } from '@seo/corpus';
 
@@ -40,6 +45,18 @@ const WORKBOOK = {
   priority: { P0: 54, P1: 35, P2: 9 },
   profile: { core: 68, extended: 30 },
   checksCitingSources: 93,
+  evidenceClasses: { planning: 5, preflight: 43, live: 6 },
+  cutover: {
+    assessment: 'HOLD' as const,
+    inputErrors: 0,
+    preCutoverGatesOutstanding: 25,
+    liveGatesOutstanding: 4,
+    preCutoverEvidenceIncomplete: 25,
+    liveEvidenceIncomplete: 4,
+    cutoverRecordValid: false,
+    scopeErrors: 8,
+    final: 'HOLD' as const,
+  },
 };
 
 function defaultStates(): Map<string, CheckState> {
@@ -134,8 +151,31 @@ describe('v5.0 reproduces the workbook launch-readiness block', () => {
     }
   });
 
-  // The workbook's second assessment — READY FOR CUTOVER, from the 25
-  // pre-cutover and 4 live gates, evidence classes and review freshness — has
-  // no counterpart in @seo/core yet. ROADMAP.md, Phase 4.
-  it.todo('reproduces the cutover-readiness block (pre-cutover 25, live 4, HOLD)');
+});
+
+describe('v5.0 reproduces the workbook cutover-readiness block', () => {
+  it('classes its gates as the release scope register does', () => {
+    const gates = corpus.checks.filter((c) => c.launchGate);
+    const counts = { planning: 0, preflight: 0, live: 0 };
+    for (const gate of gates) counts[evidenceClassOf(gate)] += 1;
+    expect(counts).toEqual(WORKBOOK.evidenceClasses);
+  });
+
+  it('matches the calculated cutover and final assessments of the empty template', () => {
+    // The template ships with no release record, so every one of its eight
+    // fields is a scope error and no gate has evidence.
+    const result = computeCutoverReadiness(corpus, defaultStates());
+    expect({
+      assessment: result.cutover,
+      inputErrors: result.inputErrors,
+      preCutoverGatesOutstanding: result.preCutoverGatesOutstanding,
+      liveGatesOutstanding: result.liveGatesOutstanding,
+      preCutoverEvidenceIncomplete: result.preCutoverEvidenceIncomplete,
+      liveEvidenceIncomplete: result.liveEvidenceIncomplete,
+      cutoverRecordValid: result.cutoverRecordValid,
+      scopeErrors: result.scopeErrors,
+      final: result.final,
+    }).toEqual(WORKBOOK.cutover);
+    expect(result.launch.decision).toBe(WORKBOOK.decision);
+  });
 });

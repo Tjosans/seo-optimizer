@@ -8,7 +8,7 @@ Read [`ROADMAP.md`](./ROADMAP.md) first — it holds the phase list, what is don
 
 seo-optimizer is an SEO launch-readiness auditor. It crawls a site, runs it against a versioned corpus of checks — v5.0, 98 checks across 8 corpus phases, is the current one — and grades what launched. The system is a pipeline of independent packages:
 
-- **@seo/core** — types for checks, check state, readiness scoring, and the site inputs a person supplies (AI crawler policy)
+- **@seo/core** — types for checks, check state, both readiness assessments (launch readiness, and v5.0's READY FOR CUTOVER with review freshness), and the site inputs a person supplies (AI crawler policy)
 - **@seo/corpus** — loader for the versioned check corpus (YAML phases 0-7, source TSV); `CURRENT_CORPUS_VERSION` names the methodology the detectors follow (5.0), and v4.4 stays on disk so audits pinned to it can be re-graded
 - **@seo/crawler** — site crawler respecting robots.txt, redirect chains, sitemaps (and the video and news entries they declare), flagging any response body it had to cut; stops between requests on a caller's signal; makes the auxiliary requests probes are not allowed to make themselves
 - **@seo/probes** — 12 detector categories (accessibility, commerce, content, delivery, facets, indexability, markup, media, metadata, news, site, video)
@@ -137,7 +137,16 @@ Key scripts:
 - A detector that is unimplemented, errored, or observed nothing leaves the check `not-started` / `unknown`. Missing evidence is never good news, and never bad news either.
 - Scope comes from `sites.flags`: an empty profile leaves conditional checks at `review`; a filled-in one narrows non-matching checks to `no` with a written rationale.
 - Only 57 of v5.0's 134 detectors exist, so today 17 of 26 automated checks can be graded end to end and most audits come back mostly ungraded. That is the honest answer, not a bug. `npm run probes:matrix` prints the current figure; do not quote one from memory.
-- A row a human attested is never overwritten by a re-grade, and it counts in the frozen readiness.
+- A row a human attested is never overwritten by a re-grade, and it counts in the frozen readiness until its `attestationExpiresAt`; readiness is assessed at `gradedAt`, and a lapsed attestation stays on the record but holds its gate.
+
+### What READY FOR CUTOVER adds
+
+- v5.0 has two calculated assessments. `computeLaunchReadiness` is the first (gates passed, conditional gates decided). `computeCutoverReadiness(corpus, states, release)` in @seo/core is the second, and returns both READY FOR CUTOVER and the final GO.
+- A gate's evidence class comes from its phase: 0 is `planning`, 5 is `live`, the rest `preflight`. Cutover needs every planning and preflight gate passed with complete evidence; final GO needs the live gates too, tested in production after `cutover.cutoverAt`, and a valid cutover record bound to a READY FOR CUTOVER result.
+- Evidence is complete only when the gate's latest review run *in the current context* (release, scope revision, origin, criterion revision, an environment its class allows) is `current`: passed, not past `nextReviewAt`, and agreeing with the state's status and evidence. `reopened`, `failed`, overdue, tied or invalid history holds the gate. Runs are append-only; a retest is a later run.
+- Freshness is judged at `release.assessedAt`, never the wall clock.
+- Neither result is a human decision. A 5.7 GO recorded while the calculation says HOLD comes back as `launchDecision: 'conflict'`.
+- Release records and review runs are not persisted yet (ROADMAP Phase 4), so the grader freezes only the first assessment.
 
 ### Guarantees the sink relies on
 
@@ -169,13 +178,13 @@ News is the sixth, split by who answers for it. 2.18 declares `news-sitemap` and
 
 ## Testing
 
-Unit tests (no database needed): `packages/corpus/test/{corpus,provenance,provenance-v5.0,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,fetch,protocol,robots,sitemap,url}.test.ts`, `packages/probes/test/{probes,detectors,facets,news,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store,lease}.test.ts`, `packages/grader/test/grade.test.ts`, `packages/scheduler/test/{retry,lane}.test.ts`.
+Unit tests (no database needed): `packages/core/test/{site,cutover}.test.ts`, `packages/corpus/test/{corpus,provenance,provenance-v5.0,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,fetch,protocol,robots,sitemap,url}.test.ts`, `packages/probes/test/{probes,detectors,facets,news,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store,lease}.test.ts`, `packages/grader/test/grade.test.ts`, `packages/scheduler/test/{retry,lane}.test.ts`.
 
 Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/{scheduler,recovery,cancel,flags,ai-policy}.test.ts`, `packages/job-store/test/postgres.test.ts`, `packages/grader/test/record.test.ts`.
 
 All tests skip gracefully if `DATABASE_URL` is unset — which means a green local run does not prove the database layer works. `vitest.config.ts` aliases packages to source, so no build step is needed during test.
 
-`provenance.test.ts` is frozen against the v4.4 workbook: 97 checks, phase distribution (9, 19, 17, 13, 12, 8, 9, 10), priority (P0:55, P1:35, P2:7), profile (core:68, extended:29), and the launch-readiness block. `provenance-v5.0.test.ts` is frozen against the v5.0 workbook (SHA-256 1165d18b…612a): 98 checks, phases (9, 19, 18, 13, 12, 8, 8, 11), priority (P0:54, P1:35, P2:9), profile (core:68, extended:30), 108 sources, and its final-assessment block; its cutover-readiness block is a `todo` until @seo/core has a second assessment. Do not update those numbers — a newer methodology is a new version with a provenance file of its own.
+`provenance.test.ts` is frozen against the v4.4 workbook: 97 checks, phase distribution (9, 19, 17, 13, 12, 8, 9, 10), priority (P0:55, P1:35, P2:7), profile (core:68, extended:29), and the launch-readiness block. `provenance-v5.0.test.ts` is frozen against the v5.0 workbook (SHA-256 1165d18b…612a): 98 checks, phases (9, 19, 18, 13, 12, 8, 8, 11), priority (P0:54, P1:35, P2:9), profile (core:68, extended:30), 108 sources, and its final-assessment block, and its cutover-readiness block (HOLD; 25 pre-cutover and 4 live gates outstanding; 8 scope errors; evidence classes 5/43/6). Do not update those numbers — a newer methodology is a new version with a provenance file of its own.
 
 `corpus.test.ts` runs the version-independent invariants against every `corpus/v*` directory it finds: unique ids, phases in range, the detector/tier contract, conditional checks having a way into scope, and launch-gate semantics. A new version is covered the moment it lands.
 
@@ -199,7 +208,7 @@ It is bypassable with `--no-verify` and is a convenience, not the gate — the r
 
 ```
 packages/
-  core/src/{check,state,readiness,site}.ts
+  core/src/{check,state,readiness,review,cutover,site}.ts
   corpus/src/{load,flags,current}.ts
   crawler/src/{crawl,extract,fetch,protocol,robots,sitemap,url}.ts
   db/src/{schema,enums,client}.ts  +  migrations/0000-0007
@@ -231,4 +240,4 @@ scripts/{compile-corpus,probe-matrix,triage}.ts
 
 ## What to pick up next
 
-`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; lease expiry (@seo/job-store, @seo/queue) is in, so a second worker can share a queue namespace, and lanes hold across workers, so two of them never crawl one host together; what remains is detector coverage — 77 of v5.0's 134 detectors are unimplemented, which is the single thing most limiting what an audit can say — and the v5.0 workbook's second assessment (READY FOR CUTOVER, evidence classes, review freshness). Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.
+`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; lease expiry (@seo/job-store, @seo/queue) is in, so a second worker can share a queue namespace, and lanes hold across workers, so two of them never crawl one host together; what remains is detector coverage — 77 of v5.0's 134 detectors are unimplemented, which is the single thing most limiting what an audit can say — and persisting the release record and review runs so the second assessment (READY FOR CUTOVER, computed in @seo/core) can be frozen onto an audit. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.

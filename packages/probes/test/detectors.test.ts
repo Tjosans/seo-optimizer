@@ -435,6 +435,40 @@ describe('pagination-crawl-path', () => {
     expect(observation.outcome).toBe('fail');
     expect(observation.summary).toMatch(/noindex/);
   });
+
+  it('fails a paginated page that canonicalizes onto the unpaginated URL', () => {
+    const observation = runSite('pagination-crawl-path', [
+      listing('/blog', '/blog?page=2'),
+      page({
+        path: '/blog?page=2',
+        html: `<html><head><link rel="canonical" href="${ORIGIN}/blog"></head><body>2</body></html>`,
+      }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/canonicalize/);
+  });
+
+  it('fails a "next" link addressed only by a URL fragment', () => {
+    const observation = runSite('pagination-crawl-path', [
+      page({
+        path: '/blog',
+        html: `<html><body><a href="#page=2" rel="next">Next</a></body></html>`,
+      }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/URL fragment/);
+  });
+
+  it('fails a "next" link whose fragment is the only thing that changes', () => {
+    const observation = runSite('pagination-crawl-path', [
+      page({
+        path: '/blog',
+        html: `<html><body><a href="${ORIGIN}/blog#page=2" rel="next">Next</a></body></html>`,
+      }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/URL fragment/);
+  });
 });
 
 // --- 1.9 media-alternatives -------------------------------------------------

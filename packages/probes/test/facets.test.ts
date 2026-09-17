@@ -284,12 +284,16 @@ describe('faceted-nav-control', () => {
     expect(issues(observation)).toContain('closed to crawling by robots.txt');
   });
 
-  it('passes filters kept out of crawling by robots.txt and out of the sitemap', () => {
+  it('holds filters kept out of crawling by robots.txt and out of the sitemap, for a person to confirm noindex was never needed', () => {
+    // Discoverable, closed to crawling, and out of the sitemap is the best a
+    // robots.txt disallow can show; it is still not proof the URL stays out of
+    // the index, since a crawler blocked from it can never read a noindex tag.
     const observation = control([page('/shoes', { canonical: '/shoes' })], {
       blockedByRobots: ['/shoes?color=red', '/shoes?sort=price'],
     });
-    expect(observation.outcome).toBe('pass');
+    expect(observation.outcome).toBe('warn');
     expect(observation.summary).toContain('2 closed to crawling by robots.txt');
+    expect(observation.summary).toContain('never read a noindex tag');
   });
 
   it('fails a self-canonical filter that carries its listing’s title', () => {

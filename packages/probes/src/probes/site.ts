@@ -622,6 +622,15 @@ export const hreflangImplementation: SiteProbe = {
  *
  * A site with no pagination at all is not a defect. Silence here means the
  * crawl found no paginated series, which is the normal shape of a small site.
+ *
+ * Two further shapes fail the same "reachable without interaction or
+ * JavaScript" requirement even where a page 2 exists and answers 200. A page
+ * whose "next" link is addressed only by a URL fragment (`#page=2`) names no
+ * separate address at all — a fragment is never sent to the server, so a
+ * crawler has nothing to request. And a paginated page that canonicalizes
+ * onto the unpaginated URL is telling search engines to index page one only,
+ * a blanket collapse that drops the rest of the series from the index even
+ * though every page answered 200 along the way.
  */
 export const paginationCrawlPath: SiteProbe = {
   id: 'pagination-crawl-path',
@@ -633,21 +642,39 @@ export const paginationCrawlPath: SiteProbe = {
 
     const fetched = new Map(crawl.pages.map((page) => [page.normalizedUrl, page]));
     const found: { from: string; to: string }[] = [];
+    const fragmentOnly: { from: string; href: string }[] = [];
 
     for (const page of pages) {
+      for (const href of page.extracted?.fragmentPageLinks ?? []) {
+        fragmentOnly.push({ from: page.normalizedUrl, href });
+      }
       for (const link of page.extracted?.links ?? []) {
         if (!isSameSite(link.url, origin)) continue;
         const isPagination =
           (link.rel !== null && /\b(next|prev)\b/i.test(link.rel)) || PAGED_URL.test(link.url);
         if (!isPagination) continue;
         const target = normalizeUrl(link.url);
-        if (target === null || target === page.normalizedUrl) continue;
+        if (target === null) continue;
+        if (target === page.normalizedUrl) {
+          // The path is unchanged; whatever moves the reader is client-side.
+          // A page number that appears only in the fragment is the same fact
+          // as one dropped entirely — no request a crawler could make differs.
+          if (link.url.includes('#')) fragmentOnly.push({ from: page.normalizedUrl, href: link.href });
+          continue;
+        }
         found.push({ from: page.normalizedUrl, to: target });
       }
     }
 
-    if (found.length === 0) {
+    if (found.length === 0 && fragmentOnly.length === 0) {
       return notApplicable('The crawl found no paginated series in the raw HTML.');
+    }
+
+    if (fragmentOnly.length > 0) {
+      return fail(
+        `${fragmentOnly.length} paginated link(s) are addressed only by a URL fragment, so no separate page exists for a crawler to request.`,
+        { samples: fragmentOnly.slice(0, 10), realPaginatedLinks: found.length },
+      );
     }
 
     // A link in the markup is the claim; a fetched page is the proof.
@@ -676,6 +703,17 @@ export const paginationCrawlPath: SiteProbe = {
       return fail(`${noindex.length} paginated page(s) are noindex, hiding their items.`, {
         samples: noindex.slice(0, 10),
       });
+    }
+
+    const blanketCanonical = reached.filter(({ to }) => {
+      const canonical = normalizeUrl(fetched.get(to)?.extracted?.canonical ?? '');
+      return canonical !== null && canonical !== to && !PAGED_URL.test(canonical);
+    });
+    if (blanketCanonical.length > 0) {
+      return fail(
+        `${blanketCanonical.length} paginated page(s) canonicalize onto an unpaginated URL, collapsing the series onto page one and dropping the rest from the index.`,
+        { samples: blanketCanonical.slice(0, 10) },
+      );
     }
 
     return pass(

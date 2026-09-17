@@ -237,6 +237,15 @@ export interface Extracted {
   readonly breadcrumbs: readonly ExtractedBreadcrumb[];
   /** `<table>` elements, in document order, nested ones included. */
   readonly tables: readonly ExtractedTable[];
+  /**
+   * Raw `href`s of anchors addressed only by a URL fragment that names a page
+   * number (`#page=2`, `#!/page/3`), kept exactly as authored. A fragment is
+   * never sent to the server, so an anchor shaped like this names no separate
+   * URL at all — `resolveUrl` returns null for it and it never reaches `links`.
+   * Recorded here undecided, the way extraction keeps everything else: whether
+   * that absence of a real address is a defect is `pagination-crawl-path`'s call.
+   */
+  readonly fragmentPageLinks: readonly string[];
   /** Landmark elements present, for the semantic-html detector. */
   readonly landmarks: readonly string[];
   /** The reading matter, divided at its headings. */
@@ -246,6 +255,9 @@ export interface Extracted {
   readonly text: string;
   readonly wordCount: number;
 }
+
+/** A fragment naming a page number: `#page=2`, `#/page/2`, `#!/page/2`, `#p2`. */
+const FRAGMENT_PAGE = /^#!?\/?(?:page|p)[-_=/]?\d+/i;
 
 const attr = (value: string | undefined): string | null => (value === undefined ? null : value);
 const clean = (value: string): string => value.replace(/\s+/g, ' ').trim();
@@ -326,8 +338,10 @@ export function extract(html: string, pageUrl: string): Extracted {
   };
 
   const links: ExtractedLink[] = [];
+  const fragmentPageLinks: string[] = [];
   $('a[href]').each((_, element) => {
     const href = $(element).attr('href') ?? '';
+    if (href.trim().startsWith('#') && FRAGMENT_PAGE.test(href)) fragmentPageLinks.push(href);
     const url = resolveUrl(href, base);
     if (url === null) return;
     const rel = attr($(element).attr('rel'));
@@ -574,6 +588,7 @@ export function extract(html: string, pageUrl: string): Extracted {
     frames,
     breadcrumbs,
     tables,
+    fragmentPageLinks,
     landmarks: LANDMARKS.filter((tag) => $(tag).length > 0),
     content: { root: rootKind, sections, links: contentLinks },
     authorship: {

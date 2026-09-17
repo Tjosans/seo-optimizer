@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { extract } from '@seo/crawler';
-import type { CrawledPage, CrawlResult, RedirectHop } from '@seo/crawler';
+import type { AuxiliaryFetch, CrawledPage, CrawlResult, FetchResult, RedirectHop } from '@seo/crawler';
 import { probeById } from '@seo/probes';
 import type { Observation, SiteProbe } from '@seo/probes';
 
@@ -89,6 +89,7 @@ interface Crawl {
   readonly notReached?: readonly string[];
   readonly blockedByRobots?: readonly string[];
   readonly sitemapUrls?: readonly string[];
+  readonly auxiliary?: readonly AuxiliaryFetch[];
 }
 
 const run = (id: string, pages: readonly CrawledPage[], rest: Crawl = {}): Observation =>
@@ -106,12 +107,28 @@ const run = (id: string, pages: readonly CrawledPage[], rest: Crawl = {}): Obser
       sitemapNews: [],
       blockedByRobots: (rest.blockedByRobots ?? []).map((path) => `${ORIGIN}${path}`),
       notReached: (rest.notReached ?? []).map((path) => `${ORIGIN}${path}`),
-      auxiliary: [],
+      auxiliary: rest.auxiliary ?? [],
     } satisfies CrawlResult,
   });
 
 const samples = (observation: Observation): string =>
   JSON.stringify(observation.data?.['samples'] ?? []);
+
+/** A minimal external-link auxiliary fetch result, status or transport error. */
+const auxFetch = (url: string, status: number | null, error: string | null = null): FetchResult => ({
+  requestedUrl: url,
+  finalUrl: url,
+  status,
+  headers: {},
+  redirectChain: [],
+  body: '',
+  byteLength: 0,
+  truncated: false,
+  contentType: null,
+  ttfbMs: 1,
+  totalMs: 2,
+  error,
+});
 
 // --- broken-links ------------------------------------------------------------
 
@@ -119,15 +136,54 @@ const links = (pages: readonly CrawledPage[], rest?: Crawl): Observation =>
   run('broken-links', pages, rest);
 
 describe('broken-links', () => {
-  it('passes a site whose every internal link answers', () => {
-    const observation = links([
-      page('/', { links: ['/a', '/b', 'https://other.example/x', 'mailto:hi@example.com'] }),
-      page('/a', { links: ['/'] }),
-      page('/b'),
-    ]);
+  it('passes a site whose every internal link, and every checked external link, answers', () => {
+    const EXTERNAL = 'https://other.example/x';
+    const observation = links(
+      [
+        page('/', { links: ['/a', '/b', EXTERNAL, 'mailto:hi@example.com'] }),
+        page('/a', { links: ['/'] }),
+        page('/b'),
+      ],
+      { auxiliary: [{ reason: 'external-link', url: EXTERNAL, fetch: auxFetch(EXTERNAL, 200) }] },
+    );
     expect(observation.outcome).toBe('pass');
     expect(observation.data?.['internalLinks']).toBe(3);
+    expect(observation.data?.['externalLinksChecked']).toBe(1);
+    expect(observation.data?.['externalLinksNotChecked']).toBe(0);
+  });
+
+  it('holds the check on an external link target the crawl did not verify', () => {
+    // The auxiliary pass has its own budget; a target outside it is not known
+    // to work any more than an internal one the walk never fetched.
+    const observation = links([
+      page('/', { links: ['/a', 'https://other.example/unchecked'] }),
+      page('/a'),
+    ]);
+    expect(observation.outcome).toBe('warn');
     expect(observation.data?.['externalLinksNotChecked']).toBe(1);
+  });
+
+  it('fails an external link target that answers with an error', () => {
+    const EXTERNAL = 'https://other.example/gone';
+    const observation = links(
+      [page('/', { links: ['/a', EXTERNAL] }), page('/a')],
+      { auxiliary: [{ reason: 'external-link', url: EXTERNAL, fetch: auxFetch(EXTERNAL, 404) }] },
+    );
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('1 of them external');
+    const [finding] = observation.data?.['samples'] as { target: string; external: boolean; status: number }[];
+    expect(finding).toMatchObject({ target: EXTERNAL, external: true, status: 404 });
+  });
+
+  it('holds rather than fails an external target that timed out or asked the crawler to slow down', () => {
+    const EXTERNAL = 'https://other.example/slow';
+    for (const fetch of [auxFetch(EXTERNAL, null, 'timeout'), auxFetch(EXTERNAL, 429)]) {
+      const observation = links(
+        [page('/', { links: [EXTERNAL] })],
+        { auxiliary: [{ reason: 'external-link', url: EXTERNAL, fetch }] },
+      );
+      expect(observation.outcome).toBe('warn');
+    }
   });
 
   it('fails a dead URL and names every page that links to it', () => {

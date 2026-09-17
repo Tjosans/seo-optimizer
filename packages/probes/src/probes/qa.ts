@@ -15,7 +15,7 @@
  */
 
 import { normalizeUrl } from '@seo/crawler';
-import type { CrawledPage, CrawlResult } from '@seo/crawler';
+import type { CrawledPage, CrawlResult, FetchResult } from '@seo/crawler';
 import type { SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
 
@@ -31,8 +31,8 @@ const SAMPLES = 10;
  */
 type TargetState = 'ok' | 'broken' | 'unverified';
 
-const stateOf = (page: CrawledPage): TargetState => {
-  const { status, error } = page.fetch;
+const stateOf = (fetch: FetchResult): TargetState => {
+  const { status, error } = fetch;
   if (error !== null || status === null || status === 429) return 'unverified';
   return status >= 400 ? 'broken' : 'ok';
 };
@@ -52,6 +52,8 @@ const parsedPages = (crawl: CrawlResult): CrawledPage[] =>
 interface BrokenLink {
   readonly target: string;
   readonly status: number | null;
+  /** Whether the target is off the crawled site. */
+  readonly external: boolean;
   /** Pages carrying a link to it, the first few. */
   readonly linkedFrom: readonly string[];
   /** How many links to it the crawl read, repeats on one page included once. */
@@ -59,22 +61,26 @@ interface BrokenLink {
 }
 
 /**
- * Internal links on crawled pages lead somewhere that answers.
+ * Links on crawled pages lead somewhere that answers, internal and external.
  *
  * Internal means a target the crawl could have fetched: on the crawled host.
- * External links are counted and left alone — the crawl has one host's
- * permission, and a second, unmetered visitor to every site a page links to is
- * precisely what the crawler's auxiliary-request rule exists to prevent.
+ * External targets cannot be fetched by the walk — the crawl has one host's
+ * permission — so they are checked by a separate, bounded auxiliary pass the
+ * crawl loop runs once after the walk, one request per distinct target, paced
+ * and capped per external host so a page citing one rival's site forty times
+ * cannot spend the whole check confirming that one host is up. Only that pass
+ * makes a request to another site; this probe only reads what it recorded.
  *
- * A target the crawl did not fetch — the budget ran out, it was linked
- * `nofollow`, robots.txt kept the crawler out — is not known to work, so the
- * check is held with a `warn` rather than passed. A robots-blocked target is
- * not a broken one: visitors are not crawlers, and the page may be fine.
+ * A target the crawl did not verify — the budget ran out, it was linked
+ * `nofollow`, robots.txt kept the crawler out of an internal one, an external
+ * one fell outside the auxiliary pass's own budget — is not known to work, so
+ * the check is held with a `warn` rather than passed. A robots-blocked target
+ * is not a broken one: visitors are not crawlers, and the page may be fine.
  */
 export const brokenLinks: SiteProbe = {
   id: 'broken-links',
   scope: 'site',
-  title: 'Internal links on crawled pages lead to pages that answer',
+  title: 'Links on crawled pages, internal and external, lead to pages that answer',
   run({ crawl }) {
     const sources = parsedPages(crawl);
     if (sources.length === 0) return notApplicable('No HTML pages were crawled, so no links were read.');
@@ -89,9 +95,14 @@ export const brokenLinks: SiteProbe = {
       const host = hostOf(url);
       if (host !== null) hosts.add(host);
     }
+    const externalChecks = new Map<string, FetchResult>();
+    for (const item of crawl.auxiliary) {
+      if (item.reason === 'external-link') externalChecks.set(item.url, item.fetch);
+    }
 
-    const broken = new Map<string, { status: number | null; from: Set<string> }>();
+    const broken = new Map<string, { status: number | null; external: boolean; from: Set<string> }>();
     const unchecked = new Set<string>();
+    const externalUnchecked = new Set<string>();
     const robotsBlocked = new Set<string>();
     let internal = 0;
     let external = 0;
@@ -109,6 +120,17 @@ export const brokenLinks: SiteProbe = {
         const reached = fetched.get(target);
         if (reached === undefined && !hosts.has(hostOf(target) ?? '')) {
           external += 1;
+          const checked = externalChecks.get(target);
+          if (checked === undefined) {
+            externalUnchecked.add(target);
+            continue;
+          }
+          const state = stateOf(checked);
+          if (state === 'unverified') externalUnchecked.add(target);
+          if (state !== 'broken') continue;
+          const entry = broken.get(target) ?? { status: checked.status, external: true, from: new Set<string>() };
+          entry.from.add(page.normalizedUrl);
+          broken.set(target, entry);
           continue;
         }
         internal += 1;
@@ -117,23 +139,24 @@ export const brokenLinks: SiteProbe = {
           else unchecked.add(target);
           continue;
         }
-        const state = stateOf(reached);
+        const state = stateOf(reached.fetch);
         if (state === 'unverified') unchecked.add(target);
         if (state !== 'broken') continue;
-        const entry = broken.get(target) ?? { status: reached.fetch.status, from: new Set<string>() };
+        const entry = broken.get(target) ?? { status: reached.fetch.status, external: false, from: new Set<string>() };
         entry.from.add(page.normalizedUrl);
         broken.set(target, entry);
       }
     }
 
-    if (internal === 0) {
-      return notApplicable(`No internal links were found on ${sources.length} crawled page(s).`);
+    if (internal === 0 && external === 0) {
+      return notApplicable(`No links were found on ${sources.length} crawled page(s).`);
     }
 
     const findings: BrokenLink[] = [...broken]
-      .map(([target, { status, from }]) => ({
+      .map(([target, { status, external: isExternal, from }]) => ({
         target,
         status,
+        external: isExternal,
         linkedFrom: [...from].slice(0, 5),
         sources: from.size,
       }))
@@ -141,7 +164,9 @@ export const brokenLinks: SiteProbe = {
     const data = {
       pagesRead: sources.length,
       internalLinks: internal,
-      externalLinksNotChecked: external,
+      externalLinks: external,
+      externalLinksChecked: externalChecks.size,
+      externalLinksNotChecked: externalUnchecked.size,
       brokenTargets: findings.length,
       uncheckedTargets: unchecked.size,
       robotsBlockedTargets: robotsBlocked.size,
@@ -149,20 +174,34 @@ export const brokenLinks: SiteProbe = {
 
     if (findings.length > 0) {
       const links = findings.reduce((sum, finding) => sum + finding.sources, 0);
+      const externalFindings = findings.filter((finding) => finding.external).length;
       return fail(
-        `${links} link(s) on crawled pages lead to ${findings.length} URL(s) that answer with an error.`,
+        `${links} link(s) on crawled pages lead to ${findings.length} URL(s) that answer with an error` +
+          (externalFindings > 0 ? ` (${externalFindings} of them external)` : '') + '.',
         { ...data, samples: findings.slice(0, SAMPLES) },
       );
     }
-    if (unchecked.size > 0) {
+    if (unchecked.size > 0 || externalUnchecked.size > 0) {
+      const parts = [
+        ...(unchecked.size > 0 ? [`${unchecked.size} internal`] : []),
+        ...(externalUnchecked.size > 0 ? [`${externalUnchecked.size} external`] : []),
+      ];
       return warn(
-        `No broken link among the targets the crawl fetched, but ${unchecked.size} internal ` +
-          'link target(s) were not fetched or did not answer, so the check is unfinished.',
-        { ...data, unchecked: [...unchecked].slice(0, SAMPLES) },
+        `No broken link among the targets the crawl checked, but ${parts.join(' and ')} link ` +
+          'target(s) were not fetched or did not answer, so the check is unfinished.',
+        {
+          ...data,
+          unchecked: [...unchecked].slice(0, SAMPLES),
+          uncheckedExternal: [...externalUnchecked].slice(0, SAMPLES),
+        },
       );
     }
+    const parts = [
+      ...(internal > 0 ? [`${internal} internal link(s)`] : []),
+      ...(externalChecks.size > 0 ? [`${externalChecks.size} external link target(s)`] : []),
+    ];
     return pass(
-      `All ${internal} internal link(s) on ${sources.length} crawled page(s) lead to pages that answer` +
+      `All ${parts.join(' and ')} on ${sources.length} crawled page(s) lead to pages that answer` +
         (robotsBlocked.size > 0 ? `; ${robotsBlocked.size} target(s) are kept from crawlers by robots.txt.` : '.'),
       robotsBlocked.size > 0 ? { ...data, robotsBlocked: [...robotsBlocked].slice(0, SAMPLES) } : data,
     );

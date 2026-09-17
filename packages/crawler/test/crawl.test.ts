@@ -576,3 +576,77 @@ describe('a site whose sitemap is larger than the page budget', () => {
     expect(seen.length).toBe(12);
   });
 });
+
+// --- the external-link auxiliary pass ---------------------------------------
+
+describe('the external-link auxiliary pass', () => {
+  const ORIGIN = 'https://site.test';
+  const HOST_A = 'https://a.external.test';
+  const HOST_B = 'https://b.external.test';
+  const hostALinks = Array.from({ length: 5 }, (_, i) => `${HOST_A}/${i + 1}`);
+  const hostBLinks = Array.from({ length: 2 }, (_, i) => `${HOST_B}/${i + 1}`);
+
+  const body = (url: string): string | null => {
+    if (url === `${ORIGIN}/`) {
+      return `<html><body>${[...hostALinks, ...hostBLinks, `${ORIGIN}/other`]
+        .map((href) => `<a href="${href}">go</a>`)
+        .join('')}</body></html>`;
+    }
+    if (url === `${ORIGIN}/other`) return '<html><body><p>other</p></body></html>';
+    if (hostALinks.includes(url) || hostBLinks.includes(url)) return '<html><body><p>external</p></body></html>';
+    return null;
+  };
+
+  const fetchImpl = async (url: string): Promise<FetchResult> => {
+    const content = body(url);
+    // Only the third link on host A is broken; robots.txt and the host
+    // variants fall through the same "unmatched" branch as a 404.
+    const status = url === `${HOST_A}/3` ? 404 : content === null ? 404 : 200;
+    return {
+      requestedUrl: url,
+      finalUrl: url,
+      status,
+      headers: {},
+      redirectChain: [],
+      body: content ?? '',
+      byteLength: content?.length ?? 0,
+      truncated: false,
+      contentType: 'text/html',
+      ttfbMs: 1,
+      totalMs: 1,
+      error: null,
+    };
+  };
+
+  let crawled: CrawlResult;
+
+  beforeAll(async () => {
+    crawled = await crawl({
+      seeds: [`${ORIGIN}/`],
+      userAgent: 'seo-optimizer/0.1 (+test)',
+      maxPages: 2,
+      maxDepth: 1,
+      fetchImpl: fetchImpl as unknown as typeof fetchPage,
+      // No real TLS handshake to a host that does not exist.
+      negotiateImpl: async (origin) => ({ origin, alpn: null, tlsVersion: null, error: null }),
+    });
+  });
+
+  it('checks external link targets, capped at three per host', () => {
+    const checked = crawled.auxiliary.filter((entry) => entry.reason === 'external-link');
+    expect(checked.map((entry) => entry.url).filter((url) => url.startsWith(HOST_A))).toEqual(
+      hostALinks.slice(0, 3),
+    );
+    expect(checked.map((entry) => entry.url).filter((url) => url.startsWith(HOST_B))).toEqual(hostBLinks);
+  });
+
+  it('records the status of a broken external target', () => {
+    const found = crawled.auxiliary.find((entry) => entry.url === `${HOST_A}/3`);
+    expect(found?.fetch.status).toBe(404);
+  });
+
+  it('never fetches an external target beyond the per-host cap', () => {
+    expect(crawled.auxiliary.some((entry) => entry.url === `${HOST_A}/4`)).toBe(false);
+    expect(crawled.auxiliary.some((entry) => entry.url === `${HOST_A}/5`)).toBe(false);
+  });
+});

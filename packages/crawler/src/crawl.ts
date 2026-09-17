@@ -55,8 +55,9 @@ export interface CrawlOptions {
    */
   readonly signal?: AbortSignal;
   /**
-   * Test the seed's other scheme and host spellings, and fetch the root
-   * document's declared icons. Defaults to true.
+   * Test the seed's other scheme and host spellings, fetch the root
+   * document's declared icons, and check the targets of links off the
+   * crawled site. Defaults to true.
    *
    * Host variants are skipped for a seed whose host cannot have them — an IP
    * address, `localhost`, any single-label name — because `www.127.0.0.1` is
@@ -107,8 +108,10 @@ export interface AuxiliaryFetch {
    * `icon` — an icon the root document declared.
    * `user-agent-test` — the seed fetched as somebody else, to see whether the
    *   site treats that crawler differently from this one.
+   * `external-link` — a link target off the crawled site, fetched to answer
+   *   whether it is broken; `broken-links` (corpus 4.1) is the reader.
    */
-  readonly reason: 'host-variant' | 'icon' | 'user-agent-test';
+  readonly reason: 'host-variant' | 'icon' | 'user-agent-test' | 'external-link';
   readonly url: string;
   /** The `user-agent` sent, when it was not the crawl's own. */
   readonly userAgent?: string;
@@ -226,6 +229,14 @@ interface QueueEntry {
 }
 
 const HTML = /^(text\/html|application\/xhtml\+xml)/i;
+
+const hostOf = (url: string): string | null => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return null;
+  }
+};
 
 /**
  * Thrown when a crawl is stopped by its caller's signal.
@@ -556,6 +567,44 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
       await aside('icon', icon, { keepBytes: true });
     }
 
+    // A link off the crawled site leads somewhere the walk cannot follow — the
+    // crawl has only this host's permission — so whether it answers is asked
+    // here, once, rather than left for `broken-links` (4.1) to leave alone.
+    // Lanes are per external host and drawn round-robin, the same
+    // budget-splitting shape `loadSitemaps` uses, so a page citing one rival's
+    // site forty times cannot spend the whole budget confirming that host is
+    // up while every other external target goes unchecked.
+    const siteHosts = new Set<string>();
+    for (const url of [...options.seeds, ...pages.map((entry) => entry.fetch.finalUrl)]) {
+      const host = hostOf(url);
+      if (host !== null) siteHosts.add(host);
+    }
+    const externalLanes = new Map<string, string[]>();
+    for (const entry of pages) {
+      if (entry.extracted === null) continue;
+      for (const link of entry.extracted.links) {
+        const target = normalizeUrl(link.url);
+        if (target === null || target === entry.normalizedUrl) continue;
+        const host = hostOf(target);
+        if (host === null || siteHosts.has(host)) continue;
+        const lane = externalLanes.get(host) ?? [];
+        if (lane.length < MAX_EXTERNAL_LINKS_PER_HOST && !lane.includes(target)) lane.push(target);
+        externalLanes.set(host, lane);
+      }
+    }
+    const externalWork = [...externalLanes.values()];
+    let externalTurn = 0;
+    let externalFetched = 0;
+    while (externalFetched < MAX_EXTERNAL_LINK_FETCHES && externalWork.some((lane) => lane.length > 0)) {
+      const lane = externalWork[externalTurn % externalWork.length];
+      externalTurn += 1;
+      const next = lane?.shift();
+      if (next === undefined) continue;
+      stopIfCancelled(options.signal);
+      await aside('external-link', next);
+      externalFetched += 1;
+    }
+
     // With the host the root document actually came from, after redirects: the
     // version a visitor gets is the canonical host's, not the seed spelling's.
     const landed = root?.fetch.error === null ? root.fetch.finalUrl : null;
@@ -612,6 +661,16 @@ const MAX_ICON_FETCHES = 3;
  * origin and a policy naming forty crawlers should not cost forty visits.
  */
 const MAX_UA_TESTS = 12;
+
+/** How many external link targets one crawl will fetch, across every host. */
+const MAX_EXTERNAL_LINK_FETCHES = 30;
+
+/**
+ * How many external link targets one crawl will fetch on any single host, so
+ * a page that cites one rival's site forty times cannot spend the whole
+ * external-link budget confirming that one host is up.
+ */
+const MAX_EXTERNAL_LINKS_PER_HOST = 3;
 
 /**
  * The scheme and host spellings that must all end up in the same place.

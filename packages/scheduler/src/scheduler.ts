@@ -163,7 +163,9 @@ export class AuditScheduler {
       ...(policy === undefined
         ? {}
         : { retry: (attempt: RetryAttempt<AuditJob>) => this.#decideRetry(policy, attempt) }),
-      ...(options.store === undefined ? {} : { store: options.store }),
+      ...(options.store === undefined
+        ? {}
+        : { store: options.store, reviveLane: (job: AuditJob) => auditLane(job.origin) }),
       ...(options.heartbeatMs === undefined ? {} : { heartbeatMs: options.heartbeatMs }),
       ...(options.onStoreError === undefined ? {} : { onStoreError: options.onStoreError }),
       onEvent: (event) => {

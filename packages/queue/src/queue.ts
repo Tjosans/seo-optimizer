@@ -102,6 +102,20 @@ export interface JobQueueOptions<TPayload, TResult> {
    * finds out the store is unwell.
    */
   readonly onStoreError?: (error: unknown, job: Job<TPayload>) => void;
+  /**
+   * Recompute a restored job's lane from its payload, rather than trust what
+   * the store has on it.
+   *
+   * A lane is derived from the payload by a rule that can change — `auditLane`
+   * has already changed once, from the raw origin string to a normalized host.
+   * A job a prior deploy wrote under the old rule keeps that lane forever
+   * without this: recovered and adopted jobs would read it back verbatim, so
+   * one deploy's backlog could run an old-format and a new-format lane for the
+   * same target side by side, defeating the exclusion lanes exist for. Given
+   * one, `recover` and adoption call it instead of using `StoredJob.lane`, so a
+   * restored job's lane is always what the current rule says it is.
+   */
+  readonly reviveLane?: (payload: TPayload, storedLane: string | null) => string | null;
   /** Called on every state transition. Throwing from it never fails a job. */
   readonly onEvent?: (event: JobEvent<TPayload>) => void;
   /** Start paused, so a caller can enqueue a batch before anything runs. */
@@ -205,6 +219,9 @@ export class JobQueue<TPayload, TResult = void> {
   readonly #handler: JobHandler<TPayload, TResult>;
   readonly #retry: RetryPolicy<TPayload> | undefined;
   readonly #store: JobStore<TPayload> | undefined;
+  readonly #reviveLane:
+    | ((payload: TPayload, storedLane: string | null) => string | null)
+    | undefined;
   readonly #onStoreError: ((error: unknown, job: Job<TPayload>) => void) | undefined;
   readonly #onEvent: ((event: JobEvent<TPayload>) => void) | undefined;
   readonly #heartbeatMs: number | undefined;
@@ -248,6 +265,7 @@ export class JobQueue<TPayload, TResult = void> {
     this.#handler = options.handler;
     this.#retry = options.retry;
     this.#store = options.store;
+    this.#reviveLane = options.reviveLane;
     this.#onStoreError = options.onStoreError;
     this.#onEvent = options.onEvent;
     this.#heartbeatMs =
@@ -384,7 +402,7 @@ export class JobQueue<TPayload, TResult = void> {
     const entry = this.#newEntry({
       id: job.id,
       payload: job.payload,
-      lane: job.lane,
+      lane: this.#reviveLane === undefined ? job.lane : this.#reviveLane(job.payload, job.lane),
       priority: job.priority,
       enqueuedAt: job.enqueuedAt,
       attempt: job.attempt,

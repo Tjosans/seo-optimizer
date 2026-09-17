@@ -279,6 +279,54 @@ describe('recovering after a restart', () => {
     expect(store.size).toBe(0);
   });
 
+  it('recomputes a restored job’s lane from its payload when asked, rather than trust the store', async () => {
+    const store = new MemoryJobStore<string>([
+      {
+        id: 'old-format',
+        payload: 'https://www.example.com',
+        lane: 'https://www.example.com',
+        priority: 0,
+        state: 'queued',
+        attempt: 0,
+        enqueuedAt: new Date(),
+        nextAttemptAt: null,
+        error: null,
+      },
+    ]);
+
+    const queue = new JobQueue<string, void>({
+      concurrency: 1,
+      store,
+      paused: true,
+      reviveLane: (payload) => new URL(payload).hostname.replace(/^www\./, ''),
+      handler: () => {},
+    });
+
+    const [restored] = await queue.recover();
+    expect(restored?.lane).toBe('example.com');
+  });
+
+  it('leaves a restored job’s lane alone without a reviveLane option', async () => {
+    const store = new MemoryJobStore<string>([
+      {
+        id: 'old-format',
+        payload: 'https://www.example.com',
+        lane: 'https://www.example.com',
+        priority: 0,
+        state: 'queued',
+        attempt: 0,
+        enqueuedAt: new Date(),
+        nextAttemptAt: null,
+        error: null,
+      },
+    ]);
+
+    const queue = new JobQueue<string, void>({ concurrency: 1, store, paused: true, handler: () => {} });
+
+    const [restored] = await queue.recover();
+    expect(restored?.lane).toBe('https://www.example.com');
+  });
+
   it('keeps the attempt count, so a job that kills the process still gives up', async () => {
     // Attempt 1 "crashed the process": the store holds it mid-flight.
     const store = new MemoryJobStore<string>([

@@ -2439,4 +2439,69 @@ describe('crawler-fetch-limit', () => {
     expect(check(sized(3_000_000, { contentType: 'image/png' })).outcome).toBe('not-applicable');
     expect(check(sized(3_000_000, { status: 404 })).outcome).toBe('not-applicable');
   });
+
+  describe('linked stylesheets and scripts', () => {
+    const STYLE_URL = `${ORIGIN}/style.css`;
+    const SCRIPT_URL = `${ORIGIN}/app.js`;
+
+    const withAssets = (byteLength: number): CrawledPage => {
+      const base = sized(byteLength);
+      const html = `<html><head><link rel="stylesheet" href="${STYLE_URL}"><script src="${SCRIPT_URL}"></script></head><body><p>page</p></body></html>`;
+      return { ...base, extracted: extract(html, base.url) };
+    };
+
+    const assetFetch = (url: string, byteLength: number, contentType: string): AuxiliaryFetch => ({
+      reason: 'asset',
+      url,
+      fetch: {
+        requestedUrl: url,
+        finalUrl: url,
+        status: 200,
+        headers: { 'content-type': contentType },
+        redirectChain: [],
+        body: '',
+        byteLength,
+        truncated: false,
+        contentType,
+        ttfbMs: 1,
+        totalMs: 1,
+        error: null,
+      },
+    });
+
+    const checkWithAssets = (target: CrawledPage, auxiliary: readonly AuxiliaryFetch[]): Observation =>
+      pageProbe('crawler-fetch-limit').run({ page: target, site: siteOf([target], [], auxiliary) });
+
+    it('passes a page whose document and linked assets are all well within the limit', () => {
+      const target = withAssets(48_000);
+      const observation = checkWithAssets(target, [
+        assetFetch(STYLE_URL, 10_000, 'text/css'),
+        assetFetch(SCRIPT_URL, 20_000, 'application/javascript'),
+      ]);
+      expect(observation.outcome).toBe('pass');
+      expect(observation.data?.['assets']).toEqual([
+        { url: STYLE_URL, kind: 'stylesheet', outcome: 'pass', bytes: 10_000, share: 1 },
+        { url: SCRIPT_URL, kind: 'script', outcome: 'pass', bytes: 20_000, share: 1 },
+      ]);
+    });
+
+    it('fails the page when a linked script is past the limit, even though the document itself passes', () => {
+      const target = withAssets(48_000);
+      const observation = checkWithAssets(target, [
+        assetFetch(STYLE_URL, 10_000, 'text/css'),
+        assetFetch(SCRIPT_URL, 3_000_000, 'application/javascript'),
+      ]);
+      expect(observation.outcome).toBe('fail');
+      expect(observation.summary).toContain('linked script');
+      expect(observation.summary).toContain(SCRIPT_URL);
+    });
+
+    it('does not judge an asset the crawl never fetched', () => {
+      const target = withAssets(48_000);
+      const observation = checkWithAssets(target, []);
+      expect(observation.outcome).toBe('pass');
+      expect(observation.data?.['assets']).toEqual([]);
+      expect(observation.data?.['assetsUnchecked']).toBe(2);
+    });
+  });
 });

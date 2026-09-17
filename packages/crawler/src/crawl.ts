@@ -110,8 +110,11 @@ export interface AuxiliaryFetch {
    *   site treats that crawler differently from this one.
    * `external-link` — a link target off the crawled site, fetched to answer
    *   whether it is broken; `broken-links` (corpus 4.1) is the reader.
+   * `asset` — a stylesheet or script a page declared, fetched to weigh it
+   *   against Googlebot's per-file fetch limit; `crawler-fetch-limit`
+   *   (corpus 1.5) is the reader.
    */
-  readonly reason: 'host-variant' | 'icon' | 'user-agent-test' | 'external-link';
+  readonly reason: 'host-variant' | 'icon' | 'user-agent-test' | 'external-link' | 'asset';
   readonly url: string;
   /** The `user-agent` sent, when it was not the crawl's own. */
   readonly userAgent?: string;
@@ -605,6 +608,21 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
       externalFetched += 1;
     }
 
+    // Googlebot fetches a page's CSS and JavaScript separately, each under its
+    // own limit, but the walk only ever reads the document — `crawler-fetch-limit`
+    // (1.5) cannot weigh what it never saw. Fetched once per URL, deduplicated
+    // across every page that links it, the same way icons are.
+    const assets = new Set<string>();
+    for (const entry of pages) {
+      for (const url of [...(entry.extracted?.stylesheets ?? []), ...(entry.extracted?.scripts ?? [])]) {
+        assets.add(url);
+      }
+    }
+    for (const url of [...assets].slice(0, MAX_ASSET_FETCHES)) {
+      stopIfCancelled(options.signal);
+      await aside('asset', url);
+    }
+
     // With the host the root document actually came from, after redirects: the
     // version a visitor gets is the canonical host's, not the seed spelling's.
     const landed = root?.fetch.error === null ? root.fetch.finalUrl : null;
@@ -671,6 +689,14 @@ const MAX_EXTERNAL_LINK_FETCHES = 30;
  * external-link budget confirming that one host is up.
  */
 const MAX_EXTERNAL_LINKS_PER_HOST = 3;
+
+/**
+ * How many distinct stylesheet/script URLs one crawl will fetch to weigh
+ * against `crawler-fetch-limit` (1.5). A site's asset URLs repeat across
+ * pages far more than they vary, so a modest cap still reaches most of a
+ * site's actual bundles.
+ */
+const MAX_ASSET_FETCHES = 20;
 
 /**
  * The scheme and host spellings that must all end up in the same place.

@@ -4,7 +4,7 @@
  * markup, so they apply to every response, not just HTML.
  */
 
-import type { FetchResult } from '@seo/crawler';
+import type { AuxiliaryFetch, FetchResult } from '@seo/crawler';
 import type { PageProbe, SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
 
@@ -240,15 +240,17 @@ function measure(fetch: FetchResult): { bytes: number; exact: boolean; from: 'bo
   return { bytes: fetch.byteLength, exact: false, from: 'body' };
 }
 
+interface SizeVerdict {
+  readonly outcome: 'pass' | 'warn' | 'fail' | 'error';
+  readonly note: string;
+  readonly bytes: number;
+  readonly exact: boolean;
+  readonly measuredFrom: 'body' | 'content-length';
+  readonly share: number;
+}
+
 /**
- * Whether Googlebot reads each document to its end.
- *
- * Search fetches the first 2 MB of a file, or 64 MB of a PDF, and indexes what
- * it got: a page past the limit is not refused, it is quietly cut, and the
- * links, structured data and text below the cut stop existing for Search.
- * v5.0 1.5 asks for each document against the limit "and a margin", and keeps
- * that apart from page weight — this is the size of one file, not of
- * everything the page loads.
+ * Judges one response's uncompressed size against Googlebot's per-file limit.
  *
  * Only a file past the limit on either reading of "MB" fails; one between
  * the two readings is a `warn`, since Google may read it whole and a margin
@@ -256,11 +258,71 @@ function measure(fetch: FetchResult): { bytes: number; exact: boolean; from: 'bo
  * the cut is already past the limit, since the file is at least that large. Cut below the limit,
  * with no length declared, the size is unknown, and that is an `error`.
  */
+interface FetchLimit {
+  readonly decimal: number;
+  readonly binary: number;
+  readonly label: string;
+}
+
+function judgeSize(fetch: FetchResult, limit: FetchLimit, named: string): SizeVerdict {
+  const size = measure(fetch);
+  const share = Math.round((size.bytes / limit.decimal) * 100);
+  const base = { bytes: size.bytes, exact: size.exact, measuredFrom: size.from, share };
+
+  if (size.bytes > limit.binary) {
+    const amount = size.exact ? bytesText(size.bytes) : `At least ${bytesText(size.bytes)} (the crawler stopped reading there)`;
+    return {
+      ...base,
+      outcome: 'fail',
+      note: `${amount} uncompressed, past ${named}: Search indexes the first ${limit.label} and nothing after it.`,
+    };
+  }
+  if (!size.exact) {
+    return {
+      ...base,
+      outcome: 'error',
+      note: `The crawler stopped reading at ${bytesText(size.bytes)}, inside the ${limit.label} limit, and no Content-Length says how large the file is.`,
+    };
+  }
+  if (size.bytes > limit.decimal) {
+    return {
+      ...base,
+      outcome: 'warn',
+      note: `${bytesText(size.bytes)} uncompressed: past ${named} if Google counts ${bytesText(limit.decimal)}, inside it at ${bytesText(limit.binary)}. Google does not say which, and either way there is no margin left.`,
+    };
+  }
+  if (size.bytes >= limit.decimal * FETCH_LIMIT_MARGIN) {
+    return {
+      ...base,
+      outcome: 'warn',
+      note: `${bytesText(size.bytes)} uncompressed, ${share}% of ${named}, inside the ${Math.round((1 - FETCH_LIMIT_MARGIN) * 100)}% margin 1.5 asks to keep.`,
+    };
+  }
+  return { ...base, outcome: 'pass', note: `${bytesText(size.bytes)} uncompressed, ${share}% of ${named}.` };
+}
+
+/** Higher outrates lower: a fail anywhere outranks a warn or error elsewhere, so the worst finding wins the page's verdict. */
+const SEVERITY: Record<SizeVerdict['outcome'], number> = { pass: 0, warn: 1, error: 2, fail: 3 };
+
+/**
+ * Whether Googlebot reads each document, stylesheet and script to its end.
+ *
+ * Search fetches the first 2 MB of a file, or 64 MB of a PDF, and indexes what
+ * it got: a page past the limit is not refused, it is quietly cut, and the
+ * links, structured data and text below the cut stop existing for Search.
+ * v5.0 1.5 asks for each document *and resource* against the limit "and a
+ * margin", and keeps that apart from page weight — this is the size of one
+ * file, not of everything the page loads. Googlebot fetches CSS and
+ * JavaScript separately from the document, under the same per-file limit, so
+ * a page's linked stylesheets and scripts are judged alongside it — each one
+ * the crawl fetched (@seo/crawler's bounded `asset` auxiliary pass), read
+ * from `site.crawl.auxiliary`, since a probe never fetches on its own.
+ */
 export const crawlerFetchLimit: PageProbe = {
   id: 'crawler-fetch-limit',
   scope: 'page',
-  title: "Each document fits within Googlebot's per-file fetch limit",
-  run({ page }) {
+  title: "Each document and its linked CSS/JS fit within Googlebot's per-file fetch limit",
+  run({ page, site }) {
     const { fetch } = page;
     if (fetch.error !== null || fetch.status === null || fetch.status < 200 || fetch.status >= 300) {
       return notApplicable('No successful response to measure (see http-status).');
@@ -272,46 +334,45 @@ export const crawlerFetchLimit: PageProbe = {
 
     const pdf = type === 'application/pdf';
     const limit = pdf ? GOOGLEBOT_PDF_FETCH_LIMIT : GOOGLEBOT_FETCH_LIMIT;
-    const size = measure(fetch);
-    const share = Math.round((size.bytes / limit.decimal) * 100);
+    const doc = judgeSize(fetch, limit, `Googlebot's ${limit.label} ${pdf ? 'PDF' : 'per-file'} limit`);
+
+    const stylesheetUrls = new Set(page.extracted?.stylesheets ?? []);
+    const assetUrls = [...new Set([...stylesheetUrls, ...(page.extracted?.scripts ?? [])])];
+    const assets = assetUrls
+      .map((url) => site.crawl.auxiliary.find((entry) => entry.reason === 'asset' && entry.url === url))
+      .filter((entry): entry is AuxiliaryFetch => entry !== undefined)
+      .map((entry) => ({
+        url: entry.url,
+        kind: stylesheetUrls.has(entry.url) ? ('stylesheet' as const) : ('script' as const),
+        ...judgeSize(entry.fetch, GOOGLEBOT_FETCH_LIMIT, `Googlebot's ${GOOGLEBOT_FETCH_LIMIT.label} per-file limit`),
+      }));
+
+    let worst: { outcome: SizeVerdict['outcome']; note: string; source: string } = { ...doc, source: 'document' };
+    for (const asset of assets) {
+      if (SEVERITY[asset.outcome] > SEVERITY[worst.outcome]) {
+        worst = { outcome: asset.outcome, note: asset.note, source: `linked ${asset.kind} ${asset.url}` };
+      }
+    }
+    const summary = worst.source === 'document' ? worst.note : `${worst.note} (${worst.source})`;
     const data = {
       url: fetch.finalUrl,
       contentType: type,
-      bytes: size.bytes,
-      exact: size.exact,
-      measuredFrom: size.from,
+      bytes: doc.bytes,
+      exact: doc.exact,
+      measuredFrom: doc.measuredFrom,
       limitBytes: limit.decimal,
       limitBytesBinary: limit.binary,
-      share,
+      share: doc.share,
+      assets: assets.map(({ url, kind, outcome, bytes, share }) => ({ url, kind, outcome, bytes, share })),
+      assetsUnchecked: assetUrls.length - assets.length,
     };
-    const named = `Googlebot's ${limit.label} ${pdf ? 'PDF' : 'per-file'} limit`;
 
-    if (size.bytes > limit.binary) {
-      const amount = size.exact ? bytesText(size.bytes) : `At least ${bytesText(size.bytes)} (the crawler stopped reading there)`;
-      return fail(
-        `${amount} uncompressed, past ${named}: Search indexes the first ${limit.label} and nothing after it.`,
-        data,
-      );
+    switch (worst.outcome) {
+      case 'fail': return fail(summary, data);
+      case 'error': return errored(summary, data);
+      case 'warn': return warn(summary, data);
+      default: return pass(summary, data);
     }
-    if (!size.exact) {
-      return errored(
-        `The crawler stopped reading at ${bytesText(size.bytes)}, inside the ${limit.label} limit, and no Content-Length says how large the file is.`,
-        data,
-      );
-    }
-    if (size.bytes > limit.decimal) {
-      return warn(
-        `${bytesText(size.bytes)} uncompressed: past ${named} if Google counts ${bytesText(limit.decimal)}, inside it at ${bytesText(limit.binary)}. Google does not say which, and either way there is no margin left.`,
-        data,
-      );
-    }
-    if (size.bytes >= limit.decimal * FETCH_LIMIT_MARGIN) {
-      return warn(
-        `${bytesText(size.bytes)} uncompressed, ${share}% of ${named}, inside the ${Math.round((1 - FETCH_LIMIT_MARGIN) * 100)}% margin 1.5 asks to keep.`,
-        data,
-      );
-    }
-    return pass(`${bytesText(size.bytes)} uncompressed, ${share}% of ${named}.`, data);
   },
 };
 

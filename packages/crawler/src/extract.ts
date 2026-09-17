@@ -225,6 +225,8 @@ export interface Extracted {
   readonly twitter: Readonly<Record<string, string>>;
   /** Absolute URLs of external scripts, in document order. */
   readonly scripts: readonly string[];
+  /** Absolute URLs of `<link rel="stylesheet">` sheets, in document order. */
+  readonly stylesheets: readonly string[];
   /** Declared favicons and touch icons, for the favicon-site-name detector. */
   readonly icons: readonly ExtractedIcon[];
   /** `<video>` and `<audio>` elements, for the media-alternatives detector. */
@@ -483,6 +485,12 @@ export function extract(html: string, pageUrl: string): Extracted {
     if (url !== null) scripts.push(url);
   });
 
+  const stylesheets: string[] = [];
+  $('link[rel="stylesheet"][href]').each((_, element) => {
+    const url = resolveUrl($(element).attr('href') ?? '', base);
+    if (url !== null) stylesheets.push(url);
+  });
+
   const canonicalHref = $('link[rel="canonical"]').first().attr('href');
   const titleText = $('title').first().text();
 
@@ -560,6 +568,7 @@ export function extract(html: string, pageUrl: string): Extracted {
     openGraph,
     twitter,
     scripts,
+    stylesheets,
     icons,
     media,
     frames,

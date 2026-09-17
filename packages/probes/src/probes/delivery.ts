@@ -376,6 +376,51 @@ export const crawlerFetchLimit: PageProbe = {
   },
 };
 
+/**
+ * A response marked `Cache-Control: public` that also sets or varies by a
+ * cookie: v5.0 1.7 asks that "private responses are not shared across
+ * users", and `public` is the one directive that tells a shared cache
+ * (a CDN, a reverse proxy) it may store a response for everyone who asks.
+ *
+ * `Set-Cookie` on such a response is the sharper defect: a cache that stores
+ * it can replay one visitor's cookie — a session id, a cart — to the next.
+ * `Vary: Cookie` is subtler: it says the response differs per cookie, which
+ * contradicts a directive meant for content that is the same for everyone,
+ * and only works if every cache in front of the origin honours the variant
+ * key. Either reads as a defect a machine can name outright, so both fail
+ * rather than warn.
+ */
+export const privateResponseCaching: PageProbe = {
+  id: 'private-response-caching',
+  scope: 'page',
+  title: 'A publicly cacheable response is not personalised',
+  run({ page }) {
+    const headers = page.fetch.headers;
+    const cacheControl = headers['cache-control'] ?? '';
+    const directives = cacheControl.toLowerCase().split(',').map((d) => d.trim());
+    if (!directives.includes('public')) {
+      return notApplicable('Response does not declare itself publicly cacheable (no "public" Cache-Control directive).');
+    }
+
+    if (headers['set-cookie'] !== undefined) {
+      return fail(
+        'Sets a cookie while declaring itself publicly cacheable ("Cache-Control: public"): a shared cache may store this response and replay its cookie to other visitors.',
+        { cacheControl, setsCookie: true },
+      );
+    }
+
+    const vary = (headers['vary'] ?? '').toLowerCase().split(',').map((v) => v.trim());
+    if (vary.includes('cookie')) {
+      return fail(
+        'Varies by Cookie while declaring itself publicly cacheable ("Cache-Control: public"): content differs per visitor, which a directive meant for identical content only works around if every cache in front of the origin keys on the variant.',
+        { cacheControl, vary: headers['vary'] },
+      );
+    }
+
+    return pass('Publicly cacheable, with no cookie set and no per-cookie variation.', { cacheControl });
+  },
+};
+
 export const deliveryProbes = [
   httpStatus,
   redirectChain,
@@ -385,4 +430,5 @@ export const deliveryProbes = [
   compressionCache,
   httpVersion,
   crawlerFetchLimit,
+  privateResponseCaching,
 ];

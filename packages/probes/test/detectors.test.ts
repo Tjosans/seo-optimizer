@@ -2505,3 +2505,39 @@ describe('crawler-fetch-limit', () => {
     });
   });
 });
+
+describe('private-response-caching', () => {
+  const withHeaders = (headers: Record<string, string>): CrawledPage => {
+    const base = page({ path: '/account' });
+    return { ...base, fetch: { ...base.fetch, headers: { 'content-type': 'text/html', ...headers } } };
+  };
+
+  const check = (target: CrawledPage): Observation => runPage('private-response-caching', target, [target]);
+
+  it('says nothing about a response that does not declare itself publicly cacheable', () => {
+    expect(check(withHeaders({})).outcome).toBe('not-applicable');
+    expect(check(withHeaders({ 'cache-control': 'private, max-age=60' })).outcome).toBe('not-applicable');
+    expect(check(withHeaders({ 'cache-control': 'max-age=60' })).outcome).toBe('not-applicable');
+  });
+
+  it('fails a publicly cacheable response that sets a cookie', () => {
+    const observation = check(
+      withHeaders({ 'cache-control': 'public, max-age=300', 'set-cookie': 'session=abc123; Path=/' }),
+    );
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/sets a cookie/i);
+  });
+
+  it('fails a publicly cacheable response that varies by Cookie', () => {
+    const observation = check(
+      withHeaders({ 'cache-control': 'public, max-age=300', vary: 'Accept-Encoding, Cookie' }),
+    );
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/varies by cookie/i);
+  });
+
+  it('passes a publicly cacheable response with no cookie exposure', () => {
+    const observation = check(withHeaders({ 'cache-control': 'public, max-age=300' }));
+    expect(observation.outcome).toBe('pass');
+  });
+});

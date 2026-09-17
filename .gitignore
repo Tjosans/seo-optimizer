@@ -18,3 +18,7 @@ coverage/
 # this project. The one part of it that belongs here is already here:
 # .github/workflows/roadmap-check.yml.
 roadmap-convention.md
+
+# Output of run-roadmap.ps1; per-iteration session logs, not part of the repo.
+logs/
+.roadmap-runner-logs/

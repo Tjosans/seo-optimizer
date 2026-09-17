@@ -156,6 +156,37 @@ describe('retrying a failed job', () => {
     expect(queue.idle).toBe(true);
   });
 
+  // A loaded machine can let a retry come due between the queue deciding it is
+  // too early to run and deciding when to wake for it. Both questions have to
+  // be asked of one instant, or the job falls between them and waits forever.
+  it('still runs a retry that comes due while the queue is deciding', async () => {
+    const real = Date.now();
+    let reads = 0;
+    // Every read of the clock is a second later than the last, so the delay
+    // below always expires between two consecutive readings.
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => real + 1_000 * reads++);
+    try {
+      let runs = 0;
+      const queue = new JobQueue<null, void>({
+        concurrency: 1,
+        retry: () => 1_500,
+        handler: () => {
+          runs += 1;
+          if (runs === 1) throw new Error('transport reset');
+        },
+      });
+
+      const outcome = await Promise.race([
+        queue.enqueue(null).done.then(() => 'complete'),
+        new Promise((resolve) => setTimeout(resolve, 3_000, 'stranded')),
+      ]);
+      expect(outcome).toBe('complete');
+      expect(runs).toBe(2);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it('frees the lane while a job waits, so the next audit of that origin runs', async () => {
     const order: string[] = [];
     const queue = new JobQueue<string, void>({

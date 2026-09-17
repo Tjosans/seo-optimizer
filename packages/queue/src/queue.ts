@@ -623,7 +623,7 @@ export class JobQueue<TPayload, TResult = void> {
   async close(): Promise<void> {
     this.#closed = true;
     this.#paused = true;
-    this.#scheduleWake();
+    this.#scheduleWake(Date.now());
     if (this.#heartbeatTimer !== undefined) {
       clearTimeout(this.#heartbeatTimer);
       this.#heartbeatTimer = undefined;
@@ -639,14 +639,23 @@ export class JobQueue<TPayload, TResult = void> {
     if (!this.idle) await this.drain();
   }
 
+  /**
+   * Start what can start, then arrange to be woken for what cannot yet.
+   *
+   * One reading of the clock serves both. Read twice, a retry falling due
+   * between the readings is too early for `#take` and already past for
+   * `#scheduleWake`, so nothing runs it and nothing wakes for it — on a loaded
+   * machine, often enough to strand a job for good.
+   */
   #pump(): void {
+    const now = Date.now();
     while (!this.#paused && this.#active.size + this.#starting.size < this.concurrency) {
-      const entry = this.#take();
+      const entry = this.#take(now);
       if (entry === undefined) break;
       if (this.#sharesLanes(entry)) void this.#start(entry);
       else void this.#run(entry);
     }
-    this.#scheduleWake();
+    this.#scheduleWake(now);
     this.#scheduleHeartbeat();
     this.#checkIdle();
   }
@@ -787,14 +796,13 @@ export class JobQueue<TPayload, TResult = void> {
    * One timer for the whole queue rather than one per job: the set changes on
    * every pump, and a single timer is the version that cannot leak.
    */
-  #scheduleWake(): void {
+  #scheduleWake(now: number): void {
     if (this.#retryTimer !== undefined) {
       clearTimeout(this.#retryTimer);
       this.#retryTimer = undefined;
     }
     if (this.#paused || this.#closed) return;
 
-    const now = Date.now();
     let earliest: number | undefined;
     for (const entry of this.#queued) {
       if (entry.durability === 'pending') continue;
@@ -814,14 +822,14 @@ export class JobQueue<TPayload, TResult = void> {
    * equals. Skipping a lane-blocked job rather than stopping at it is what lets
    * a queue full of jobs for one busy origin still make progress on others.
    */
-  #take(): Entry<TPayload, TResult> | undefined {
+  #take(now: number): Entry<TPayload, TResult> | undefined {
     let best = -1;
     for (let i = 0; i < this.#queued.length; i += 1) {
       const candidate = this.#queued[i];
       if (candidate === undefined) continue;
       if (candidate.durability === 'pending') continue;
       if (candidate.lane !== null && this.#busyLanes.has(candidate.lane)) continue;
-      if (candidate.dueAt !== null && candidate.dueAt > Date.now()) continue;
+      if (candidate.dueAt !== null && candidate.dueAt > now) continue;
       const incumbent = best === -1 ? undefined : this.#queued[best];
       if (incumbent === undefined || candidate.priority > incumbent.priority) best = i;
     }

@@ -24,6 +24,11 @@ export default defineConfig(({ mode }) => ({
   test: {
     include: ['packages/**/test/**/*.test.ts', 'apps/**/test/**/*.test.ts'],
     environment: 'node',
+    // The 5 s default is sized for unit tests. Several here crawl a real HTTP
+    // server or several megabytes of sitemap, or drive audits through
+    // Postgres, and take up to 3 s alone; with every worker busy that more
+    // than doubles. A stalled test still fails, only later.
+    testTimeout: 20_000,
     // Unprefixed, so DATABASE_URL from a local .env reaches the tests that
     // need a live database. Those tests skip themselves when it is unset.
     env: loadEnv(mode, process.cwd(), ''),

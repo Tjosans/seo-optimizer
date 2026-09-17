@@ -19,6 +19,7 @@
     "probes:matrix": "npm run build && node scripts/probe-matrix.ts",
     "analyze": "tsc --build packages/crawler packages/corpus packages/probes packages/grader && node scripts/analyze.ts",
     "compare": "node scripts/compare.ts",
+    "release": "tsc --build packages/corpus packages/grader && node scripts/record-release.ts",
     "db:generate": "npm run db:generate -w @seo/db",
     "db:migrate": "npm run db:migrate -w @seo/db",
     "db:studio": "npm run db:studio -w @seo/db",

@@ -143,6 +143,23 @@ and says whether coverage and verdicts moved, and which way — which is how an
 engine change is shown to have improved what an audit can say, rather than
 merely having passed its tests.
 
+## Entering releases and review runs
+
+READY FOR CUTOVER is assessed against a site's release record and its review
+log, which a person supplies. Until the audit API exists, they come in from a
+YAML (or JSON) file:
+
+```bash
+npm run release -- my-release.yaml --dry-run   # check it, write nothing
+npm run release -- my-release.yaml
+```
+
+`scripts/release.example.yaml` shows every field. The site must already be on
+record. The file is checked in full before anything is written, and importing
+it again is safe: runs already logged unchanged are skipped, and a run logged
+differently is refused, because the review log is append-only — a correction
+is a new run.
+
 ## Shutting down
 
 ```bash

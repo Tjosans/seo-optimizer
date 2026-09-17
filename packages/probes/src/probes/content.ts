@@ -18,8 +18,15 @@
  * reading matter, and `author-date-signals` judges what a site's articles
  * claim about themselves — including the one thing no page can see about
  * itself, a date a template stamped on every article.
+ *
+ * `trust-pages-presence` (3.4) shares this file for its subject, not its
+ * question: whether the site's trust pages — About, Contact, a privacy
+ * policy, terms — are linked from somewhere the crawl read and answer rather
+ * than 404. 3.4 is `assisted` for the same reason: which pages the approved
+ * 0.9 scope requires is a person's decision, not a crawl's.
  */
 
+import { normalizeUrl } from '@seo/crawler';
 import type { Extracted } from '@seo/crawler';
 import type { PageProbe, SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
@@ -345,4 +352,149 @@ export const authorDateSignals: SiteProbe = {
   },
 };
 
-export const contentProbes = [answerFirstStructure, authorDateSignals];
+// --- trust-pages-presence ---------------------------------------------------
+
+/*
+ * A link to About, Contact, a privacy policy or terms, by its whole anchor
+ * text or a whole path segment — the same rule `news-article-policy` reads
+ * its contact and about links by, and for the same reason: a front page links
+ * to "About the storm damage" as often as to "About us", and a word match
+ * would take the first for the second.
+ */
+const ABOUT_TEXT = /^(about|about us|about the [\p{L} ]+|who we are|our story|om oss|über uns|qui sommes-nous|chi siamo|quiénes somos)$/iu;
+const ABOUT_SEGMENT = /^(about|about-us|about_us|aboutus|who-we-are|om-oss|ueber-uns|uber-uns|qui-sommes-nous|chi-siamo|quienes-somos)(\.\w+)?$/i;
+const CONTACT_TEXT = /^(contact|contact us|contact the [\p{L} ]+|kontakt|contacto|contato|contatti|nous contacter)$/iu;
+const CONTACT_SEGMENT = /^(contact|contact-us|contactus|kontakt|contacto|contato|contatti|nous-contacter)(\.\w+)?$/i;
+const PRIVACY_TEXT = /^(privacy( policy| notice)?|datenschutz(erklärung)?|politique de confidentialité|informativa sulla privacy|política de privacidad|integritetspolicy)$/iu;
+const PRIVACY_SEGMENT = /^(privacy(-policy|-notice)?|datenschutz(erklaerung)?|politique-de-confidentialite|informativa-sulla-privacy|politica-de-privacidad|integritetspolicy)(\.\w+)?$/i;
+const TERMS_TEXT = /^(terms( (of|and) (service|use|conditions))?|tos|conditions générales|allgemeine geschäftsbedingungen|agb|términos y condiciones|termini e condizioni)$/iu;
+const TERMS_SEGMENT = /^(terms(-of-(service|use))?|terms-and-conditions|tos|conditions-generales|agb|terminos-y-condiciones|termini-e-condizioni)(\.\w+)?$/i;
+
+const pathSegmentsOf = (url: string): string[] => {
+  try {
+    return new URL(url).pathname.split('/').filter((segment) => segment !== '');
+  } catch {
+    return [];
+  }
+};
+
+/** Whether a link, by what it says or where it goes, is one of these. */
+const linksToTrustPage = (link: Extracted['links'][number], label: RegExp, segment: RegExp): boolean =>
+  label.test(link.anchorText.trim()) || pathSegmentsOf(link.url).some((part) => segment.test(part));
+
+interface TrustCategory {
+  readonly name: string;
+  readonly text: RegExp;
+  readonly segment: RegExp;
+}
+
+const TRUST_CATEGORIES: readonly TrustCategory[] = [
+  { name: 'About', text: ABOUT_TEXT, segment: ABOUT_SEGMENT },
+  { name: 'Contact', text: CONTACT_TEXT, segment: CONTACT_SEGMENT },
+  { name: 'Privacy policy', text: PRIVACY_TEXT, segment: PRIVACY_SEGMENT },
+  { name: 'Terms', text: TERMS_TEXT, segment: TERMS_SEGMENT },
+];
+
+/**
+ * The four trust pages v5.0 3.4 names as near-universal — About, Contact, a
+ * privacy policy, terms — are linked from somewhere the crawl read, and the
+ * link answers rather than 404s or 5xx's.
+ *
+ * 3.4's full list is longer — "the privacy, terms, company, returns,
+ * accessibility or consumer-information pages required by the approved 0.9
+ * scope" — and which of those a given site owes its visitors is the 0.9 scope
+ * decision, not something a crawl can read off the site itself. What is
+ * observable without that decision is these four, which v5.0's own example
+ * names first and which apply "for launch + when details change" regardless
+ * of profile.
+ *
+ * A category with no matching link anywhere in the crawl is held for a
+ * person, since its absence may be exactly what the approved scope chose. A
+ * matching link whose target the crawl reached and found broken is not: a
+ * page promising a privacy policy and delivering a 404 is a defect a machine
+ * can name outright, whichever pages 0.9 requires.
+ */
+export const trustPagesPresence: SiteProbe = {
+  id: 'trust-pages-presence',
+  scope: 'site',
+  title: 'About, contact and legal pages are linked, and the link answers',
+  run({ crawl }) {
+    const html = crawl.pages.filter((page) => page.extracted !== null && page.fetch.status === 200);
+    if (html.length === 0) return notApplicable('No HTML pages were crawled, so no links were read.');
+
+    const fetched = new Map(crawl.pages.map((page) => [page.normalizedUrl, page]));
+    const linkedTargets = new Map<string, Set<string>>();
+
+    for (const page of html) {
+      for (const link of page.extracted?.links ?? []) {
+        for (const category of TRUST_CATEGORIES) {
+          if (!linksToTrustPage(link, category.text, category.segment)) continue;
+          const target = normalizeUrl(link.url);
+          if (target === null) continue;
+          const targets = linkedTargets.get(category.name) ?? new Set<string>();
+          targets.add(target);
+          linkedTargets.set(category.name, targets);
+        }
+      }
+    }
+
+    const broken: { category: string; url: string; status: number | null }[] = [];
+    const missing: string[] = [];
+    const unchecked: { category: string; url: string }[] = [];
+
+    for (const category of TRUST_CATEGORIES) {
+      const targets = linkedTargets.get(category.name);
+      if (targets === undefined || targets.size === 0) {
+        missing.push(category.name);
+        continue;
+      }
+      let anyOk = false;
+      const brokenHere: { category: string; url: string; status: number | null }[] = [];
+      const uncheckedHere: { category: string; url: string }[] = [];
+      for (const target of targets) {
+        const reached = fetched.get(target);
+        if (reached === undefined) {
+          uncheckedHere.push({ category: category.name, url: target });
+          continue;
+        }
+        const { status, error } = reached.fetch;
+        if (error === null && status !== null && status < 400) anyOk = true;
+        else brokenHere.push({ category: category.name, url: target, status });
+      }
+      if (!anyOk) {
+        broken.push(...brokenHere);
+        unchecked.push(...uncheckedHere);
+      }
+    }
+
+    const data = {
+      pagesRead: html.length,
+      linked: TRUST_CATEGORIES.filter((category) => !missing.includes(category.name)).map((category) => category.name),
+      missing,
+    };
+
+    if (broken.length > 0) {
+      return fail(
+        `${broken.length} trust page link(s) lead to a page that answers with an error: ` +
+          `${broken.map((item) => item.category).join(', ')}.`,
+        { ...data, samples: broken.slice(0, 5) },
+      );
+    }
+    if (missing.length > 0 || unchecked.length > 0) {
+      const doubts = [
+        ...(missing.length > 0 ? [`no crawled page links to ${missing.join(', ')}`] : []),
+        ...(unchecked.length > 0
+          ? [`${unchecked.length} linked trust page(s) were not fetched, so they were not verified to answer`]
+          : []),
+      ];
+      return warn(`For the 0.9 scope review: ${doubts.join('; ')}.`, { ...data, unchecked: unchecked.slice(0, 5) });
+    }
+    return pass(
+      `About, Contact, a privacy policy and terms are all linked from a crawled page, and each link answers. ` +
+        'Which pages 0.9 requires, and whether their content is accurate, is for a person.',
+      data,
+    );
+  },
+};
+
+export const contentProbes = [answerFirstStructure, authorDateSignals, trustPagesPresence];

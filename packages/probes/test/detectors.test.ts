@@ -2575,3 +2575,85 @@ describe('private-response-caching', () => {
     expect(observation.outcome).toBe('pass');
   });
 });
+
+// --- 3.4 trust-pages-presence -----------------------------------------------
+
+describe('trust-pages-presence', () => {
+  const homeWithLinks = (links: string): CrawledPage =>
+    page({ path: '/', html: `<html><body><footer>${links}</footer></body></html>` });
+
+  const FULL_FOOTER =
+    '<a href="/about">About</a> <a href="/contact">Contact</a> ' +
+    '<a href="/privacy-policy">Privacy</a> <a href="/terms">Terms</a>';
+
+  const check = (pages: readonly CrawledPage[]): Observation => runSite('trust-pages-presence', pages);
+
+  it('has nothing to say without a crawled HTML page', () => {
+    expect(check([]).outcome).toBe('not-applicable');
+  });
+
+  it('warns when no page links to any of the four trust pages', () => {
+    const observation = check([page({ path: '/' })]);
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toContain('About, Contact, Privacy policy, Terms');
+    expect(observation.data?.['missing']).toEqual(['About', 'Contact', 'Privacy policy', 'Terms']);
+  });
+
+  it('passes when every trust page is linked and answers 200', () => {
+    const observation = check([
+      homeWithLinks(FULL_FOOTER),
+      page({ path: '/about' }),
+      page({ path: '/contact' }),
+      page({ path: '/privacy-policy' }),
+      page({ path: '/terms' }),
+    ]);
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data?.['missing']).toEqual([]);
+  });
+
+  it('matches a trust page by its path segment even when the link text does not name it', () => {
+    const observation = check([
+      homeWithLinks('<a href="/legal/privacy-policy">Legal</a>'),
+      page({ path: '/legal/privacy-policy' }),
+    ]);
+    expect(observation.data?.['linked']).toContain('Privacy policy');
+  });
+
+  it('warns on a category with no matching link, alongside the ones that are found', () => {
+    const partial =
+      '<a href="/about">About</a> <a href="/contact">Contact</a> <a href="/privacy-policy">Privacy</a>';
+    const observation = check([
+      homeWithLinks(partial),
+      page({ path: '/about' }),
+      page({ path: '/contact' }),
+      page({ path: '/privacy-policy' }),
+    ]);
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toContain('no crawled page links to Terms');
+    expect(observation.data?.['missing']).toEqual(['Terms']);
+  });
+
+  it('fails a linked trust page that the crawl found answering with an error', () => {
+    const observation = check([
+      homeWithLinks(FULL_FOOTER),
+      page({ path: '/about' }),
+      page({ path: '/contact' }),
+      page({ path: '/privacy-policy', status: 404 }),
+      page({ path: '/terms' }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('Privacy policy');
+  });
+
+  it('warns rather than fails a linked trust page the crawl never fetched', () => {
+    const observation = check([
+      homeWithLinks(FULL_FOOTER),
+      page({ path: '/about' }),
+      page({ path: '/contact' }),
+      page({ path: '/privacy-policy' }),
+      // /terms is linked but not among the crawled pages.
+    ]);
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toContain('were not fetched');
+  });
+});

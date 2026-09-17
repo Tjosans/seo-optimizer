@@ -25,7 +25,7 @@
 import { normalizeUrl } from '@seo/crawler';
 import type { CrawledPage } from '@seo/crawler';
 import type { SiteProbe } from '../types.js';
-import { fail, notApplicable, pass } from '../types.js';
+import { fail, notApplicable, pass, warn } from '../types.js';
 
 const PRODUCT_TYPE = /^(Product|ProductGroup|ProductModel)$/i;
 
@@ -471,4 +471,155 @@ export const productLifecycleState: SiteProbe = {
   },
 };
 
-export const commerceProbes = [productVariantCanonical, productLifecycleState];
+/**
+ * Every `Offer`/`AggregateOffer` node reachable under a product node, wherever
+ * the template put it — a single `offers` object, an array of them, or one per
+ * variant under `ProductGroup.hasVariant`. What matters is the set of offers
+ * the page declares, not the shape it declared them in.
+ */
+function offerNodes(node: unknown): Record<string, unknown>[] {
+  const found: Record<string, unknown>[] = [];
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    if (typeof value !== 'object' || value === null) return;
+    const record = value as Record<string, unknown>;
+    const types = [record['@type']].flat();
+    if (types.some((type) => typeof type === 'string' && /^(Offer|AggregateOffer)$/i.test(type))) {
+      found.push(record);
+    }
+    for (const entry of Object.values(record)) visit(entry);
+  };
+  visit(node);
+  return found;
+}
+
+/** Present means a consumer would find something there, not merely a key. */
+const presentValue = (value: unknown): boolean => {
+  if (value === undefined || value === null) return false;
+  if (typeof value === 'string') return value.trim() !== '';
+  if (Array.isArray(value)) return value.length > 0;
+  return true;
+};
+
+interface ProductIssue {
+  readonly url: string;
+  readonly issue: string;
+}
+
+/**
+ * Whether a product's markup names something a shopper, or Google Merchant
+ * Center, could use to tell it apart from every other product on the web: a
+ * global trade number, a manufacturer part number, or the pairing of a brand
+ * with the site's own SKU. Google accepts any one of the three.
+ */
+function hasIdentifier(node: Record<string, unknown>): boolean {
+  const gtinKeys = ['gtin', 'gtin8', 'gtin12', 'gtin13', 'gtin14'];
+  if (gtinKeys.some((key) => presentValue(node[key]))) return true;
+  if (presentValue(node.mpn)) return true;
+  return presentValue(node.brand) && presentValue(node.sku);
+}
+
+/**
+ * 2.11's markup half: whether a product page's structured data is complete
+ * enough for the surface it is trying to reach — a Product rich result needs a
+ * name and at least one of offers, review or aggregateRating; an offer with no
+ * price or currency is not an offer a consumer can act on. `merchant-feed-parity`
+ * is the check's other detector, unimplemented here: it needs a Merchant Center
+ * feed to compare markup against, which this engine does not fetch.
+ *
+ * Image, an identifier and a declared availability are recommended rather than
+ * required, so their absence holds the check for a person rather than failing
+ * it outright — the same split `schema-eligibility-matrix` (2.7) draws between
+ * a type's `required` and `oneOf` properties, applied to the one type this
+ * check is scoped to.
+ */
+export const productSchema: SiteProbe = {
+  id: 'product-schema',
+  scope: 'site',
+  title: 'Product pages carry complete, valid Product structured data',
+  run({ crawl, flags }) {
+    if (!flags.includes('ecommerce')) {
+      return notApplicable('Site profile does not claim a product catalogue.');
+    }
+
+    const pages = crawl.pages.filter(
+      (page) => page.extracted !== null && page.fetch.status === 200,
+    );
+    const products = pages.filter(isProductPage);
+    if (products.length === 0) {
+      return notApplicable(
+        'No crawled page declares itself a product, so product structured data could not be read.',
+      );
+    }
+
+    const failures: ProductIssue[] = [];
+    const warnings: ProductIssue[] = [];
+    let markedUp = 0;
+
+    for (const page of products) {
+      const node = productNode(page);
+      const url = page.normalizedUrl;
+      if (node === null) {
+        failures.push({
+          url,
+          issue: 'declares itself a product but carries no Product structured data',
+        });
+        continue;
+      }
+      markedUp += 1;
+
+      if (!presentValue(node.name)) {
+        failures.push({ url, issue: 'Product markup has no name' });
+      }
+
+      const offers = offerNodes(node);
+      const hasReview = presentValue(node.review) || presentValue(node.aggregateRating);
+      if (offers.length === 0 && !hasReview) {
+        failures.push({ url, issue: 'Product markup has none of offers, review or aggregateRating' });
+      }
+
+      for (const offer of offers) {
+        const missing = ['price', 'priceCurrency'].filter((key) => !presentValue(offer[key]));
+        if (missing.length > 0) {
+          failures.push({ url, issue: `an offer is missing ${missing.join(', ')}` });
+        }
+        if (!presentValue(offer.availability)) {
+          warnings.push({ url, issue: 'an offer declares no availability' });
+        }
+      }
+
+      if (!presentValue(node.image)) warnings.push({ url, issue: 'Product markup has no image' });
+      if (!hasIdentifier(node)) {
+        warnings.push({
+          url,
+          issue: 'Product markup names no global identifier (gtin/mpn) or brand+sku',
+        });
+      }
+    }
+
+    const counts = { products: products.length, markedUp };
+
+    if (failures.length > 0) {
+      return fail(
+        `${failures.length} required-field defect(s) across ${products.length} product page(s).`,
+        { ...counts, samples: failures.slice(0, 10) },
+      );
+    }
+    if (warnings.length > 0) {
+      return warn(
+        `${warnings.length} recommended-field gap(s) across ${products.length} product page(s); ` +
+          'required fields are complete.',
+        { ...counts, samples: warnings.slice(0, 10) },
+      );
+    }
+    return pass(
+      `All ${products.length} product page(s) carry complete Product structured data.`,
+      counts,
+    );
+  },
+};
+
+export const commerceProbes = [productVariantCanonical, productLifecycleState, productSchema];

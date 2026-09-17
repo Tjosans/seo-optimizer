@@ -22,6 +22,7 @@ import { probeById } from '@seo/probes';
 import type { Observation, PageProbe, SiteContext, SiteProbe } from '@seo/probes';
 
 const ORIGIN = 'https://example.com';
+const SCHEMA = 'https://schema.org';
 
 interface PageSpec {
   readonly path: string;
@@ -1410,6 +1411,155 @@ describe('product-lifecycle-state', () => {
   });
 });
 
+// --- 2.11 product-schema -----------------------------------------------------
+
+interface ProductNodeSpec {
+  readonly name?: string;
+  readonly offers?: readonly Record<string, unknown>[];
+  readonly review?: unknown;
+  readonly aggregateRating?: unknown;
+  readonly image?: string;
+  readonly gtin13?: string;
+  readonly brand?: string;
+  readonly sku?: string;
+}
+
+const productWith = (path: string, spec: ProductNodeSpec = {}): CrawledPage => {
+  const node: Record<string, unknown> = { '@context': SCHEMA, '@type': 'Product' };
+  if (spec.name !== undefined) node.name = spec.name;
+  if (spec.offers !== undefined) node.offers = spec.offers;
+  if (spec.review !== undefined) node.review = spec.review;
+  if (spec.aggregateRating !== undefined) node.aggregateRating = spec.aggregateRating;
+  if (spec.image !== undefined) node.image = spec.image;
+  if (spec.gtin13 !== undefined) node.gtin13 = spec.gtin13;
+  if (spec.brand !== undefined) node.brand = spec.brand;
+  if (spec.sku !== undefined) node.sku = spec.sku;
+  return page({
+    path,
+    html:
+      '<html><head><title>Shirt</title>' +
+      `<script type="application/ld+json">${JSON.stringify(node)}</script>` +
+      '</head><body><p>shirt</p></body></html>',
+  });
+};
+
+const COMPLETE_OFFER = { '@type': 'Offer', price: '10.00', priceCurrency: 'USD', availability: `${SCHEMA}/InStock` };
+
+const runProductSchema = (pages: readonly CrawledPage[]): Observation =>
+  runSite('product-schema', pages, ['ecommerce']);
+
+describe('product-schema', () => {
+  it('says nothing about a site whose profile claims no catalogue', () => {
+    const observation = runSite('product-schema', [
+      productWith('/p/shirt', { name: 'Shirt', offers: [COMPLETE_OFFER] }),
+    ]);
+    expect(observation.outcome).toBe('not-applicable');
+  });
+
+  it('says nothing when no page declares itself a product', () => {
+    const observation = runProductSchema([page({ path: '/c/shirts' })]);
+    expect(observation.outcome).toBe('not-applicable');
+    expect(observation.summary).toMatch(/declares itself a product/);
+  });
+
+  it('fails a product page with no Product structured data at all', () => {
+    const observation = runProductSchema([product('/p/shirt', { declares: 'og' })]);
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /carries no Product structured data/,
+    );
+  });
+
+  it('fails Product markup missing a name', () => {
+    const observation = runProductSchema([productWith('/p/shirt', { offers: [COMPLETE_OFFER] })]);
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /has no name/,
+    );
+  });
+
+  it('fails Product markup with none of offers, review or aggregateRating', () => {
+    const observation = runProductSchema([productWith('/p/shirt', { name: 'Shirt' })]);
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /none of offers, review or aggregateRating/,
+    );
+  });
+
+  it('passes a Product with only a review, no offers', () => {
+    const observation = runProductSchema([
+      productWith('/p/shirt', {
+        name: 'Shirt',
+        review: { '@type': 'Review', author: 'A. Reader', reviewBody: 'Great shirt' },
+        image: `${ORIGIN}/shirt.jpg`,
+        gtin13: '0012345678905',
+      }),
+    ]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('fails an offer missing price and priceCurrency', () => {
+    const observation = runProductSchema([
+      productWith('/p/shirt', { name: 'Shirt', offers: [{ '@type': 'Offer', availability: `${SCHEMA}/InStock` }] }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /missing price, priceCurrency/,
+    );
+  });
+
+  it('warns rather than fails a complete offer with no image or identifier', () => {
+    const observation = runProductSchema([
+      productWith('/p/shirt', { name: 'Shirt', offers: [COMPLETE_OFFER] }),
+    ]);
+    expect(observation.outcome).toBe('warn');
+    const issues = (observation.data?.['samples'] as { issue: string }[]).map((s) => s.issue);
+    expect(issues.some((issue) => issue.includes('no image'))).toBe(true);
+    expect(issues.some((issue) => issue.includes('no global identifier'))).toBe(true);
+  });
+
+  it('warns on an offer with no declared availability', () => {
+    const observation = runProductSchema([
+      productWith('/p/shirt', {
+        name: 'Shirt',
+        offers: [{ '@type': 'Offer', price: '10.00', priceCurrency: 'USD' }],
+        image: `${ORIGIN}/shirt.jpg`,
+        gtin13: '0012345678905',
+      }),
+    ]);
+    expect(observation.outcome).toBe('warn');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /no availability/,
+    );
+  });
+
+  it('accepts a brand+sku pairing as an identifier', () => {
+    const observation = runProductSchema([
+      productWith('/p/shirt', {
+        name: 'Shirt',
+        offers: [COMPLETE_OFFER],
+        image: `${ORIGIN}/shirt.jpg`,
+        brand: 'Acme',
+        sku: 'SHIRT-1',
+      }),
+    ]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('passes a complete product', () => {
+    const observation = runProductSchema([
+      productWith('/p/shirt', {
+        name: 'Shirt',
+        offers: [COMPLETE_OFFER],
+        image: `${ORIGIN}/shirt.jpg`,
+        gtin13: '0012345678905',
+      }),
+    ]);
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data?.['markedUp']).toBe(1);
+  });
+});
+
 // --- 2.7 schema-eligibility-matrix ------------------------------------------
 
 /** A page whose visible content is `body` and whose JSON-LD is `blocks`. */
@@ -1423,8 +1573,6 @@ const marked = (path: string, blocks: readonly unknown[], body = 'Hello'): Crawl
         .join('') +
       `</head><body><h1>${body}</h1></body></html>`,
   });
-
-const SCHEMA = 'https://schema.org';
 
 interface SchemaSample {
   readonly url: string;

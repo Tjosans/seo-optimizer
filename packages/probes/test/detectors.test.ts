@@ -2937,6 +2937,50 @@ describe('outbound-link-qualification', () => {
   });
 });
 
+// --- 3.9 batch-page-quality -------------------------------------------------
+
+describe('batch-page-quality', () => {
+  const TEMPLATE = '<h1>Why choose us</h1><p>%WORDS%</p><h2>Our services</h2><p>%WORDS%</p>';
+
+  const templated = (path: string, words: number): CrawledPage =>
+    page({ path, html: `<html><body>${TEMPLATE.replace(/%WORDS%/g, Array(words).fill('word').join(' '))}</body></html>` });
+
+  const check = (pages: readonly CrawledPage[], flags: readonly string[] = ['bulk-publishing']): Observation =>
+    runSite('batch-page-quality', pages, flags);
+
+  it('is not applicable without the bulk-publishing flag', () => {
+    const observation = check([templated('/a', 10), templated('/b', 10), templated('/c', 10)], []);
+    expect(observation.outcome).toBe('not-applicable');
+  });
+
+  it('is not applicable with no crawled HTML', () => {
+    expect(check([]).outcome).toBe('not-applicable');
+  });
+
+  it('passes a batch with too few pages sharing one structure to call it a template', () => {
+    const observation = check([templated('/a', 10), templated('/b', 10)]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('passes pages whose headings match but whose word counts differ', () => {
+    const observation = check([templated('/a', 10), templated('/b', 20), templated('/c', 30)]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('fails three or more pages sharing an identical heading structure and word count', () => {
+    const observation = check([templated('/a', 10), templated('/b', 10), templated('/c', 10)]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('template-only output');
+    expect(observation.data?.['batches']).toEqual([{ pages: 3, samples: [`${ORIGIN}/a`, `${ORIGIN}/b`, `${ORIGIN}/c`] }]);
+  });
+
+  it('ignores pages with too little heading structure to compare', () => {
+    const bare = (path: string): CrawledPage => page({ path, html: '<html><body><p>Just text, no headings.</p></body></html>' });
+    const observation = check([bare('/a'), bare('/b'), bare('/c')]);
+    expect(observation.outcome).toBe('pass');
+  });
+});
+
 // --- 2.15 paywall-access-model ------------------------------------------------
 
 const articleWith = (path: string, node: Record<string, unknown>): CrawledPage =>

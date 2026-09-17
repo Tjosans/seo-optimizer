@@ -576,4 +576,85 @@ export const outboundLinkQualification: SiteProbe = {
   },
 };
 
-export const contentProbes = [answerFirstStructure, authorDateSignals, trustPagesPresence, outboundLinkQualification];
+// --- batch-page-quality ------------------------------------------------
+
+/** Fewer headings than this describes too little structure to call a match meaningful. */
+const MIN_SIGNATURE_HEADINGS = 2;
+
+/** This many pages sharing one signature is a template, not three writers landing on the same outline. */
+const BATCH_MIN = 3;
+
+/**
+ * The one slice of 3.9's "duplicate/template-only output" a crawl can settle
+ * on its own: pages under different URLs whose reading matter divides into
+ * the same headings, in the same order, each holding the same word count.
+ * Bodies do not reach this engine (see CLAUDE.md, "Response bodies are
+ * external by design") so word-for-word duplication cannot be read directly —
+ * but a template that never varies its own outline or how much it writes
+ * under each heading is exactly what "template-only" describes, whatever
+ * words it filled in. A batch that shares headings but writes a different
+ * amount under each is not this signature's business; that is a writer
+ * reusing a structure, which 3.9 does not forbid.
+ *
+ * Entities, unsupported promises, factual errors, and doorway patterns that
+ * do vary their word counts are not observable this way, and the check
+ * cannot pass on structure alone — 3.9 stays with a person for the rest of
+ * its risk-based sample.
+ */
+export const batchPageQuality: SiteProbe = {
+  id: 'batch-page-quality',
+  scope: 'site',
+  title: 'A published batch is not template-only output wearing different URLs',
+  run({ crawl, flags }) {
+    if (!flags.includes('bulk-publishing')) {
+      return notApplicable('Site profile does not claim bulk or programmatic publishing.');
+    }
+
+    const html = crawl.pages.filter(
+      (page) => page.extracted !== null && page.fetch.status === 200 && !page.fetch.truncated,
+    );
+    if (html.length === 0) return notApplicable('No HTML pages were crawled.');
+
+    const groups = new Map<string, { url: string; title: string | null }[]>();
+    for (const page of html) {
+      const sections = (page.extracted?.content.sections ?? []).filter((section) => section.heading !== null);
+      if (sections.length < MIN_SIGNATURE_HEADINGS) continue;
+      const key = sections
+        .map((section) => `${section.heading?.level}:${section.heading?.text.trim().toLowerCase()}:${section.words}`)
+        .join('~');
+      const group = groups.get(key) ?? [];
+      group.push({ url: page.normalizedUrl, title: page.extracted?.title ?? null });
+      groups.set(key, group);
+    }
+
+    const templated = [...groups.values()].filter((group) => group.length >= BATCH_MIN);
+    if (templated.length === 0) {
+      return pass(
+        `${html.length} page(s) read; none share an identical heading structure and word count with ` +
+          `${BATCH_MIN} or more other pages. Entities, unsupported claims and the editorial risk sample are for a person.`,
+        { pagesRead: html.length },
+      );
+    }
+
+    const affected = templated.reduce((sum, group) => sum + group.length, 0);
+    return fail(
+      `${templated.length} batch(es) totalling ${affected} page(s) share an identical section structure and ` +
+        'word count under different URLs: template-only output, not distinct pages.',
+      {
+        pagesRead: html.length,
+        batches: templated.slice(0, 5).map((group) => ({
+          pages: group.length,
+          samples: sample(group.map((page) => page.url)),
+        })),
+      },
+    );
+  },
+};
+
+export const contentProbes = [
+  answerFirstStructure,
+  authorDateSignals,
+  trustPagesPresence,
+  outboundLinkQualification,
+  batchPageQuality,
+];

@@ -111,6 +111,33 @@ describe.skipIf(!url)('an audit across a restart', () => {
     await revived.close();
   }, 60_000);
 
+  it('recomputes the lane of a job stored under an older lane format', async () => {
+    const dying = new AuditScheduler({ db, corpus, crawl: BUDGET, store: store(), paused: true });
+    const submitted = await dying.submit({ siteId, corpusVersion: '4.4' });
+
+    // What a deploy from before `auditLane` left behind: the raw origin, not
+    // the normalized host.
+    await db
+      .update(jobs)
+      .set({ lane: site.origin })
+      .where(eq(jobs.id, submitted.auditId));
+
+    const revived = new AuditScheduler({
+      db,
+      corpus,
+      crawl: BUDGET,
+      store: store(),
+      paused: true,
+    });
+    expect(await revived.recover()).toBe(1);
+    // Recovered under the current rule, not the stored value, so it shares a
+    // lane with an audit submitted fresh against the same site.
+    expect(revived.status(submitted.auditId)?.lane).toBe(auditLane(site.origin));
+    expect(revived.status(submitted.auditId)?.lane).not.toBe(site.origin);
+
+    await revived.close();
+  });
+
   it('reopens a row a dead process left reading `running`', async () => {
     const dying = new AuditScheduler({ db, corpus, crawl: BUDGET, store: store(), paused: true });
     const submitted = await dying.submit({ siteId, corpusVersion: '4.4' });

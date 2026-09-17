@@ -3,7 +3,7 @@
 Roadmap Execution Loop for Claude Code  (v2)
 =============================================================================
 Purpose:
-  Iteratively reads roadmap.md, executes the next unchecked task in a FRESH
+  Iteratively reads ROADMAP.md, executes the next unchecked task in a FRESH
   Claude Code session (fresh context every time), runs tests, and creates one
   isolated git commit per task.
 
@@ -14,7 +14,7 @@ Usage:
 #>
 
 param(
-    [string]$RoadmapFile   = "roadmap.md",
+    [string]$RoadmapFile   = "ROADMAP.md",
     [int]   $MaxIterations = 20,
     [string]$Model         = "sonnet",     # sonnet | opus | fable | claude-sonnet-5 ...
     [string]$Effort        = "high",       # low | medium | high | xhigh | max
@@ -26,8 +26,21 @@ $LogDir = "logs"
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
 # ---- Pre-flight checks -------------------------------------------------------
-if (-not (Test-Path $RoadmapFile)) {
-    Write-Error "Could not find $RoadmapFile."; exit 1
+# Resolve the roadmap by name, then by a case-insensitive match. Windows does
+# not care which spelling the default uses; a case-sensitive filesystem does,
+# and projects spell it both ROADMAP.md and roadmap.md.
+if (-not (Test-Path -LiteralPath $RoadmapFile)) {
+    $Leaf      = Split-Path -Leaf $RoadmapFile
+    $Dir       = Split-Path -Parent $RoadmapFile
+    if (-not $Dir) { $Dir = "." }
+    $Candidate = Get-ChildItem -LiteralPath $Dir -File -Force |
+                 Where-Object { $_.Name -ieq $Leaf } |
+                 Select-Object -First 1
+    if (-not $Candidate) {
+        Write-Error "Could not find $RoadmapFile (no case-insensitive match either)."; exit 1
+    }
+    $RoadmapFile = $Candidate.FullName
+    Write-Host "Using $($Candidate.Name) for $Leaf." -ForegroundColor DarkGray
 }
 if (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
     Write-Error "The 'claude' CLI is not on PATH. Install Claude Code or run 'claude update'."; exit 1

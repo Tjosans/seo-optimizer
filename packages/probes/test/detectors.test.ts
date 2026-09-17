@@ -2936,3 +2936,108 @@ describe('outbound-link-qualification', () => {
     expect(observation.outcome).toBe('pass');
   });
 });
+
+// --- 2.15 paywall-access-model ------------------------------------------------
+
+const articleWith = (path: string, node: Record<string, unknown>): CrawledPage =>
+  page({
+    path,
+    html:
+      '<html><head><title>Story</title>' +
+      `<script type="application/ld+json">${JSON.stringify({ '@context': SCHEMA, '@type': 'NewsArticle', ...node })}</script>` +
+      '</head><body><p>story</p></body></html>',
+  });
+
+const runPaywall = (pages: readonly CrawledPage[]): Observation =>
+  runSite('paywall-access-model', pages, ['paywall']);
+
+describe('paywall-access-model', () => {
+  it('says nothing about a site whose profile claims no paywall', () => {
+    const observation = runSite('paywall-access-model', [
+      articleWith('/story', { isAccessibleForFree: false }),
+    ]);
+    expect(observation.outcome).toBe('not-applicable');
+  });
+
+  it('says nothing when no crawled page declares isAccessibleForFree', () => {
+    const observation = runPaywall([page({ path: '/' })]);
+    expect(observation.outcome).toBe('not-applicable');
+    expect(observation.summary).toMatch(/deliberately exclude/);
+  });
+
+  it('passes a page whose isAccessibleForFree is a plain boolean', () => {
+    const observation = runPaywall([articleWith('/story', { isAccessibleForFree: false })]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('passes a page whose isAccessibleForFree is a "False" string', () => {
+    const observation = runPaywall([articleWith('/story', { isAccessibleForFree: 'False' })]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('fails an isAccessibleForFree value that is not a recognized true/false', () => {
+    const observation = runPaywall([articleWith('/story', { isAccessibleForFree: 'sometimes' })]);
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /not a recognized true\/false/,
+    );
+  });
+
+  it('passes a partial gate whose hasPart entries carry cssSelector and isAccessibleForFree', () => {
+    const observation = runPaywall([
+      articleWith('/story', {
+        isAccessibleForFree: false,
+        hasPart: [
+          { '@type': 'WebPageElement', isAccessibleForFree: true, cssSelector: '.intro' },
+          { '@type': 'WebPageElement', isAccessibleForFree: false, cssSelector: '.body' },
+        ],
+      }),
+    ]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('fails a hasPart entry with no cssSelector', () => {
+    const observation = runPaywall([
+      articleWith('/story', {
+        isAccessibleForFree: false,
+        hasPart: [{ '@type': 'WebPageElement', isAccessibleForFree: true }],
+      }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /no cssSelector/,
+    );
+  });
+
+  it('fails hasPart sections declared on a page with no isAccessibleForFree of its own', () => {
+    const observation = runPaywall([
+      page({
+        path: '/story',
+        html:
+          '<html><head><title>Story</title>' +
+          `<script type="application/ld+json">${JSON.stringify({
+            '@context': SCHEMA,
+            '@type': 'NewsArticle',
+            hasPart: [{ '@type': 'WebPageElement', isAccessibleForFree: false, cssSelector: '.body' }],
+          })}</script></head><body><p>story</p></body></html>`,
+      }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /no isAccessibleForFree/,
+    );
+  });
+
+  it('fails a hasPart entry with no isAccessibleForFree of its own', () => {
+    const observation = runPaywall([
+      articleWith('/story', {
+        isAccessibleForFree: false,
+        hasPart: [{ '@type': 'WebPageElement', cssSelector: '.body' }],
+      }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /cannot tell which side of the gate/,
+    );
+  });
+});

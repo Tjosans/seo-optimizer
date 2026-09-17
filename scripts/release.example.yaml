@@ -1,0 +1,69 @@
+# A release and its review runs, for `npm run release -- <this file>`.
+#
+# Quote anything YAML would read as a number or a date: `'1.1'`, `'2026.10'`.
+# Times are ISO 8601 with a zone. Blank fields are allowed on the release and
+# are counted as scope errors in the READY FOR CUTOVER assessment, exactly as a
+# blank cell is in the workbook.
+#
+# Importing the same file again is safe: runs already logged unchanged are
+# skipped. A run logged differently is refused — the log is append-only, so a
+# correction is a new run with a later test time.
+
+# The site, as it is on record (sites.origin).
+site: https://www.example.com
+
+# Corpus version the runs' check ids come from. Defaults to the current one.
+corpus: '5.0'
+
+# Saved under releaseId, replacing whatever that site's release of the same
+# name held. An audit names it with submit({ release: '2026.10' }).
+release:
+  releaseId: '2026.10'
+  scopeRevision: S-3
+  origin: https://www.example.com
+  scopeApprover: Ann Approver
+  scopeApprovedAt: 2026-09-01T09:00:00Z
+  scopeApprovalEvidence: DOC-114
+  decisionOwner: Owen Owner
+  # Criterion revision per check id; a gate missing here is tested against the
+  # corpus version itself.
+  criteria:
+    '1.1': '5.0'
+  # Filled in when cutover is authorized. The binding is what the authorizer
+  # was shown, copied at that moment.
+  cutover:
+    authorizer: Ava Authorizer
+    authorizedAt: 2026-09-10T15:00:00Z
+    decisionReference: CAB-7
+    cutoverAt: 2026-09-11T06:00:00Z
+    binding:
+      releaseId: '2026.10'
+      scopeRevision: S-3
+      origin: https://www.example.com
+      assessment: READY FOR CUTOVER
+  # The launch owner's 5.7 record. Omit until one is made.
+  # launchDecision:
+  #   decision: GO          # GO, HOLD or rollback
+  #   decidedBy: Owen Owner
+  #   decidedAt: 2026-09-12T10:00:00Z
+
+# Appended to the site's review log. environment: planning, pre-production or
+# production. result: not-started, in-progress, passed, failed, skipped or
+# reopened. A passed run needs nextReviewAt or eventTrigger; a reopened one
+# needs eventTrigger. For a machine-verified pass, evidence is the audit's
+# reference: audit:<auditId>#<checkId>.
+reviews:
+  - runId: R-2026.10-001
+    checkId: '1.1'
+    releaseId: '2026.10'
+    scopeRevision: S-3
+    criteriaRevision: '5.0'
+    origin: https://www.example.com
+    environment: pre-production
+    testedAt: 2026-09-08T10:00:00Z
+    tester: Tess Tester
+    result: passed
+    evidence: audit:00000000-0000-0000-0000-000000000000#1.1
+    reviewedBy: Rex Reviewer
+    reviewedAt: 2026-09-08T12:00:00Z
+    nextReviewAt: 2026-12-08T00:00:00Z

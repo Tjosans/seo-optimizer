@@ -53,6 +53,7 @@ Key scripts:
 - `npm run probes:matrix` — detector coverage vs corpus checks
 - `npm run analyze -- <url>` — prototype: crawl, probe and grade a live URL, print a report, save a snapshot to `benchmarks/runs/`
 - `npm run compare -- <older.json> <newer.json>` — diff two snapshots to see whether a change improved coverage or verdicts
+- `npm run release -- <file.yaml> [--dry-run]` — enter a site's release and review runs from a file (format: `scripts/release.example.yaml`); needs the database
 - `npm run db:generate` — diff schema and write a new migration
 - `npm run db:studio` — Drizzle Studio against the live database
 - `npm run stack:down` — stop containers
@@ -147,6 +148,7 @@ Key scripts:
 - Freshness is judged at `release.assessedAt`, never the wall clock.
 - Neither result is a human decision. A 5.7 GO recorded while the calculation says HOLD comes back as `launchDecision: 'conflict'`.
 - Releases live in `releases` (one row per site and release name, blank fields allowed and counted) and review runs in `review_runs`, keyed by site. A trigger refuses any UPDATE or DELETE on `review_runs`; only a site's deletion cascades through. `recordReviewRun` (@seo/grader) refuses a run the assessment would count as an input error, because a bad row could never be removed.
+- Until the audit API exists, a person enters both through a release file: `npm run release -- <file.yaml>`, backed by `parseReleaseFile` and `importReleaseFile` (@seo/grader `release-file.ts`). The site must already be on record. The import refuses an unknown key, a number where text belongs and an unparseable date rather than store a blank; checks every run before writing any and writes the release and runs in one transaction; and skips a run the log already holds unchanged while refusing one it holds differently, so a file that grows can be imported again.
 - `submit({ release: '<name>' })` sets `audits.release_id`; `recordGrade` then freezes `cutover` onto `audits.readiness`, assessed at `gradedAt`. An audit with no release freezes no cutover block.
 - A review run of a machine-verified pass cites `evidenceReference(auditId, checkId)` — `audit:<auditId>#<checkId>` — which `recordGrade` puts on every state it writes as `evidenceRef`. It survives a re-grade that rewords the summary; a run citing the summary text still matches too, until the wording changes. An attested row has no reference: its reviewer cites the person's own evidence.
 
@@ -180,9 +182,9 @@ News is the sixth, split by who answers for it. 2.18 declares `news-sitemap` and
 
 ## Testing
 
-Unit tests (no database needed): `packages/core/test/{site,cutover}.test.ts`, `packages/corpus/test/{corpus,provenance,provenance-v5.0,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,fetch,protocol,robots,sitemap,url}.test.ts`, `packages/probes/test/{probes,detectors,facets,news,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store,lease}.test.ts`, `packages/grader/test/grade.test.ts`, `packages/scheduler/test/{retry,lane}.test.ts`.
+Unit tests (no database needed): `packages/core/test/{site,cutover}.test.ts`, `packages/corpus/test/{corpus,provenance,provenance-v5.0,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,fetch,protocol,robots,sitemap,url}.test.ts`, `packages/probes/test/{probes,detectors,facets,news,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store,lease}.test.ts`, `packages/grader/test/{grade,release-file}.test.ts` (the parser half), `packages/scheduler/test/{retry,lane}.test.ts`.
 
-Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/{scheduler,recovery,cancel,flags,ai-policy,release}.test.ts`, `packages/job-store/test/postgres.test.ts`, `packages/grader/test/{record,release}.test.ts`.
+Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/{scheduler,recovery,cancel,flags,ai-policy,release}.test.ts`, `packages/job-store/test/postgres.test.ts`, `packages/grader/test/{record,release,release-file}.test.ts`.
 
 All tests skip gracefully if `DATABASE_URL` is unset — which means a green local run does not prove the database layer works. `vitest.config.ts` aliases packages to source, so no build step is needed during test.
 
@@ -219,7 +221,7 @@ packages/
   queue/src/{queue,retry,store,types}.ts
   job-store/src/postgres.ts
   scheduler/src/{scheduler,run-audit,retry,lane,types}.ts
-  grader/src/{grade,scope,record,release,types}.ts
+  grader/src/{grade,scope,record,release,release-file,types}.ts
   testkit/src/{fixture-site,tls-server}.ts
 corpus/
   source/v4.4.tsv                  # immutable workbook export
@@ -227,7 +229,7 @@ corpus/
   v4.4/phase-0.yaml … phase-7.yaml # compiled checks (97)
   v5.0/phase-0.yaml … phase-7.yaml # compiled checks (98), the current corpus
   v{4.4,5.0}/{manifest,sources}.yaml
-scripts/{compile-corpus,probe-matrix,triage}.ts
+scripts/{analyze,compare,compile-corpus,probe-matrix,record-release,triage}.ts  +  release.example.yaml
 ```
 
 ## Known gotchas
@@ -242,4 +244,4 @@ scripts/{compile-corpus,probe-matrix,triage}.ts
 
 ## What to pick up next
 
-`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; lease expiry (@seo/job-store, @seo/queue) is in, so a second worker can share a queue namespace, and lanes hold across workers, so two of them never crawl one host together; what remains is detector coverage — 77 of v5.0's 134 detectors are unimplemented, which is the single thing most limiting what an audit can say — Releases and review runs are stored and READY FOR CUTOVER is frozen onto an audit that names a release; they can only be written from code until the audit API exists. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.
+`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; lease expiry (@seo/job-store, @seo/queue) is in, so a second worker can share a queue namespace, and lanes hold across workers, so two of them never crawl one host together; what remains is detector coverage — 77 of v5.0's 134 detectors are unimplemented, which is the single thing most limiting what an audit can say — Releases and review runs are stored and READY FOR CUTOVER is frozen onto an audit that names a release; until the audit API exists they are entered from a file with `npm run release`. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.

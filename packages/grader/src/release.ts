@@ -41,6 +41,12 @@ export class UnknownReleaseError extends Error {
   }
 }
 
+/**
+ * The database or a transaction on it. Both writers below take either, so an
+ * import can put a release and its runs down together or not at all.
+ */
+export type Writer = Pick<Database, 'insert' | 'select'>;
+
 /** A release as written. `releaseId` names it; everything else may be blank. */
 export type ReleaseInput = Omit<ReleaseRecord, 'assessedAt' | 'reviews'> & {
   readonly releaseId: string;
@@ -56,7 +62,7 @@ const text = (value: string | null): string | undefined => value ?? undefined;
  * is what `audits.release_id` points at.
  */
 export async function saveRelease(
-  db: Database,
+  db: Writer,
   siteId: string,
   release: ReleaseInput,
 ): Promise<string> {
@@ -99,7 +105,7 @@ export async function saveRelease(
  * gate forever. A run id already in the log is refused by the table.
  */
 export async function recordReviewRun(
-  db: Database,
+  db: Writer,
   args: {
     readonly siteId: string;
     readonly corpus: Corpus;
@@ -112,8 +118,13 @@ export async function recordReviewRun(
   const problem = reviewRunProblem(run, known, (args.now ?? new Date()).toISOString());
   if (problem !== null) throw new InvalidReviewRunError(run.runId, problem);
 
-  await db.insert(reviewRuns).values({
-    siteId: args.siteId,
+  await db.insert(reviewRuns).values(reviewRunRow(args.siteId, run));
+}
+
+/** The `review_runs` row for a run. A blank optional field is stored as null. */
+export function reviewRunRow(siteId: string, run: ReviewRun): typeof reviewRuns.$inferInsert {
+  return {
+    siteId,
     runId: run.runId,
     checkId: run.checkId,
     releaseId: run.releaseId,
@@ -128,12 +139,12 @@ export async function recordReviewRun(
     reviewedBy: run.reviewedBy,
     reviewedAt: new Date(run.reviewedAt),
     nextReviewAt: at(run.nextReviewAt),
-    eventTrigger: run.eventTrigger ?? null,
-  });
+    eventTrigger: run.eventTrigger === undefined || run.eventTrigger === '' ? null : run.eventTrigger,
+  };
 }
 
 /** Every run logged for a site, oldest test first. */
-export async function loadReviewRuns(db: Database, siteId: string): Promise<ReviewRun[]> {
+export async function loadReviewRuns(db: Writer, siteId: string): Promise<ReviewRun[]> {
   const rows = await db
     .select()
     .from(reviewRuns)

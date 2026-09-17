@@ -20,6 +20,13 @@ export interface CheckState {
    * approval or monitoring result. Another reviewer must be able to re-derive it.
    */
   readonly evidence?: string;
+  /**
+   * A stable citation for an engine-written verdict: `evidenceReference` of
+   * the audit and check. A review run may cite it in place of `evidence`,
+   * whose wording belongs to the engine version that wrote it. Absent on a
+   * row a person attested, whose evidence is their own words.
+   */
+  readonly evidenceRef?: string;
   /** When an attestation lapses and coverage reverts to `unknown`. */
   readonly attestationExpiresAt?: string;
 }

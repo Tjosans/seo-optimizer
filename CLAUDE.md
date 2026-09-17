@@ -148,7 +148,7 @@ Key scripts:
 - Neither result is a human decision. A 5.7 GO recorded while the calculation says HOLD comes back as `launchDecision: 'conflict'`.
 - Releases live in `releases` (one row per site and release name, blank fields allowed and counted) and review runs in `review_runs`, keyed by site. A trigger refuses any UPDATE or DELETE on `review_runs`; only a site's deletion cascades through. `recordReviewRun` (@seo/grader) refuses a run the assessment would count as an input error, because a bad row could never be removed.
 - `submit({ release: '<name>' })` sets `audits.release_id`; `recordGrade` then freezes `cutover` onto `audits.readiness`, assessed at `gradedAt`. An audit with no release freezes no cutover block.
-- A machine-verified pass is current only against a run whose `evidence` equals the grader's summary line for that check (ROADMAP Phase 4 has the open question).
+- A review run of a machine-verified pass cites `evidenceReference(auditId, checkId)` — `audit:<auditId>#<checkId>` — which `recordGrade` puts on every state it writes as `evidenceRef`. It survives a re-grade that rewords the summary; a run citing the summary text still matches too, until the wording changes. An attested row has no reference: its reviewer cites the person's own evidence.
 
 ### Guarantees the sink relies on
 

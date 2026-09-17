@@ -3,6 +3,8 @@ import {
   READY_FOR_CUTOVER,
   computeCutoverReadiness,
   computeLaunchReadiness,
+  evidenceReference,
+  readReview,
 } from '../src/index.js';
 import type {
   Check,
@@ -258,6 +260,26 @@ describe('review freshness', () => {
 
   it('asks for reconciliation when the status or evidence disagrees with the run', () => {
     expect(stateOf([run('1.1', { evidence: 'ev-other' })])).toBe('reconcile');
+  });
+
+  it('accepts a run citing the verdict’s reference, whatever its summary says', () => {
+    const ref = evidenceReference('a1', '1.1');
+    const check = gate('1.1', 1);
+    const context = {
+      releaseId: 'r1', scopeRevision: 's1', origin: ORIGIN, assessedAt: ASSESSED,
+      criteriaRevision: () => '5.0',
+    };
+    const known = new Set(['1.1']);
+    const read = (state: CheckState) =>
+      readReview(check, state, [run('1.1', { evidence: ref })], context, known).state;
+
+    expect(read({ ...passed('1.1'), evidence: 'reworded by a newer engine', evidenceRef: ref }))
+      .toBe('current');
+    // Another audit's verdict is other evidence.
+    expect(read({ ...passed('1.1'), evidenceRef: evidenceReference('a2', '1.1') }))
+      .toBe('reconcile');
+    // A state with no reference is matched on its text alone.
+    expect(read(passed('1.1'))).toBe('reconcile');
   });
 
   it('does not read a review recorded after the assessment', () => {

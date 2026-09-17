@@ -8,6 +8,7 @@
  * can always answer "why does this check say that".
  */
 
+import { evidenceReference } from '@seo/core';
 import type {
   Applicability,
   CheckState,
@@ -120,8 +121,11 @@ export class ReleaseSiteMismatchError extends Error {
   }
 }
 
-/** A graded check as @seo/core's scoring functions want it. */
-export function toCheckState(graded: GradedCheck): CheckState {
+/**
+ * A graded check as @seo/core's scoring functions want it. With the audit it
+ * is recorded against, the state carries the reference a review run cites.
+ */
+export function toCheckState(graded: GradedCheck, auditId?: string): CheckState {
   return {
     checkId: graded.checkId,
     applicability: graded.applicability,
@@ -131,5 +135,6 @@ export function toCheckState(graded: GradedCheck): CheckState {
     status: graded.status,
     coverage: graded.coverage,
     ...(graded.summary === '' ? {} : { evidence: graded.summary }),
+    ...(auditId === undefined ? {} : { evidenceRef: evidenceReference(auditId, graded.checkId) }),
   };
 }

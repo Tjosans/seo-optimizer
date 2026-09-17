@@ -379,6 +379,68 @@ describe('locale-canonical', () => {
   });
 });
 
+// --- 3.12 locale-content-parity ----------------------------------------------
+
+const localeHeadingPage = (
+  path: string,
+  entries: readonly [string, string][],
+  headings: readonly string[],
+): CrawledPage =>
+  page({
+    path,
+    html:
+      '<html><head>' +
+      entries.map(([lang, href]) => `<link rel="alternate" hreflang="${lang}" href="${ORIGIN}${href}">`).join('') +
+      '</head><body>' +
+      headings.map((heading) => `<h2>${heading}</h2>`).join('') +
+      '</body></html>',
+  });
+
+describe('locale-content-parity', () => {
+  it('says nothing about a site that makes no hreflang claim', () => {
+    expect(runSite('locale-content-parity', [page({ path: '/' })]).outcome).toBe('not-applicable');
+  });
+
+  it('warns when the profile says multilingual but no page carries hreflang', () => {
+    const observation = runSite('locale-content-parity', [page({ path: '/' })], ['multilingual']);
+    expect(observation.outcome).toBe('warn');
+  });
+
+  it('passes a locale pair with genuinely different content', () => {
+    const en = localeHeadingPage('/en/', [['en', '/en/'], ['fr', '/fr/']], ['Welcome', 'Our story', 'Contact us']);
+    const fr = localeHeadingPage(
+      '/fr/',
+      [['en', '/en/'], ['fr', '/fr/']],
+      ['Bienvenue', 'Notre histoire', 'Contactez-nous'],
+    );
+    expect(runSite('locale-content-parity', [en, fr]).outcome).toBe('pass');
+  });
+
+  it('fails a locale pair whose headings are word-for-word identical', () => {
+    const headings = ['Welcome', 'Our story', 'Contact us'];
+    const en = localeHeadingPage('/en/', [['en', '/en/'], ['fr', '/fr/']], headings);
+    const fr = localeHeadingPage('/fr/', [['en', '/en/'], ['fr', '/fr/']], headings);
+    const observation = runSite('locale-content-parity', [en, fr]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/word-for-word identical/);
+  });
+
+  it('holds a pair with too little heading text to compare', () => {
+    const en = localeHeadingPage('/en/', [['en', '/en/'], ['fr', '/fr/']], ['Welcome']);
+    const fr = localeHeadingPage('/fr/', [['en', '/en/'], ['fr', '/fr/']], ['Bienvenue']);
+    const observation = runSite('locale-content-parity', [en, fr]);
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toMatch(/enough heading text/);
+  });
+
+  it('does not compare regional variants of the same language', () => {
+    const headings = ['Welcome', 'Our story', 'Contact us'];
+    const us = localeHeadingPage('/us/', [['en-US', '/us/'], ['en-GB', '/uk/']], headings);
+    const uk = localeHeadingPage('/uk/', [['en-US', '/us/'], ['en-GB', '/uk/']], headings);
+    expect(runSite('locale-content-parity', [us, uk]).outcome).toBe('warn');
+  });
+});
+
 // --- 1.13 pagination-crawl-path ---------------------------------------------
 
 const listing = (path: string, nextHref: string | null): CrawledPage =>

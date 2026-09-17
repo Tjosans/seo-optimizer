@@ -611,6 +611,102 @@ export const hreflangImplementation: SiteProbe = {
 };
 
 /**
+ * `locale-content-parity` (3.12): whether the pages an hreflang cluster names
+ * as different languages actually say different things.
+ *
+ * 3.12's own "done when" asks that a qualified human review intent,
+ * terminology, currency and legal scope for each locale — nothing a crawl can
+ * do. But a page publishing the same heading text word for word as a page
+ * claiming a different language has not been localized at all, whatever a
+ * human review would find; that is a defect a crawl can name outright, the
+ * same way `author-date-signals` names a date stamped identically across an
+ * archive without asking whether any one date is correct.
+ *
+ * Scoped to reciprocal hreflang pairs whose *self-declared* locale codes
+ * differ in primary subtag — `en-GB` and `en-US` are one language and are
+ * `locale-canonical`'s question, not this one's — and only where each side
+ * carries enough heading text to compare at all. A pair with too little text,
+ * or that the crawl never reached, says nothing either way and is left for
+ * the person 3.12 already asks for.
+ */
+export const localeContentParity: SiteProbe = {
+  id: 'locale-content-parity',
+  scope: 'site',
+  title: 'Locale pages carry distinct, localized content',
+  run({ crawl, flags }) {
+    const pages = htmlPages(crawl.pages);
+    const annotated = pages.filter((page) => (page.extracted?.hreflang.length ?? 0) > 0);
+
+    if (annotated.length === 0) {
+      return flags.includes('multilingual')
+        ? warn('The site profile says this site is multilingual, but no crawled page carries an hreflang annotation.')
+        : notApplicable('No crawled page carries an hreflang annotation.');
+    }
+
+    const byUrl = new Map(pages.map((page) => [page.normalizedUrl, page]));
+    const primarySubtag = (tag: string | null | undefined): string | null => {
+      const trimmed = tag?.trim() ?? '';
+      return trimmed === '' ? null : trimmed.split(/[-_]/)[0]!.toLowerCase();
+    };
+    const ownLocaleOf = (page: CrawledPage): string | null => {
+      const entries = page.extracted?.hreflang ?? [];
+      const self = entries.find(
+        (entry) => entry.hreflang.toLowerCase() !== 'x-default' && normalizeUrl(entry.url) === page.normalizedUrl,
+      );
+      return primarySubtag(self?.hreflang ?? page.extracted?.lang ?? null);
+    };
+    const headingsOf = (page: CrawledPage): string[] =>
+      (page.extracted?.headings ?? []).map((heading) => heading.text.trim()).filter((text) => text.length > 0);
+
+    const checked = new Set<string>();
+    const identical: { a: string; b: string; headings: number }[] = [];
+    let comparable = 0;
+
+    for (const page of annotated) {
+      const ownLocale = ownLocaleOf(page);
+      for (const entry of page.extracted?.hreflang ?? []) {
+        if (entry.hreflang.toLowerCase() === 'x-default') continue;
+        const targetLocale = primarySubtag(entry.hreflang);
+        if (targetLocale === null || targetLocale === ownLocale) continue;
+
+        const targetUrl = normalizeUrl(entry.url);
+        if (targetUrl === null || targetUrl === page.normalizedUrl) continue;
+        const target = byUrl.get(targetUrl);
+        if (target === undefined) continue;
+
+        const pairKey = [page.normalizedUrl, targetUrl].sort().join(' :: ');
+        if (checked.has(pairKey)) continue;
+        checked.add(pairKey);
+
+        const ours = headingsOf(page);
+        const theirs = headingsOf(target);
+        if (ours.length < 2 || theirs.length < 2) continue;
+
+        comparable += 1;
+        if (ours.length === theirs.length && ours.every((text, index) => text === theirs[index])) {
+          identical.push({ a: page.normalizedUrl, b: targetUrl, headings: ours.length });
+        }
+      }
+    }
+
+    if (identical.length > 0) {
+      return fail(
+        `${identical.length} locale pair(s) declare different languages but publish word-for-word identical headings.`,
+        { samples: identical.slice(0, 10) },
+      );
+    }
+    if (comparable === 0) {
+      return warn('No locale pair had enough heading text to compare content.', {
+        annotatedPages: annotated.length,
+      });
+    }
+    return pass(`${comparable} locale pair(s) show distinct content per declared language.`, {
+      annotatedPages: annotated.length,
+    });
+  },
+};
+
+/**
  * Can a crawler get past page one without running JavaScript?
  *
  * The failure this exists to catch is a listing whose "load more" is a button
@@ -1177,6 +1273,7 @@ export const siteProbes = [
   thirdPartyBudget,
   hreflangClusterQa,
   hreflangImplementation,
+  localeContentParity,
   paginationCrawlPath,
   hostRedirect,
   faviconSiteName,

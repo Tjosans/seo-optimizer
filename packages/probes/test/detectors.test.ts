@@ -2867,3 +2867,72 @@ describe('trust-pages-presence', () => {
     expect(observation.summary).toContain('were not fetched');
   });
 });
+
+// --- 3.13 outbound-link-qualification ----------------------------------------
+
+describe('outbound-link-qualification', () => {
+  const check = (pages: readonly CrawledPage[]): Observation => runSite('outbound-link-qualification', pages);
+
+  const sponsoredByType = (path: string, body: string): CrawledPage =>
+    page({
+      path,
+      html:
+        `<html><body><script type="application/ld+json">` +
+        `{"@context":"${SCHEMA}","@type":"AdvertiserContentArticle"}</script>${body}</body></html>`,
+    });
+
+  it('has nothing to say without a crawled HTML page', () => {
+    expect(check([]).outcome).toBe('not-applicable');
+  });
+
+  it('is not-applicable when no crawled page declares itself sponsored', () => {
+    const observation = check([
+      page({ path: '/', html: '<html><body><a href="https://rival.example/">rival</a></body></html>' }),
+    ]);
+    expect(observation.outcome).toBe('not-applicable');
+  });
+
+  it('fails an outbound link on a page typed AdvertiserContentArticle with no rel qualifier', () => {
+    const observation = check([
+      sponsoredByType('/deals/best-mattress', '<a href="https://partner.example/buy">Buy now</a>'),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.data?.['unqualifiedLinks']).toBe(1);
+  });
+
+  it('fails an outbound link on a page filed under a /sponsored/ segment', () => {
+    const observation = check([
+      page({ path: '/sponsored/best-mattress', html: '<a href="https://partner.example/buy">Buy now</a>' }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+  });
+
+  it('leaves a slug that merely mentions "sponsored" alone', () => {
+    const observation = check([
+      page({ path: '/sponsored-by-nobody-story', html: '<a href="https://partner.example/buy">Buy now</a>' }),
+    ]);
+    expect(observation.outcome).toBe('not-applicable');
+  });
+
+  it('passes when every outbound link on a sponsored page carries sponsored, ugc or nofollow', () => {
+    const observation = check([
+      sponsoredByType(
+        '/deals/best-mattress',
+        '<a href="https://partner.example/buy" rel="sponsored">Buy now</a> ' +
+          '<a href="https://other.example/" rel="nofollow">More</a>',
+      ),
+    ]);
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data?.['unqualifiedLinks']).toBe(0);
+  });
+
+  it('does not count an internal link or a mailto/tel link against a sponsored page', () => {
+    const observation = check([
+      sponsoredByType(
+        '/deals/best-mattress',
+        '<a href="/other-page">Elsewhere on site</a> <a href="mailto:hi@example.com">Email</a>',
+      ),
+    ]);
+    expect(observation.outcome).toBe('pass');
+  });
+});

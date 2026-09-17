@@ -26,7 +26,7 @@
  * 0.9 scope requires is a person's decision, not a crawl's.
  */
 
-import { normalizeUrl } from '@seo/crawler';
+import { isSameSite, normalizeUrl } from '@seo/crawler';
 import type { Extracted } from '@seo/crawler';
 import type { PageProbe, SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
@@ -497,4 +497,83 @@ export const trustPagesPresence: SiteProbe = {
   },
 };
 
-export const contentProbes = [answerFirstStructure, authorDateSignals, trustPagesPresence];
+// --- outbound-link-qualification --------------------------------------------
+
+/*
+ * A path segment that files a page as paid or sponsored content, matched
+ * whole so a slug that merely mentions "sponsored" is left alone. Reads the
+ * same fact `news-article-policy`'s SPONSORED_SEGMENT (news.ts) does — that
+ * check asks whether the page discloses being paid for; this one asks
+ * whether its outbound links say so too.
+ */
+const SPONSORED_SEGMENT = /^(sponsored|sponsor(ed)?-content|paid-?posts?|paid-?content|partner-?content|advertorials?|brand-?studio)$/i;
+
+/** The page declares, by type or by the section it is filed in, that it is paid content. */
+const declaresSponsored = (extracted: Extracted, finalUrl: string): boolean =>
+  jsonLdNodes(extracted.jsonLd).some((node) =>
+    typesOf(node).some((type) => bareType(type) === 'AdvertiserContentArticle'),
+  ) || pathSegmentsOf(finalUrl).some((segment) => SPONSORED_SEGMENT.test(segment));
+
+/** The `rel` values Google reads as not passing an ordinary editorial endorsement. */
+const QUALIFIED_REL = /\b(nofollow|sponsored|ugc)\b/i;
+
+/**
+ * 3.13 asks that paid links carry "sponsored or accepted nofollow"; what a
+ * crawl can see is the one page-level fact that makes a link paid without a
+ * person's say-so — the page itself declares it is advertising, the same
+ * declaration `news-article-policy` already reads for its own disclosure
+ * finding. An outbound link on such a page with no `sponsored`, `ugc` or
+ * `nofollow` relationship is the defect 3.13 names outright.
+ *
+ * Everything else 3.13 asks for — UGC governance, moderation, review
+ * provenance, the arrangements behind an unmarked page nobody has typed as
+ * advertising — is not observable this way, and stays for `ugc-governance`
+ * and `review-integrity` to add; the check is not graded end to end until
+ * all three exist.
+ */
+export const outboundLinkQualification: SiteProbe = {
+  id: 'outbound-link-qualification',
+  scope: 'site',
+  title: 'Outbound links on pages the site itself declares sponsored are marked sponsored or nofollow',
+  run({ crawl, origin }) {
+    const html = crawl.pages.filter((page) => page.extracted !== null && page.fetch.status === 200);
+    if (html.length === 0) return notApplicable('No HTML pages were crawled, so no links were read.');
+
+    const unqualified: { page: string; target: string }[] = [];
+    let sponsoredPages = 0;
+
+    for (const page of html) {
+      const extracted = page.extracted;
+      if (extracted === null || !declaresSponsored(extracted, page.fetch.finalUrl)) continue;
+      sponsoredPages += 1;
+      for (const link of extracted.links) {
+        if (/^(mailto|tel):/i.test(link.url)) continue;
+        if (isSameSite(link.url, origin)) continue;
+        if (QUALIFIED_REL.test(link.rel ?? '')) continue;
+        unqualified.push({ page: page.normalizedUrl, target: link.url });
+      }
+    }
+
+    if (sponsoredPages === 0) {
+      return notApplicable(
+        'No crawled page types itself AdvertiserContentArticle or is filed under a sponsored/paid-content section.',
+      );
+    }
+
+    const data = { sponsoredPages, unqualifiedLinks: unqualified.length };
+    if (unqualified.length > 0) {
+      return fail(
+        `${unqualified.length} outbound link(s) on page(s) the site itself declares sponsored carry no sponsored, ` +
+          'ugc or nofollow relationship.',
+        { ...data, samples: sample(unqualified) },
+      );
+    }
+    return pass(
+      'Every outbound link on a page the site declares sponsored is marked sponsored, ugc or nofollow. ' +
+        'Moderation, provenance and the rest of 3.13 are for a person.',
+      data,
+    );
+  },
+};
+
+export const contentProbes = [answerFirstStructure, authorDateSignals, trustPagesPresence, outboundLinkQualification];

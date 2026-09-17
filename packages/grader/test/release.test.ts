@@ -10,7 +10,7 @@
 
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
-import { READY_FOR_CUTOVER } from '@seo/core';
+import { READY_FOR_CUTOVER, evidenceReference } from '@seo/core';
 import type { Check, Corpus, ReviewRun } from '@seo/core';
 import { audits, createDatabase, probeResults, reviewRuns, sites } from '@seo/db';
 import {
@@ -210,6 +210,24 @@ describe.skipIf(!url)('releases and the review log', () => {
 
       const [audit] = await db.select().from(audits).where(eq(audits.id, auditId));
       expect(audit?.readiness).toMatchObject({ cutover: { final: 'GO' } });
+    });
+
+    it('keeps a run citing the evidence reference current through a re-grade that rewords the summary', async () => {
+      const releaseId = await saveRelease(db, siteId, RELEASE);
+      const { auditId, grade } = await auditFor(releaseId);
+      await recordReviewRun(db, {
+        siteId,
+        corpus: CORPUS,
+        run: run({ evidence: evidenceReference(auditId, '1.1') }),
+      });
+
+      // A newer engine re-grading the stored audit words its verdict differently.
+      const regrade = {
+        ...grade,
+        checks: grade.checks.map((graded) => ({ ...graded, summary: 'worded by a newer engine' })),
+      };
+      const recorded = await recordGrade(db, { auditId, corpus: CORPUS, grade: regrade });
+      expect(recorded.frozen.cutover).toMatchObject({ final: 'GO', blockers: [] });
     });
 
     it('holds when the gate’s latest review was reopened', async () => {

@@ -119,7 +119,7 @@ export async function recordGrade(
     // Readiness over the merge: this grade's verdicts, plus the attestations it
     // was not entitled to touch.
     const states = new Map<string, CheckState>(
-      writable.map((graded) => [graded.checkId, toCheckState(graded)]),
+      writable.map((graded) => [graded.checkId, toCheckState(graded, args.auditId)]),
     );
     for (const row of attested) states.set(row.checkId, toState(row));
 

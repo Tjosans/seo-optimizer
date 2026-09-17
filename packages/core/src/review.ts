@@ -63,7 +63,10 @@ export interface ReviewRun {
   readonly testedAt: string;
   readonly tester: string;
   readonly result: ReviewResult;
-  /** Must match `CheckState.evidence` for the run to be current. */
+  /**
+   * Must match `CheckState.evidence`, or its `evidenceRef`, for the run to be
+   * current.
+   */
   readonly evidence: string;
   readonly reviewedBy: string;
   readonly reviewedAt: string;
@@ -95,6 +98,28 @@ export type ReviewState =
   /** The latest run is neither passed nor a blocker (not started, in progress, skipped). */
   | 'unfinished'
   | 'current';
+
+/**
+ * The stable citation for the verdict an audit holds on a check. A review run
+ * of a machine-verified pass cites this rather than the grader's summary
+ * line, which is report wording and changes between engine versions — a
+ * re-grade of the same audit would otherwise read as `reconcile`. A different
+ * audit is different evidence, and gets a different reference.
+ */
+export function evidenceReference(auditId: string, checkId: string): string {
+  return `audit:${auditId}#${checkId}`;
+}
+
+/** Whether a run cites the evidence a state holds, by its text or its reference. */
+export function citesEvidence(
+  run: Pick<ReviewRun, 'evidence'>,
+  state: Pick<CheckState, 'evidence' | 'evidenceRef'>,
+): boolean {
+  return (
+    run.evidence === state.evidence ||
+    (filled(state.evidenceRef) && run.evidence === state.evidenceRef)
+  );
+}
 
 /** The context a run has to have been taken in to count. */
 export interface ReviewContext {
@@ -201,7 +226,7 @@ export interface ReviewReading {
  */
 export function readReview(
   check: Check,
-  state: Pick<CheckState, 'status' | 'evidence'>,
+  state: Pick<CheckState, 'status' | 'evidence' | 'evidenceRef'>,
   runs: readonly ReviewRun[],
   context: ReviewContext,
   knownChecks: ReadonlySet<string>,
@@ -235,7 +260,7 @@ export function readReview(
   if (next !== null && assessed !== null && next < assessed) {
     return { state: 'overdue', latest: run };
   }
-  if (state.status !== run.result || state.evidence !== run.evidence) {
+  if (state.status !== run.result || !citesEvidence(run, state)) {
     return { state: 'reconcile', latest: run };
   }
   return { state: run.result === 'passed' ? 'current' : 'unfinished', latest: run };

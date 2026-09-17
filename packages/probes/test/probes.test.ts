@@ -77,6 +77,12 @@ describe('page probes against a site with known defects', () => {
     expect(on('lcp-not-lazy', '/')).toBe('pass');
   });
 
+  // v5.0 2.3: a representative image robots.txt turns a crawler away from.
+  it('fails a representative image robots.txt disallows', () => {
+    expect(on('image-discoverability', '/about')).toBe('fail');
+    expect(on('image-discoverability', '/')).toBe('pass');
+  });
+
   it('fails plain HTTP and skips mixed content as inapplicable there', () => {
     expect(on('https-enforcement', '/')).toBe('fail');
     expect(on('mixed-content', '/')).toBe('not-applicable');

@@ -17,7 +17,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { extract, parseRobots } from '@seo/crawler';
-import type { AuxiliaryFetch, CrawledPage, CrawlResult, FetchResult } from '@seo/crawler';
+import type { AuxiliaryFetch, CrawledPage, CrawlResult, Extracted, FetchResult, RenderComparison } from '@seo/crawler';
 import { probeById } from '@seo/probes';
 import type { Observation, PageProbe, SiteContext, SiteProbe } from '@seo/probes';
 
@@ -3654,5 +3654,116 @@ describe('ugc-governance', () => {
     ]);
     expect(observation.outcome).toBe('fail');
     expect(observation.data?.['unqualifiedLinks']).toBe(1);
+  });
+});
+
+// --- 1.1 rendering-strategy-classifier --------------------------------------
+
+const compareForTest = (raw: Extracted, rendered: Extracted): RenderComparison => ({
+  titleMatches: raw.title === rendered.title,
+  canonicalMatches: raw.canonical === rendered.canonical,
+  metaRobotsMatches: raw.metaRobots === rendered.metaRobots,
+  wordCountRaw: raw.wordCount,
+  wordCountRendered: rendered.wordCount,
+  linkCountRaw: raw.links.length,
+  linkCountRendered: rendered.links.length,
+  jsonLdCountRaw: raw.jsonLd.length,
+  jsonLdCountRendered: rendered.jsonLd.length,
+  textMatches: raw.text === rendered.text,
+});
+
+const withRender = (target: CrawledPage, renderedHtml: string | null, error: string | null = null): CrawledPage => {
+  const renderedExtracted =
+    error === null && renderedHtml !== null && renderedHtml !== '' ? extract(renderedHtml, target.url) : null;
+  return {
+    ...target,
+    rendered: {
+      render: {
+        requestedUrl: target.url,
+        finalUrl: target.url,
+        status: error === null ? 200 : null,
+        html: renderedHtml ?? '',
+        totalMs: error === null ? 10 : null,
+        error,
+      },
+      extracted: renderedExtracted,
+      comparison:
+        renderedExtracted === null || target.extracted === null
+          ? null
+          : compareForTest(target.extracted, renderedExtracted),
+    },
+  };
+};
+
+describe('rendering-strategy-classifier', () => {
+  it('is not applicable when no render was captured for the crawl', () => {
+    const target = page({ path: '/' });
+    expect(runPage('rendering-strategy-classifier', target, [target]).outcome).toBe('not-applicable');
+  });
+
+  it('errors when the render itself failed', () => {
+    const target = withRender(page({ path: '/' }), null, 'timeout');
+    expect(runPage('rendering-strategy-classifier', target, [target]).outcome).toBe('error');
+  });
+
+  it('errors when the rendered response was empty', () => {
+    const target = withRender(page({ path: '/' }), '');
+    expect(runPage('rendering-strategy-classifier', target, [target]).outcome).toBe('error');
+  });
+
+  it('fails when raw and rendered disagree about noindex', () => {
+    const raw = page({
+      path: '/gated',
+      html:
+        '<html><head><meta name="robots" content="noindex">' +
+        '<link rel="canonical" href="https://example.com/gated"></head>' +
+        '<body><p>Some content here.</p></body></html>',
+    });
+    const target = withRender(
+      raw,
+      '<html><head><link rel="canonical" href="https://example.com/gated"></head>' +
+        '<body><p>Some content here.</p></body></html>',
+    );
+    const observation = runPage('rendering-strategy-classifier', target, [target]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/noindex/i);
+  });
+
+  it('fails when raw and rendered declare different canonicals', () => {
+    const raw = page({
+      path: '/x',
+      html: '<html><head><link rel="canonical" href="https://example.com/x"></head><body><p>content</p></body></html>',
+    });
+    const target = withRender(
+      raw,
+      '<html><head><link rel="canonical" href="https://example.com/other"></head><body><p>content</p></body></html>',
+    );
+    const observation = runPage('rendering-strategy-classifier', target, [target]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/canonical/i);
+  });
+
+  it('fails when the raw response has no reading matter that the rendered page fills in', () => {
+    const raw = page({ path: '/app', html: '<html><body></body></html>' });
+    const target = withRender(raw, `<html><body><p>${Array(80).fill('word').join(' ')}</p></body></html>`);
+    const observation = runPage('rendering-strategy-classifier', target, [target]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/no reading matter/i);
+  });
+
+  it('warns when rendering adds substantially to raw content without conflicting directives', () => {
+    const raw = page({ path: '/blog', html: `<html><body><p>${Array(60).fill('word').join(' ')}</p></body></html>` });
+    const target = withRender(raw, `<html><body><p>${Array(160).fill('word').join(' ')}</p></body></html>`);
+    const observation = runPage('rendering-strategy-classifier', target, [target]);
+    expect(observation.outcome).toBe('warn');
+  });
+
+  it('passes when raw and rendered agree', () => {
+    const html =
+      '<html><head><link rel="canonical" href="https://example.com/p"></head><body><p>Hello world</p></body></html>';
+    const raw = page({ path: '/p', html });
+    const target = withRender(raw, html);
+    const observation = runPage('rendering-strategy-classifier', target, [target]);
+    expect(observation.outcome).toBe('pass');
   });
 });

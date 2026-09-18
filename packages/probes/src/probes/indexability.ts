@@ -6,7 +6,7 @@
 import { normalizeUrl } from '@seo/crawler';
 import type { CrawledPage } from '@seo/crawler';
 import type { PageProbe, SiteProbe } from '../types.js';
-import { fail, notApplicable, pass, warn } from '../types.js';
+import { errored, fail, notApplicable, pass, warn } from '../types.js';
 
 /** Query keys and path segments that mean "these are search results". */
 export const SEARCH_PARAMS = ['q', 's', 'query', 'search', 'keyword', 'keywords'];
@@ -181,6 +181,120 @@ export const localeCanonical: PageProbe = {
   },
 };
 
+const NOINDEX = /\bnoindex\b/i;
+
+/** How far rendered content, links or structured data may outgrow the raw response before it is worth a person's attention. */
+const GAP_RATIO = 1.5;
+const WORD_GAP_MIN = 50;
+const LINK_GAP_MIN = 5;
+
+/**
+ * Whether a non-rendering crawler sees the page a browser does.
+ *
+ * 1.1's "Done when" collapses two different questions into one detector pair;
+ * this is the second, `raw-rendered-parity`'s reading being the first. That
+ * one is not implemented — its evidence is the whole raw/rendered diff this
+ * detector only samples — so 1.1 stays uncoverable end to end until it lands.
+ * This detector answers what it can from `CrawledPage.rendered`, the
+ * comparison @seo/crawler already computes when a crawl opts into rendering:
+ * whether the two responses *disagree* about anything that changes what an
+ * indexing decision or a link graph would be built from.
+ *
+ * A noindex directive or a canonical present on one side and not the other
+ * (or naming a different URL) fails outright — corpus check 1.1 asks that
+ * "raw/rendered directives and canonicals do not conflict", and either is the
+ * one signal a non-rendering crawler and Googlebot could act on differently.
+ * A raw response with no reading matter at all, filled in only after
+ * scripts run, fails the same way: "prefer server-delivered critical
+ * content as a reliability policy" is not a recommendation this detector can
+ * treat as optional when the raw body is empty. A smaller gap in words,
+ * links or JSON-LD — rendering adding to what raw already carries, not
+ * replacing it — is a `warn`: not every crawler renders, so the difference
+ * is a reliability question for the person who owns the rendering strategy,
+ * not a defect a machine can fail outright.
+ *
+ * Resource failures, missing-route behaviour and the fetch envelope 1.1
+ * defers to 1.5 are covered by other checks (`broken-links`,
+ * `crawler-fetch-limit`) and are not read again here.
+ *
+ * Rendering is opt-in per crawl (`CrawlOptions.renderPages`), unlike the raw
+ * fetch every page already has: a page with no render captured at all is
+ * `not-applicable`, the same as any other check whose evidence the caller
+ * chose not to gather, not `error`, which is reserved for a render that was
+ * attempted and failed.
+ */
+export const renderingStrategyClassifier: PageProbe = {
+  id: 'rendering-strategy-classifier',
+  scope: 'page',
+  htmlOnly: true,
+  title: 'Raw and rendered responses agree on what a crawler should do',
+  run({ page }) {
+    const rendered = page.rendered;
+    if (rendered === undefined || rendered === null) {
+      return notApplicable('No render was captured for this crawl; rendering was not requested.');
+    }
+    if (rendered.render.error !== null) {
+      return errored(`Rendering failed: ${rendered.render.error}.`);
+    }
+    const renderedExtracted = rendered.extracted;
+    const comparison = rendered.comparison;
+    if (renderedExtracted === null || comparison === null) {
+      return errored('The rendered response was empty or not HTML, so there is nothing to compare it against.');
+    }
+
+    const raw = page.extracted;
+    if (raw === null) return notApplicable('Response is not HTML.');
+
+    const rawNoindex = NOINDEX.test(raw.metaRobots ?? '');
+    const renderedNoindex = NOINDEX.test(renderedExtracted.metaRobots ?? '');
+    if (rawNoindex !== renderedNoindex) {
+      return fail(
+        rawNoindex
+          ? 'The raw response carries noindex, but the rendered page does not: a non-rendering crawler excludes this page and a rendering one indexes it.'
+          : 'The rendered page carries noindex, but the raw response does not: a non-rendering crawler indexes this page and a rendering one excludes it.',
+        { rawMetaRobots: raw.metaRobots, renderedMetaRobots: renderedExtracted.metaRobots },
+      );
+    }
+
+    if (!comparison.canonicalMatches) {
+      return fail(
+        `The declared canonical differs between raw and rendered: raw names ${raw.canonical ?? 'none'}, rendered names ${renderedExtracted.canonical ?? 'none'}.`,
+        { rawCanonical: raw.canonical, renderedCanonical: renderedExtracted.canonical },
+      );
+    }
+
+    if (comparison.wordCountRaw === 0 && comparison.wordCountRendered > 0) {
+      return fail(
+        `The raw response has no reading matter at all (${comparison.wordCountRendered} word(s) appear only after rendering); a crawler that does not render this page sees an empty one.`,
+        { wordCountRaw: comparison.wordCountRaw, wordCountRendered: comparison.wordCountRendered },
+      );
+    }
+
+    const gap = (rawCount: number, renderedCount: number, min: number): boolean =>
+      renderedCount > rawCount * GAP_RATIO && renderedCount - rawCount >= min;
+
+    const findings: string[] = [];
+    if (gap(comparison.wordCountRaw, comparison.wordCountRendered, WORD_GAP_MIN)) {
+      findings.push(`${comparison.wordCountRaw} word(s) raw vs ${comparison.wordCountRendered} rendered`);
+    }
+    if (gap(comparison.linkCountRaw, comparison.linkCountRendered, LINK_GAP_MIN)) {
+      findings.push(`${comparison.linkCountRaw} link(s) raw vs ${comparison.linkCountRendered} rendered`);
+    }
+    if (comparison.jsonLdCountRendered > comparison.jsonLdCountRaw) {
+      findings.push(`${comparison.jsonLdCountRaw} JSON-LD node(s) raw vs ${comparison.jsonLdCountRendered} rendered`);
+    }
+
+    if (findings.length > 0) {
+      return warn(
+        `Rendering adds meaningfully to the raw response (${findings.join('; ')}); confirm a non-rendering crawler still gets what it needs.`,
+        { ...comparison },
+      );
+    }
+
+    return pass('Raw and rendered responses agree on indexing directives, canonical and substance.', { ...comparison });
+  },
+};
+
 export const xRobotsTagNonHtml: PageProbe = {
   id: 'x-robots-tag-non-html',
   scope: 'page',
@@ -205,4 +319,9 @@ export const xRobotsTagNonHtml: PageProbe = {
   },
 };
 
-export const indexabilityProbes = [internalSearchIndexability, localeCanonical, xRobotsTagNonHtml];
+export const indexabilityProbes = [
+  internalSearchIndexability,
+  localeCanonical,
+  renderingStrategyClassifier,
+  xRobotsTagNonHtml,
+];

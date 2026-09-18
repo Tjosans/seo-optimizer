@@ -10,7 +10,7 @@ seo-optimizer is an SEO launch-readiness auditor. It crawls a site, runs it agai
 
 - **@seo/core** — types for checks, check state, both readiness assessments (launch readiness, and v5.0's READY FOR CUTOVER with review freshness), and the site inputs a person supplies (AI crawler policy)
 - **@seo/corpus** — loader for the versioned check corpus (YAML phases 0-7, source TSV); `CURRENT_CORPUS_VERSION` names the methodology the detectors follow (5.0), and v4.4 stays on disk so audits pinned to it can be re-graded
-- **@seo/crawler** — site crawler respecting robots.txt, redirect chains, sitemaps (and the video and news entries they declare), flagging any response body it had to cut; stops between requests on a caller's signal; makes the auxiliary requests probes are not allowed to make themselves
+- **@seo/crawler** — site crawler respecting robots.txt, redirect chains, sitemaps (and the video and news entries they declare), flagging any response body it had to cut; stops between requests on a caller's signal; makes the auxiliary requests probes are not allowed to make themselves; `renderPage` runs a page through a headless Chromium instead of a raw fetch, so `extract()` can read the DOM a browser builds, scripts included
 - **@seo/probes** — 13 detector categories (accessibility, commerce, content, delivery, facets, indexability, markup, media, metadata, news, qa, site, video)
 - **@seo/persistence** — sink that streams crawls and probe runs into Postgres
 - **@seo/queue** — in-process job queue: bounded concurrency, one crawl at a time per origin, retries on a caller's policy, outstanding work written to an optional durable store and held on a lease it renews
@@ -37,6 +37,7 @@ Prerequisites: Node.js 24+, Docker.
 
 ```bash
 npm install
+npx playwright install chromium   # headless browser @seo/crawler's renderPage drives
 cp .env.example .env
 npm run stack:up          # Postgres on localhost:5433, Redis on localhost:6380
 npm run db:migrate
@@ -184,7 +185,7 @@ Pre-launch QA is the seventh, and the split is by what a finding sits between. 4
 
 ## Testing
 
-Unit tests (no database needed): `packages/core/test/{site,cutover}.test.ts`, `packages/corpus/test/{corpus,provenance,provenance-v5.0,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,fetch,protocol,robots,sitemap,url}.test.ts`, `packages/probes/test/{probes,detectors,facets,news,qa,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store,lease}.test.ts`, `packages/grader/test/{grade,release-file}.test.ts` (the parser half), `packages/scheduler/test/{retry,lane}.test.ts`.
+Unit tests (no database needed): `packages/core/test/{site,cutover}.test.ts`, `packages/corpus/test/{corpus,provenance,provenance-v5.0,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,fetch,protocol,render,robots,sitemap,url}.test.ts`, `packages/probes/test/{probes,detectors,facets,news,qa,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store,lease}.test.ts`, `packages/grader/test/{grade,release-file}.test.ts` (the parser half), `packages/scheduler/test/{retry,lane}.test.ts`.
 
 Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/{scheduler,recovery,cancel,flags,ai-policy,release}.test.ts`, `packages/job-store/test/postgres.test.ts`, `packages/grader/test/{record,release,release-file}.test.ts`.
 

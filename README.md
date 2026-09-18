@@ -28,11 +28,15 @@ The system is a pipeline of packages under `packages/`, each with one job:
 
 ```bash
 npm install
+npx playwright install chromium
 cp .env.example .env
 npm run stack:up
 npm run db:migrate
 npm run build
 ```
+
+`playwright install chromium` downloads the headless browser `@seo/crawler`'s
+`renderPage` drives; `packages/crawler/test/render.test.ts` needs it to run.
 
 `stack:up` starts Postgres and Redis via `docker-compose.yml` on the ports in
 `.env` (5433/6380 by default, one above the standard ports, so this can run

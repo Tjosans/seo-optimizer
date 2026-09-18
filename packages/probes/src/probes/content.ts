@@ -27,9 +27,10 @@
  */
 
 import { isSameSite, normalizeUrl } from '@seo/crawler';
-import type { Extracted } from '@seo/crawler';
+import type { CrawledPage, Extracted } from '@seo/crawler';
 import type { PageProbe, SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
+import { isNoindex } from './commerce.js';
 import { jsonLdNodes, typesOf } from './metadata.js';
 
 const NO_HTML = 'No HTML was parsed for this response.';
@@ -651,10 +652,109 @@ export const batchPageQuality: SiteProbe = {
   },
 };
 
+// --- cannibalization ---------------------------------------------------
+
+/**
+ * Whether a page's own canonical, if it declares one, names itself. A page
+ * with none is self-canonical by default: nothing on it tells a search engine
+ * to look elsewhere, which is the state `product-variant-canonical`'s "every
+ * address is its own page" rule also treats as a claim to be judged.
+ */
+const isSelfCanonical = (page: CrawledPage): boolean => {
+  const canonical = page.extracted?.canonical ?? null;
+  if (canonical === null) return true;
+  const target = normalizeUrl(canonical);
+  return target === null || target === page.normalizedUrl || target === normalizeUrl(page.fetch.finalUrl);
+};
+
+/** A page's first `<h1>`, or null. */
+const firstH1 = (extracted: Extracted): string | null =>
+  extracted.headings.find((heading) => heading.level === 1)?.text ?? null;
+
+const fold = (value: string): string => value.trim().toLowerCase();
+
+interface CannibalCluster {
+  readonly signal: 'title' | 'h1';
+  readonly value: string;
+  readonly urls: readonly string[];
+}
+
+/**
+ * 3.10 asks that every materially redundant page have a recorded publish
+ * decision behind it — consolidate onto one stronger page, or keep distinct
+ * pages that merely share an intent. Which of those is right is a person's
+ * call, since it turns on user need, entity and search role, none of which a
+ * crawl reads. What a crawl can name outright is the one shape that is never
+ * itself a decision: two or more pages, each indexable and each
+ * canonicalizing to itself, presenting the identical `<title>` or `<h1>` to a
+ * search engine — competing for the same query with nothing on either page
+ * saying so was intended.
+ *
+ * A page that instead canonicalizes onto one of them has already recorded
+ * that decision — consolidation, `product-variant-canonical`'s question in a
+ * different shape — so it is left out of both sides of the comparison here;
+ * only self-canonical pages compete for the same query.
+ *
+ * The check is `assisted`: a fail here is a proposal for a person to confirm
+ * or dismiss, per 3.10's own caution against "assuming every overlap is
+ * harmful cannibalization" — a fail from this detector says only that no
+ * decision is visible, not that consolidating is the right one.
+ */
+export const cannibalization: SiteProbe = {
+  id: 'cannibalization',
+  scope: 'site',
+  title: 'No two self-canonical pages present the same title or heading',
+  run({ crawl }) {
+    const candidates = crawl.pages.filter(
+      (page) => page.extracted !== null && page.fetch.status === 200 && !isNoindex(page) && isSelfCanonical(page),
+    );
+    if (candidates.length < 2) {
+      return notApplicable('Fewer than two indexable, self-canonical pages were crawled.');
+    }
+
+    const readers: readonly [CannibalCluster['signal'], (page: CrawledPage) => string | null][] = [
+      ['title', (page) => page.extracted?.title ?? null],
+      ['h1', (page) => firstH1(page.extracted as Extracted)],
+    ];
+
+    const clusters: CannibalCluster[] = [];
+    for (const [signal, read] of readers) {
+      const groups = new Map<string, Set<string>>();
+      for (const page of candidates) {
+        const value = read(page);
+        if (value === null || value.trim() === '') continue;
+        const key = fold(value);
+        const urls = groups.get(key) ?? new Set<string>();
+        urls.add(page.normalizedUrl);
+        groups.set(key, urls);
+      }
+      for (const [value, urls] of groups) {
+        if (urls.size > 1) clusters.push({ signal, value, urls: [...urls] });
+      }
+    }
+
+    if (clusters.length === 0) {
+      return pass(
+        `${candidates.length} indexable, self-canonical page(s) read; none share an identical title or h1 with another. ` +
+          'Whether any remaining overlap is harmful competition between distinct pages is for a person.',
+        { pagesRead: candidates.length },
+      );
+    }
+
+    const affected = new Set(clusters.flatMap((cluster) => cluster.urls));
+    return fail(
+      `${clusters.length} cluster(s) across ${affected.size} page(s) are self-canonical and present an identical ` +
+        'title or h1, with no canonical decision consolidating them: record why each is distinct, or consolidate.',
+      { pagesRead: candidates.length, clusters: sample(clusters) },
+    );
+  },
+};
+
 export const contentProbes = [
   answerFirstStructure,
   authorDateSignals,
   trustPagesPresence,
   outboundLinkQualification,
   batchPageQuality,
+  cannibalization,
 ];

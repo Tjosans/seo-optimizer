@@ -3160,3 +3160,81 @@ describe('paywall-access-model', () => {
     );
   });
 });
+
+// --- 3.10 cannibalization ---------------------------------------------------
+
+interface CannibalSpec {
+  readonly title?: string;
+  readonly h1?: string | null;
+  readonly canonical?: string | null;
+  readonly noindex?: boolean;
+  readonly status?: number;
+}
+
+const named = (
+  path: string,
+  { title = 'Guide', h1, canonical, noindex = false, status = 200 }: CannibalSpec = {},
+): CrawledPage =>
+  page({
+    path,
+    status,
+    html:
+      '<html><head>' +
+      `<title>${title}</title>` +
+      (canonical === undefined ? '' : canonical === null ? '' : `<link rel="canonical" href="${ORIGIN}${canonical}">`) +
+      (noindex ? '<meta name="robots" content="noindex">' : '') +
+      `</head><body>${h1 === undefined ? `<h1>${title}</h1>` : h1 === null ? '' : `<h1>${h1}</h1>`}<p>text</p></body></html>`,
+  });
+
+const runCannibal = (pages: readonly CrawledPage[]): Observation => runSite('cannibalization', pages);
+
+describe('cannibalization', () => {
+  it('says nothing with fewer than two indexable, self-canonical pages', () => {
+    expect(runCannibal([named('/a')]).outcome).toBe('not-applicable');
+  });
+
+  it('fails two self-canonical pages sharing a title after trimming and case-folding', () => {
+    const observation = runCannibal([
+      named('/a', { title: ' Best Running Shoes ', h1: 'Something else' }),
+      named('/b', { title: 'best running shoes', h1: 'Another thing' }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('title or h1');
+    const clusters = observation.data?.['clusters'] as { signal: string; urls: string[] }[];
+    expect(clusters[0]?.signal).toBe('title');
+    expect(clusters[0]?.urls).toEqual(expect.arrayContaining([`${ORIGIN}/a`, `${ORIGIN}/b`]));
+  });
+
+  it('fails two self-canonical pages sharing an h1 with different titles', () => {
+    const observation = runCannibal([
+      named('/a', { title: 'Page A', h1: 'Running shoes' }),
+      named('/b', { title: 'Page B', h1: 'running shoes' }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    const clusters = observation.data?.['clusters'] as { signal: string }[];
+    expect(clusters.some((cluster) => cluster.signal === 'h1')).toBe(true);
+  });
+
+  it('leaves a page alone once it canonicalizes onto the one it would otherwise cannibalize', () => {
+    const observation = runCannibal([
+      named('/a', { title: 'Best running shoes' }),
+      named('/b', { title: 'Best running shoes', canonical: '/a' }),
+      named('/c', { title: 'Unrelated page' }),
+    ]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('leaves a noindexed duplicate out of the comparison', () => {
+    const observation = runCannibal([
+      named('/a', { title: 'Best running shoes' }),
+      named('/b', { title: 'Best running shoes', noindex: true }),
+      named('/c', { title: 'Unrelated page' }),
+    ]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('passes distinct pages with no shared title or h1', () => {
+    const observation = runCannibal([named('/a', { title: 'Alpha' }), named('/b', { title: 'Beta' })]);
+    expect(observation.outcome).toBe('pass');
+  });
+});

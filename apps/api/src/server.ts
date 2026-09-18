@@ -9,27 +9,45 @@
  * `/sites` is site management: create, list, update, delete. Validation lives
  * in `sites.ts` (`parseSiteInput`), shared by the create and update handlers
  * the same way `parseReleaseFile` is shared by the release door above.
+ *
+ * `/audits` is the audit lifecycle: `POST /audits` submits one through the
+ * same `AuditScheduler` a caller building this server already constructed —
+ * this endpoint carries no scheduling policy of its own, only request
+ * validation (`audits.ts`, `parseAuditRequest`). `GET /audits/:id` reads the
+ * durable row back, and `GET /audits/:id/result` adds the checks graded
+ * against it. Attestation and a standalone readiness endpoint are their own
+ * roadmap lines.
  */
 
 import { createServer as createHttpServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
-import { eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import type { Corpus } from '@seo/core';
 import type { Database } from '@seo/db';
-import { sites } from '@seo/db';
+import { audits, checkStates, sites } from '@seo/db';
 import {
   ReleaseFileError,
   ReviewRunConflictError,
+  UnknownReleaseError,
   UnknownSiteOriginError,
   importReleaseFile,
   parseReleaseFile,
 } from '@seo/grader';
+import type { AuditScheduler } from '@seo/scheduler';
+import { UnknownSiteError } from '@seo/scheduler';
+import { AuditInputError, parseAuditRequest } from './audits.js';
 import { SiteInputError, parseSiteInput } from './sites.js';
 
 export interface ApiServerOptions {
   readonly db: Database;
   /** Resolves a corpus version — the file's own, or the caller's default when it names none. */
   readonly loadCorpus: (version: string | undefined) => Corpus;
+  /**
+   * Runs the audits this server submits. Optional so a server built only for
+   * `/releases` or `/sites` (as every existing test here does) need not wire
+   * one up; `/audits` answers 503 without it rather than throwing.
+   */
+  readonly scheduler?: AuditScheduler;
 }
 
 export function createServer(options: ApiServerOptions): Server {
@@ -69,6 +87,20 @@ async function handle(req: IncomingMessage, res: ServerResponse, options: ApiSer
       await deleteSite(res, options, id);
       return;
     }
+  }
+  if (req.method === 'POST' && path === '/audits') {
+    await postAudit(req, res, options);
+    return;
+  }
+  const auditResultMatch = /^\/audits\/([^/]+)\/result$/.exec(path);
+  if (auditResultMatch && req.method === 'GET') {
+    await getAuditResult(res, options, decodeURIComponent(auditResultMatch[1]!));
+    return;
+  }
+  const auditMatch = /^\/audits\/([^/]+)$/.exec(path);
+  if (auditMatch && req.method === 'GET') {
+    await getAudit(res, options, decodeURIComponent(auditMatch[1]!));
+    return;
   }
   send(res, 404, { error: 'not found' });
 }
@@ -192,6 +224,107 @@ async function deleteSite(res: ServerResponse, options: ApiServerOptions, id: st
     }
     throw error;
   }
+}
+
+async function postAudit(req: IncomingMessage, res: ServerResponse, options: ApiServerOptions): Promise<void> {
+  const scheduler = options.scheduler;
+  if (scheduler === undefined) {
+    send(res, 503, { error: 'no audit scheduler is configured on this server' });
+    return;
+  }
+
+  let body: unknown;
+  try {
+    body = await readJsonBody(req);
+  } catch (error) {
+    send(res, 400, { error: error instanceof Error ? error.message : 'invalid JSON body' });
+    return;
+  }
+
+  let request;
+  try {
+    request = parseAuditRequest(body);
+  } catch (error) {
+    if (error instanceof AuditInputError) {
+      send(res, 400, { error: 'invalid audit', problems: error.problems });
+      return;
+    }
+    throw error;
+  }
+
+  try {
+    const handle = await scheduler.submit(request);
+    send(res, 202, { auditId: handle.auditId, status: 'pending' });
+  } catch (error) {
+    if (error instanceof UnknownSiteError) {
+      send(res, 404, { error: error.message });
+    } else if (error instanceof UnknownReleaseError) {
+      send(res, 404, { error: error.message });
+    } else if (error instanceof Error) {
+      // Everything else `submit` throws synchronously is a bad request: no
+      // seeds, or a site's own AI policy this engine cannot read.
+      send(res, 400, { error: error.message });
+    } else {
+      throw error;
+    }
+  }
+}
+
+async function getAudit(res: ServerResponse, options: ApiServerOptions, id: string): Promise<void> {
+  let row;
+  try {
+    [row] = await options.db.select().from(audits).where(eq(audits.id, id));
+  } catch (error) {
+    if (isInvalidId(error)) {
+      send(res, 400, { error: `invalid audit id: ${id}` });
+      return;
+    }
+    throw error;
+  }
+  if (row === undefined) {
+    send(res, 404, { error: `no audit ${id}` });
+    return;
+  }
+
+  // The in-process view, when this is the worker running it: which attempt,
+  // and whether it is still waiting for a slot. Absent — on another worker,
+  // after a restart, or with no scheduler configured — the database row
+  // above is the whole answer, exactly as durability promises it should be.
+  const job = options.scheduler?.status(id);
+  send(res, 200, {
+    ...row,
+    queue: job === undefined ? null : { state: job.state, attempt: job.attempt, priority: job.priority },
+  });
+}
+
+async function getAuditResult(res: ServerResponse, options: ApiServerOptions, id: string): Promise<void> {
+  let row;
+  try {
+    [row] = await options.db.select().from(audits).where(eq(audits.id, id));
+  } catch (error) {
+    if (isInvalidId(error)) {
+      send(res, 400, { error: `invalid audit id: ${id}` });
+      return;
+    }
+    throw error;
+  }
+  if (row === undefined) {
+    send(res, 404, { error: `no audit ${id}` });
+    return;
+  }
+
+  const checks = await options.db
+    .select()
+    .from(checkStates)
+    .where(eq(checkStates.auditId, id))
+    .orderBy(asc(checkStates.checkId));
+
+  send(res, 200, {
+    auditId: row.id,
+    status: row.status,
+    readiness: row.readiness,
+    checks,
+  });
 }
 
 /** Postgres' error code, unwrapped from drizzle's own `DrizzleQueryError` wrapper. */

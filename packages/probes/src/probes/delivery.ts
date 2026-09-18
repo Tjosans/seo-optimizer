@@ -4,6 +4,7 @@
  * markup, so they apply to every response, not just HTML.
  */
 
+import { isAllowed, isSameSite } from '@seo/crawler';
 import type { AuxiliaryFetch, FetchResult } from '@seo/crawler';
 import type { PageProbe, SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
@@ -421,6 +422,49 @@ export const privateResponseCaching: PageProbe = {
   },
 };
 
+/** Google fetches a page's rendering resources under its main crawler token. */
+const RESOURCE_AGENT = 'Googlebot';
+
+/**
+ * v5.0 4.2 asks that "essential rendering resources" are not blocked, among a
+ * matrix of cache, auth and directive checks a raw crawl cannot see. A
+ * same-site stylesheet or script robots.txt turns Googlebot away from is the
+ * one part of that matrix a crawl can name outright: the resource is linked,
+ * the rule is on record, and the two disagree.
+ */
+export const indexabilityMatrixReconciliation: PageProbe = {
+  id: 'indexability-matrix-reconciliation',
+  scope: 'page',
+  htmlOnly: true,
+  title: "CSS and JavaScript the page needs to render are not blocked by robots.txt",
+  run({ page, site }) {
+    const extracted = page.extracted;
+    if (extracted === null) return notApplicable('No HTML to read linked resources from.');
+
+    const urls = [...new Set([...extracted.stylesheets, ...extracted.scripts])];
+    if (urls.length === 0) {
+      return notApplicable('The page links no stylesheet or script.');
+    }
+
+    const sameSite = urls.filter((url) => isSameSite(url, site.origin));
+    if (sameSite.length === 0) {
+      return pass(
+        "Every linked stylesheet and script is hosted off-site; this site's robots.txt has nothing to say about them.",
+        { urls },
+      );
+    }
+
+    const blocked = sameSite.filter((url) => !isAllowed(site.crawl.robots, RESOURCE_AGENT, url));
+    if (blocked.length > 0) {
+      return fail(
+        `robots.txt blocks Googlebot from ${blocked.length} resource${blocked.length === 1 ? '' : 's'} this page needs to render: ${blocked.join(', ')}.`,
+        { blocked },
+      );
+    }
+    return pass('Every same-site stylesheet and script the page links is crawlable.', { checked: sameSite.length });
+  },
+};
+
 export const deliveryProbes = [
   httpStatus,
   redirectChain,
@@ -431,4 +475,5 @@ export const deliveryProbes = [
   httpVersion,
   crawlerFetchLimit,
   privateResponseCaching,
+  indexabilityMatrixReconciliation,
 ];

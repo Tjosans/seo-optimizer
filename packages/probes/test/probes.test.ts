@@ -83,6 +83,12 @@ describe('page probes against a site with known defects', () => {
     expect(on('image-discoverability', '/')).toBe('pass');
   });
 
+  // v5.0 4.2: a rendering resource robots.txt turns a crawler away from.
+  it('fails a same-site stylesheet robots.txt disallows', () => {
+    expect(on('indexability-matrix-reconciliation', '/about')).toBe('fail');
+    expect(on('indexability-matrix-reconciliation', '/')).toBe('pass');
+  });
+
   it('fails plain HTTP and skips mixed content as inapplicable there', () => {
     expect(on('https-enforcement', '/')).toBe('fail');
     expect(on('mixed-content', '/')).toBe('not-applicable');

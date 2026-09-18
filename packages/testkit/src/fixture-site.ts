@@ -36,6 +36,8 @@ const page = (options: {
   landmarks?: boolean;
   /** Null omits the tag; unset defaults to a crawlable path. */
   ogImage?: string | null;
+  /** A same-site stylesheet to link, for a probe reading robots.txt against it. */
+  stylesheet?: string;
 }): string => `<!doctype html>
 <html lang="en">
 <head>
@@ -48,6 +50,7 @@ ${options.canonical === null ? '' : `<link rel="canonical" href="${options.canon
 <meta property="og:description" content="Social description.">
 ${options.ogImage === null ? '' : `<meta property="og:image" content="${options.ogImage ?? '/img/card.png'}">`}
 <meta property="og:url" content="${options.canonical ?? '/'}">
+${options.stylesheet === undefined ? '' : `<link rel="stylesheet" href="${options.stylesheet}">`}
 <script src="https://cdn.example.com/analytics.js"></script>
 </head>
 <body>
@@ -102,6 +105,9 @@ export async function startFixtureSite(): Promise<FixtureSite> {
         // Robots.txt disallows /private/, so this page's own representative
         // image is one a crawler can never fetch.
         ogImage: '/private/card.png',
+        // Same rule, a stylesheet this time: a resource the page needs to
+        // render that robots.txt keeps a crawler from ever fetching.
+        stylesheet: '/private/style.css',
         extra:
           '<a href="/gone">A link that 404s</a> <a href="/search?q=shoes">Search for shoes</a>',
       }),

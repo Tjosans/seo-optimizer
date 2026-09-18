@@ -158,12 +158,19 @@ export function toPageRow(args: {
  * The extracted signals are stored minus `text`: bodies never enter Postgres,
  * and page text is body, not signal. Its fingerprint survives as `textHash`,
  * which is what a raw-vs-rendered parity check compares.
+ *
+ * `bodyKey` is the caller's to supply, not this function's to compute: writing
+ * to a `BlobStore` is I/O, and this mapper stays a pure translation testable
+ * with no store at all. A caller with no store, or one that chose not to
+ * upload this body, passes nothing and the column stays null, exactly as
+ * before.
  */
 export function toRenderRow(args: {
   readonly id: string;
   readonly pageId: string;
   readonly page: CrawledPage;
   readonly capturedAt?: Date;
+  readonly bodyKey?: string | null;
 }): NewRender | null {
   const { extracted, fetch } = args.page;
   if (extracted === null) return null;
@@ -176,7 +183,7 @@ export function toRenderRow(args: {
     // into a join rather than a special case.
     mode: 'raw',
     bodyHash: sha256(fetch.body),
-    bodyKey: null,
+    bodyKey: args.bodyKey ?? null,
     byteLength: fetch.byteLength,
     textHash: sha256(text),
     extracted: signals,

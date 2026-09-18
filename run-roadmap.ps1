@@ -19,7 +19,8 @@ param(
     [string]$Model         = "sonnet",     # sonnet | opus | fable | claude-sonnet-5 ...
     [string]$Effort        = "high",       # low | medium | high | xhigh | max
     [string]$TestCommand   = "npm test",   # the exact command Claude must run
-    [int]   $MaxTurns      = 80            # safety cap per task (agent turns)
+    [int]   $MaxTurns      = 80,           # safety cap per task (agent turns)
+    [int]   $MaxTaskLength = 600           # chars; a longer line is a batch, not a task
 )
 
 $LogDir = "logs"
@@ -72,6 +73,21 @@ while ($Iteration -lt $MaxIterations) {
     }
     $Task = $Match.Groups[1].Value.Trim()
 
+    # ---- Size guard: a task a fresh session cannot finish is not a task ----
+    # A roadmap line that bundles a whole phase ("implement more detectors —
+    # 68 of 134 ...") burns the turn budget reading the codebase and commits
+    # nothing. Refuse it up front, before paying for a session, and say what
+    # to do instead: one checkbox per detector / migration / endpoint.
+    if ($Task.Length -gt $MaxTaskLength) {
+        $Note = "  <!-- SPLIT by runner: $($Task.Length) chars is a batch, not a task. Break it into one checkbox per unit (e.g. one detector) and re-run. -->"
+        $Content = $Content.Replace("- [ ] $Task", "- [!] $Task$Note")
+        Set-Content -Path $RoadmapFile -Value $Content -NoNewline
+        git add -- $RoadmapFile
+        git commit -m "chore(roadmap): mark oversized task for splitting" -m $Task | Out-Null
+        Write-Warning "Task is $($Task.Length) chars (limit $MaxTaskLength). Marked [!] for splitting and stopping:`n$Task"
+        break
+    }
+
     # ---- Stuck detection: same task seen 3 times = 2 failed attempts -------
     if ($Task -eq $LastTask) { $RepeatCount++ } else { $RepeatCount = 0 }
     if ($RepeatCount -ge 2) {
@@ -102,8 +118,8 @@ Rules:
 3. If tests pass: in $RoadmapFile change the line '- [ ] $Task' to '- [x] $Task'.
    If tests still fail after reasonable attempts: do NOT mark it done. Add an indented line
    directly under the task starting with '  - NOTE:' explaining what is blocking it.
-4. Append one line under the '## Progress log' heading in CLAUDE.md:
-   '- $Task — <one short sentence on what changed>'
+4. If you made a non-obvious choice, add one dated line under '## Decisions' in $RoadmapFile
+   ('- <YYYY-MM-DD>: <choice and one-line rationale>'). Do not edit CLAUDE.md unless the task says to.
 5. Do NOT run git commit or git push. The runner script commits after you finish.
 End with a one-line summary of what you did.
 "@

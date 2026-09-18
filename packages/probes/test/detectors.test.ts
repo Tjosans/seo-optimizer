@@ -2304,6 +2304,81 @@ describe('http-version', () => {
   });
 });
 
+// --- 1.18 domain-expiry-rdap -------------------------------------------------
+
+describe('domain-expiry-rdap', () => {
+  const FETCHED_AT = '2026-06-01T00:00:00.000Z';
+
+  const rdap = (overrides: Partial<NonNullable<CrawlResult['rdap']>> = {}): NonNullable<CrawlResult['rdap']> => ({
+    domain: 'example.com',
+    expiresAt: '2027-06-01T00:00:00.000Z',
+    registrar: 'Example Registrar, Inc.',
+    statuses: ['client transfer prohibited'],
+    fetchedAt: FETCHED_AT,
+    error: null,
+    ...overrides,
+  });
+
+  const runRdap = (check?: CrawlResult['rdap']): Observation => {
+    const site = siteOf([page({ path: '/', depth: 0 })]);
+    return siteProbe('domain-expiry-rdap').run({
+      ...site,
+      crawl: { ...site.crawl, ...(check === undefined ? {} : { rdap: check }) },
+    });
+  };
+
+  it('passes a domain comfortably inside its term', () => {
+    const observation = runRdap(rdap());
+    expect(observation.outcome).toBe('pass');
+    expect(observation.summary).toContain('does not expire until');
+  });
+
+  it('holds a domain expiring within 30 days as a near-term risk', () => {
+    const observation = runRdap(rdap({ expiresAt: '2026-06-20T00:00:00.000Z' }));
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toContain('within 30 days');
+  });
+
+  it('fails a domain that has already expired', () => {
+    const observation = runRdap(rdap({ expiresAt: '2026-05-01T00:00:00.000Z' }));
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('expired');
+  });
+
+  it('fails a domain in the post-expiry deletion process regardless of the date', () => {
+    const observation = runRdap(rdap({ statuses: ['redemption period'] }));
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('redemption period');
+  });
+
+  it('reports a lookup failure as unobservable, never as a defect', () => {
+    const observation = runRdap(rdap({ expiresAt: null, error: 'RDAP answered 404' }));
+    expect(observation.outcome).toBe('error');
+    expect(observation.summary).toContain('RDAP answered 404');
+  });
+
+  it('reports a record with no expiration event as unobservable', () => {
+    const observation = runRdap(rdap({ expiresAt: null }));
+    expect(observation.outcome).toBe('error');
+  });
+
+  it('reports a crawl of a real domain that recorded no RDAP lookup as unobservable', () => {
+    expect(runRdap().outcome).toBe('error');
+  });
+
+  it('is not applicable on a host no registry answers for, such as the fixture site', () => {
+    // The crawl never looks up a single-label host — the same rule that
+    // keeps host variants off the fixture site — so no lookup is recorded.
+    const site = siteOf([page({ path: '/', depth: 0 })]);
+    const root = site.crawl.pages[0]!;
+    const finalUrl = 'http://localhost:4321/';
+    const crawlOf = { ...site.crawl, pages: [{ ...root, fetch: { ...root.fetch, finalUrl } }] };
+    const observation = siteProbe('domain-expiry-rdap').run({ ...site, crawl: crawlOf });
+    expect(observation.outcome).toBe('not-applicable');
+    expect(observation.summary).toContain('no registrable domain');
+  });
+});
+
 // --- 3.11 content-accessibility --------------------------------------------
 
 describe('content-accessibility', () => {

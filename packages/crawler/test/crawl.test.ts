@@ -627,8 +627,9 @@ describe('the external-link auxiliary pass', () => {
       maxPages: 2,
       maxDepth: 1,
       fetchImpl: fetchImpl as unknown as typeof fetchPage,
-      // No real TLS handshake to a host that does not exist.
+      // No real TLS handshake or RDAP lookup against a host that does not exist.
       negotiateImpl: async (origin) => ({ origin, alpn: null, tlsVersion: null, error: null }),
+      rdapImpl: async (domain) => ({ domain, expiresAt: null, registrar: null, statuses: [], fetchedAt: new Date().toISOString(), error: null }),
     });
   });
 
@@ -706,6 +707,7 @@ describe('the asset auxiliary pass', () => {
       maxDepth: 1,
       fetchImpl: fetchImpl as unknown as typeof fetchPage,
       negotiateImpl: async (origin) => ({ origin, alpn: null, tlsVersion: null, error: null }),
+      rdapImpl: async (domain) => ({ domain, expiresAt: null, registrar: null, statuses: [], fetchedAt: new Date().toISOString(), error: null }),
     });
   });
 

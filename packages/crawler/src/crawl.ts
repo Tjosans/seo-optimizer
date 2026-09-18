@@ -18,6 +18,8 @@ import { ALLOW_ALL, crawlDelayMs, isAllowed, parseRobots } from './robots.js';
 import type { Robots } from './robots.js';
 import { negotiateProtocol } from './protocol.js';
 import type { ProtocolCheck } from './protocol.js';
+import { lookupDomainRdap, registrableDomain } from './rdap.js';
+import type { RdapCheck } from './rdap.js';
 import { SITEMAP_MAX_BYTES, createSitemapParser } from './sitemap.js';
 import type { SitemapNews, SitemapVideo } from './sitemap.js';
 import { isSameSite, normalizeUrl } from './url.js';
@@ -82,6 +84,8 @@ export interface CrawlOptions {
   readonly fetchImpl?: typeof fetchPage;
   /** Injection seam for the TLS handshake, like `fetchImpl` for requests. */
   readonly negotiateImpl?: typeof negotiateProtocol;
+  /** Injection seam for the RDAP lookup, like `fetchImpl` for requests. */
+  readonly rdapImpl?: typeof lookupDomainRdap;
   /** Called as each page completes, so a long crawl can stream to storage. */
   readonly onPage?: (page: CrawledPage) => void | Promise<void>;
 }
@@ -222,6 +226,14 @@ export interface CrawlResult {
    * existed. Absent is not HTTP/1.1 — it is not knowing.
    */
   readonly protocol?: ProtocolCheck;
+  /**
+   * The root document's host, as its own registry's RDAP record describes it.
+   *
+   * Absent under the same conditions as `protocol`, plus one more: a host with
+   * no registrable domain to look up — an IP literal, `localhost`, any
+   * single-label name — for which there is nothing a registry could answer.
+   */
+  readonly rdap?: RdapCheck;
 }
 
 interface QueueEntry {
@@ -559,6 +571,7 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
   }
 
   let protocol: ProtocolCheck | undefined;
+  let rdap: RdapCheck | undefined;
 
   // After the walk, because the icons a site declares are found by reading its
   // root document, and reading it is what the walk just did.
@@ -634,6 +647,22 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
         ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
       });
     }
+
+    // Registration is a fact about the host, not the scheme, so this asks
+    // regardless of whether `landed` answered over HTTP or HTTPS — unlike the
+    // handshake above, which only HTTPS has an answer to.
+    // Skipped, like the host variants, for a host no registry could answer
+    // for — an IP, `localhost`, any single-label name — which is why it never
+    // fires against the fixture site.
+    const rdapHost = landed !== null ? hostOf(landed)?.replace(/:\d+$/, '') ?? null : null;
+    if (rdapHost !== null && registrableDomain(rdapHost) !== null) {
+      stopIfCancelled(options.signal);
+      if (!first) await sleep(delayMs, options.signal);
+      first = false;
+      rdap = await (options.rdapImpl ?? lookupDomainRdap)(rdapHost, {
+        ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+      });
+    }
   }
 
   return {
@@ -658,6 +687,7 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
     ],
     auxiliary,
     ...(protocol === undefined ? {} : { protocol }),
+    ...(rdap === undefined ? {} : { rdap }),
   };
 }
 

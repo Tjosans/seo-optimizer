@@ -4,7 +4,7 @@
  * markup, so they apply to every response, not just HTML.
  */
 
-import { isAllowed, isSameSite } from '@seo/crawler';
+import { isAllowed, isSameSite, registrableDomain } from '@seo/crawler';
 import type { AuxiliaryFetch, FetchResult } from '@seo/crawler';
 import type { PageProbe, SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
@@ -200,6 +200,78 @@ export const httpVersion: SiteProbe = {
       `Only HTTP/1.1 is offered: the TLS handshake ${protocol.alpn === null ? 'negotiated no protocol at all' : 'chose http/1.1 over h2'}, and no Alt-Svc header advertises HTTP/3.`,
       data,
     );
+  },
+};
+
+const hostnameOf = (url: string): string | null => {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
+  }
+};
+
+/** A domain expiring inside this many days of the RDAP lookup is a near-term risk. */
+const EXPIRY_WARNING_DAYS = 30;
+
+/** RDAP statuses that mean the registration has already lapsed into the deletion process. */
+const LAPSED_STATUSES = ['pending delete', 'redemption period'];
+
+/**
+ * Whether the production domain is at risk of expiring out from under the site.
+ *
+ * 1.18's "Done when" is mostly a registrar-account record — named owner,
+ * recovery contacts, protected access — that no public record carries. Expiry
+ * is the one fact settled either way by the registry's own RDAP record: a
+ * domain days from lapsing, or already in the post-expiry deletion process,
+ * is a defect however the rest of the record reads, and a domain comfortably
+ * inside its term is not something a person needs to re-confirm. Registrar
+ * name and transfer-lock status are recorded for the review the rest of 1.18
+ * still needs, but do not move this verdict — many legitimately-run domains
+ * carry no lock status in RDAP at all.
+ */
+export const domainExpiryRdap: SiteProbe = {
+  id: 'domain-expiry-rdap',
+  scope: 'site',
+  title: 'The production domain is not at risk of near-term expiry',
+  run({ crawl }) {
+    const rdap = crawl.rdap;
+    if (rdap === undefined) {
+      const root = [...crawl.pages].sort((a, b) => a.depth - b.depth)[0];
+      const host = root === undefined ? null : hostnameOf(root.fetch.finalUrl);
+      if (host !== null && registrableDomain(host) === null) {
+        return notApplicable(`${host} has no registrable domain, so there is no registry to ask.`);
+      }
+      return errored('No RDAP lookup was recorded for this crawl.');
+    }
+    const data = {
+      domain: rdap.domain,
+      registrar: rdap.registrar,
+      expiresAt: rdap.expiresAt,
+      statuses: rdap.statuses,
+    };
+    if (rdap.error !== null) {
+      return errored(`The RDAP lookup for ${rdap.domain} failed: ${rdap.error}.`, data);
+    }
+    if (rdap.statuses.some((status) => LAPSED_STATUSES.includes(status.toLowerCase()))) {
+      return fail(`${rdap.domain} carries an RDAP status of the post-expiry deletion process: ${rdap.statuses.join(', ')}.`, data);
+    }
+    if (rdap.expiresAt === null) {
+      return errored(`The RDAP record for ${rdap.domain} names no expiration date.`, data);
+    }
+    const expires = new Date(rdap.expiresAt);
+    const fetchedAt = new Date(rdap.fetchedAt);
+    if (Number.isNaN(expires.getTime())) {
+      return errored(`The RDAP record for ${rdap.domain} names an unparseable expiration date "${rdap.expiresAt}".`, data);
+    }
+    const daysLeft = (expires.getTime() - fetchedAt.getTime()) / 86_400_000;
+    if (daysLeft < 0) {
+      return fail(`${rdap.domain} expired ${rdap.expiresAt}.`, data);
+    }
+    if (daysLeft <= EXPIRY_WARNING_DAYS) {
+      return warn(`${rdap.domain} expires ${rdap.expiresAt}, within ${EXPIRY_WARNING_DAYS} days.`, data);
+    }
+    return pass(`${rdap.domain} does not expire until ${rdap.expiresAt}.`, data);
   },
 };
 
@@ -473,6 +545,7 @@ export const deliveryProbes = [
   securityHeaders,
   compressionCache,
   httpVersion,
+  domainExpiryRdap,
   crawlerFetchLimit,
   privateResponseCaching,
   indexabilityMatrixReconciliation,

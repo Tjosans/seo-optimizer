@@ -19,6 +19,8 @@ import type { BlobStore } from '@seo/storage';
 import {
   crawlToDatabase,
   persistProbeRuns,
+  readArchivedCrawl,
+  readRenderBody,
   toCrawlCompletion,
   toPageLinkRows,
   toPageRow,
@@ -184,6 +186,37 @@ describe('mapping a crawled page to rows', () => {
     };
     expect(toCrawlCompletion(slow, options).requestDelayMs).toBe(2000);
     expect(toCrawlCompletion(result, options).requestDelayMs).toBe(0);
+  });
+});
+
+describe('reading a render body back out of a blob store', () => {
+  const store = new FakeBlobStore();
+
+  it('reports not-stored when no key was ever recorded', async () => {
+    const read = await readRenderBody(store, { bodyKey: null, bodyHash: 'irrelevant' });
+    expect(read).toEqual({ status: 'not-stored', body: null });
+  });
+
+  it('reports missing when the store holds nothing under the key', async () => {
+    const read = await readRenderBody(store, {
+      bodyKey: 'sha256/00/does-not-exist',
+      bodyHash: 'irrelevant',
+    });
+    expect(read).toEqual({ status: 'missing', body: null });
+  });
+
+  it('reports corrupt when the bytes at the key do not hash to what was recorded', async () => {
+    const key = await store.put(new TextEncoder().encode('<html>actual</html>'));
+    const read = await readRenderBody(store, { bodyKey: key, bodyHash: 'not-the-real-hash' });
+    expect(read).toEqual({ status: 'corrupt', body: null });
+  });
+
+  it('returns the body once the hash confirms it is what was written', async () => {
+    const body = '<html>hello, archive</html>';
+    const key = await store.put(new TextEncoder().encode(body));
+    const hash = createHash('sha256').update(body, 'utf8').digest('hex');
+    const read = await readRenderBody(store, { bodyKey: key, bodyHash: hash });
+    expect(read).toEqual({ status: 'ok', body });
   });
 });
 
@@ -409,5 +442,27 @@ describe.skipIf(!url)('mapping page bodies into a blob store', () => {
       // The store actually holds the bytes at that key, not just a plausible-looking string.
       expect(await store.get(row.bodyKey!)).not.toBeNull();
     }
+  });
+
+  it('reconstructs every page body the crawl wrote, verified against its hash', async () => {
+    const archived = await readArchivedCrawl(db, store, crawlId);
+    expect(archived.length).toBeGreaterThan(0);
+    expect(archived.every((render) => render.status === 'ok')).toBe(true);
+    expect(archived.every((render) => typeof render.body === 'string')).toBe(true);
+
+    const home = archived.find((render) => render.body?.includes('Home | Fixture'));
+    expect(home).toBeDefined();
+  });
+
+  it('reads back not-stored for a render written with no store at all', async () => {
+    const [row] = await db.insert(sites).values({ name: 'no-store', origin: `${site.origin}/#no-store` }).returning();
+    const [audit] = await db.insert(audits).values({ siteId: row!.id, corpusVersion: '4.4' }).returning();
+    const persisted = await crawlToDatabase(db, { auditId: audit!.id, options });
+
+    const archived = await readArchivedCrawl(db, store, persisted.crawlId);
+    expect(archived.length).toBeGreaterThan(0);
+    expect(archived.every((render) => render.status === 'not-stored')).toBe(true);
+
+    await db.delete(sites).where(eq(sites.id, row!.id));
   });
 });

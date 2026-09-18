@@ -13,6 +13,11 @@
  * whichever of the two ran last. An attestation that had expired by the time
  * of the grade is still left alone, but no longer counted.
  *
+ * Four gates refuse that trade instead: 1.5, 4.2, 4.5 and 4.7 each say in
+ * their own "Done when" that a failed threshold is not passed by an
+ * exception. There, a fresh `verified-fail` overwrites the attestation like
+ * an ordinary re-grade would, rather than being shadowed by it.
+ *
  * An audit that names a release also freezes READY FOR CUTOVER, read from that
  * release and its site's review log at the grade's own time, over the same
  * merged states.
@@ -39,6 +44,17 @@ import type { FrozenReadiness, GradeResult } from './types.js';
 
 /** Rows per insert. Well under the driver's parameter ceiling. */
 const INSERT_CHUNK = 500;
+
+/**
+ * Launch gates whose own "Done when" names the failure mode outright: 1.5 "an
+ * exception alone cannot pass the gate", 4.2 "not a Passed waiver", 4.5 "not
+ * Passed by a signed exception", 4.7 "an owner/date alone is insufficient".
+ * Everywhere else a human attestation outranks a machine verdict by design
+ * (see the file doc above); these four are where the corpus itself forbids
+ * that trade, so a fresh `verified-fail` here overwrites the attestation
+ * instead of being shadowed by it.
+ */
+const EXCEPTION_PROOF_GATES: ReadonlySet<string> = new Set(['1.5', '4.2', '4.5', '4.7']);
 
 export interface RecordGradeArgs {
   readonly auditId: string;
@@ -75,8 +91,13 @@ export async function recordGrade(
       .from(checkStates)
       .where(eq(checkStates.auditId, args.auditId));
 
+    const gradedById = new Map(args.grade.checks.map((graded) => [graded.checkId, graded]));
+    const overruled = (checkId: string): boolean =>
+      EXCEPTION_PROOF_GATES.has(checkId) && gradedById.get(checkId)?.basis === 'verified-fail';
+
     const attested = existing.filter((row) => row.coverage === 'attested');
-    const preserved = new Set(attested.map((row) => row.checkId));
+    const honored = attested.filter((row) => !overruled(row.checkId));
+    const preserved = new Set(honored.map((row) => row.checkId));
 
     const writable = args.grade.checks.filter((graded) => !preserved.has(graded.checkId));
 
@@ -117,11 +138,12 @@ export async function recordGrade(
     }
 
     // Readiness over the merge: this grade's verdicts, plus the attestations it
-    // was not entitled to touch.
+    // was not entitled to touch (which excludes an exception-proof gate's
+    // attestation once a fresh measurement fails it).
     const states = new Map<string, CheckState>(
       writable.map((graded) => [graded.checkId, toCheckState(graded, args.auditId)]),
     );
-    for (const row of attested) states.set(row.checkId, toState(row));
+    for (const row of honored) states.set(row.checkId, toState(row));
 
     const [audit] = await tx
       .select({ siteId: audits.siteId, releaseId: audits.releaseId })
@@ -153,7 +175,7 @@ export async function recordGrade(
     return {
       frozen,
       written: writable.length,
-      preserved: attested.map((row) => row.checkId),
+      preserved: honored.map((row) => row.checkId),
       evidenceLinks: evidenceRows.length,
     };
   });

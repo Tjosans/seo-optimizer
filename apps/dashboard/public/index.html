@@ -46,10 +46,20 @@
         <h3>Probe evidence — <span id="evidence-check-id"></span></h3>
         <ul id="evidence-list"></ul>
       </div>
+
+      <div id="compare-panel">
+        <h3>Compare with&hellip;</h3>
+        <div class="compare-controls">
+          <select id="compare-site-select"></select>
+          <select id="compare-audit-select" disabled></select>
+          <button id="compare-button" type="button" disabled>Compare</button>
+        </div>
+        <div id="compare-result"></div>
+      </div>
     </div>
   </section>
 </main>
 
-<script src="/app.js"></script>
+<script type="module" src="/app.js"></script>
 </body>
 </html>

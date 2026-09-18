@@ -3,6 +3,8 @@
 // what it gets back. Every fact shown here already exists on some API
 // response; this file only lays it out.
 
+import { overallPercent, diffReadiness, diffChecks } from './compare.js';
+
 const siteListEl = document.getElementById('site-list');
 const detailPanel = document.getElementById('detail-panel');
 const siteNameEl = document.getElementById('site-name');
@@ -15,9 +17,15 @@ const checksTableBody = document.querySelector('#checks-table tbody');
 const evidencePanel = document.getElementById('evidence-panel');
 const evidenceCheckIdEl = document.getElementById('evidence-check-id');
 const evidenceListEl = document.getElementById('evidence-list');
+const compareSiteSelect = document.getElementById('compare-site-select');
+const compareAuditSelect = document.getElementById('compare-audit-select');
+const compareButton = document.getElementById('compare-button');
+const compareResultEl = document.getElementById('compare-result');
 
+let allSites = [];
 let selectedSiteId = null;
 let selectedAuditId = null;
+let selectedAuditData = null; // last GET /audits/:id/result payload for the selected audit
 
 async function api(path) {
   const res = await fetch(`/api${path}`);
@@ -26,15 +34,6 @@ async function api(path) {
     throw new Error(body.error ?? `${res.status} ${res.statusText}`);
   }
   return res.json();
-}
-
-/** Weighted mean of every phase's percentComplete, weighted by its active check count. */
-function overallPercent(progress) {
-  if (!progress || progress.length === 0) return null;
-  const totalActive = progress.reduce((sum, p) => sum + p.active, 0);
-  if (totalActive === 0) return null;
-  const weighted = progress.reduce((sum, p) => sum + p.percentComplete * p.active, 0);
-  return Math.round(weighted / totalActive);
 }
 
 function badge(text, cls) {
@@ -62,6 +61,8 @@ async function loadSites() {
     siteListEl.append(li);
     return;
   }
+
+  allSites = data.sites;
 
   if (data.sites.length === 0) {
     const li = document.createElement('li');
@@ -182,10 +183,12 @@ async function selectSite(site) {
 
 async function selectAudit(auditId) {
   selectedAuditId = auditId;
+  selectedAuditData = null;
   resultPanel.classList.remove('hidden');
   evidencePanel.classList.add('hidden');
   resultAuditIdEl.textContent = auditId;
   checksTableBody.innerHTML = '<tr><td colspan="5">Loading&hellip;</td></tr>';
+  compareResultEl.innerHTML = '';
 
   let data;
   try {
@@ -194,6 +197,9 @@ async function selectAudit(auditId) {
     checksTableBody.innerHTML = `<tr><td colspan="5">Could not load result: ${error.message}</td></tr>`;
     return;
   }
+
+  selectedAuditData = data;
+  populateCompareControls();
 
   checksTableBody.innerHTML = '';
   if (data.checks.length === 0) {
@@ -290,6 +296,165 @@ async function selectCheck(checkId) {
 
     evidenceListEl.append(li);
   }
+}
+
+/** Fill the compare-site dropdown from the sites already loaded, defaulting to the current one. */
+function populateCompareControls() {
+  compareSiteSelect.innerHTML = '';
+  for (const site of allSites) {
+    const opt = document.createElement('option');
+    opt.value = site.id;
+    opt.textContent = site.name;
+    if (site.id === selectedSiteId) opt.selected = true;
+    compareSiteSelect.append(opt);
+  }
+  loadCompareAudits(compareSiteSelect.value);
+}
+
+/** Fill the compare-audit dropdown with the chosen site's audits, excluding the one already selected. */
+async function loadCompareAudits(siteId) {
+  compareButton.disabled = true;
+  compareAuditSelect.disabled = true;
+  compareAuditSelect.innerHTML = '<option value="">Loading&hellip;</option>';
+
+  if (!siteId) return;
+
+  let data;
+  try {
+    data = await api(`/sites/${siteId}/audits`);
+  } catch (error) {
+    compareAuditSelect.innerHTML = `<option value="">Could not load: ${error.message}</option>`;
+    return;
+  }
+
+  const candidates = data.audits.filter((a) => a.id !== selectedAuditId);
+  compareAuditSelect.innerHTML = '';
+  if (candidates.length === 0) {
+    compareAuditSelect.innerHTML = '<option value="">No other audits on this site</option>';
+    return;
+  }
+
+  for (const audit of candidates) {
+    const opt = document.createElement('option');
+    opt.value = audit.id;
+    opt.textContent = `${new Date(audit.createdAt).toLocaleString()} — ${audit.status}`;
+    compareAuditSelect.append(opt);
+  }
+  compareAuditSelect.disabled = false;
+  compareButton.disabled = false;
+}
+
+compareSiteSelect.addEventListener('change', () => loadCompareAudits(compareSiteSelect.value));
+compareButton.addEventListener('click', runCompare);
+
+async function runCompare() {
+  const compareAuditId = compareAuditSelect.value;
+  if (!compareAuditId || !selectedAuditData) return;
+
+  compareResultEl.innerHTML = '<p class="empty">Comparing&hellip;</p>';
+
+  let baselineData;
+  try {
+    baselineData = await api(`/audits/${compareAuditId}/result`);
+  } catch (error) {
+    compareResultEl.innerHTML = `<p class="empty">Could not load comparison audit: ${error.message}</p>`;
+    return;
+  }
+
+  renderCompare(baselineData, selectedAuditData);
+}
+
+/** Render a diff of `baselineData` (an older or different-site audit) against `currentData` (the selected one). */
+function renderCompare(baselineData, currentData) {
+  compareResultEl.innerHTML = '';
+
+  if (!baselineData.readiness || !currentData.readiness) {
+    const p = document.createElement('p');
+    p.className = 'empty';
+    p.textContent = 'One or both audits are not graded yet — nothing to compare.';
+    compareResultEl.append(p);
+    return;
+  }
+
+  const readinessDiff = diffReadiness(baselineData.readiness, currentData.readiness);
+
+  if (readinessDiff.corpusVersionMismatch) {
+    const warn = document.createElement('p');
+    warn.className = 'error-banner';
+    warn.textContent = `Corpus versions differ: ${readinessDiff.baseline.corpusVersion} vs ${readinessDiff.current.corpusVersion} — verdicts may not be directly comparable.`;
+    compareResultEl.append(warn);
+  }
+
+  const summary = document.createElement('p');
+  summary.className = 'compare-summary';
+  summary.append(badge(readinessDiff.baseline.decision, readinessDiff.baseline.decision.toLowerCase()));
+  summary.append(document.createTextNode(' → '));
+  summary.append(badge(readinessDiff.current.decision, readinessDiff.current.decision.toLowerCase()));
+  const gates = document.createElement('span');
+  gates.className = 'compare-gates';
+  gates.textContent = ` gates outstanding ${readinessDiff.baseline.gatesOutstanding} → ${readinessDiff.current.gatesOutstanding}, failed ${readinessDiff.baseline.gatesFailed} → ${readinessDiff.current.gatesFailed}`;
+  summary.append(gates);
+  compareResultEl.append(summary);
+
+  const phaseTable = document.createElement('table');
+  phaseTable.className = 'compare-phase-table';
+  const thead = document.createElement('thead');
+  thead.innerHTML = '<tr><th>Phase</th><th>Baseline</th><th>Current</th><th>Delta</th></tr>';
+  phaseTable.append(thead);
+  const tbody = document.createElement('tbody');
+  for (const p of readinessDiff.phaseDeltas) {
+    const tr = document.createElement('tr');
+    const phase = document.createElement('td');
+    phase.textContent = p.phase;
+    tr.append(phase);
+    const b = document.createElement('td');
+    b.textContent = p.baselinePercent === null ? '—' : `${p.baselinePercent}%`;
+    tr.append(b);
+    const c = document.createElement('td');
+    c.textContent = p.currentPercent === null ? '—' : `${p.currentPercent}%`;
+    tr.append(c);
+    const d = document.createElement('td');
+    d.textContent = p.delta === null ? '—' : p.delta > 0 ? `+${p.delta}` : `${p.delta}`;
+    tr.append(d);
+    tbody.append(tr);
+  }
+  phaseTable.append(tbody);
+  compareResultEl.append(phaseTable);
+
+  const checksDiff = diffChecks(baselineData.checks, currentData.checks);
+  const movedHeading = document.createElement('h4');
+  movedHeading.textContent = `Checks with a different verdict (${checksDiff.length})`;
+  compareResultEl.append(movedHeading);
+
+  if (checksDiff.length === 0) {
+    const p = document.createElement('p');
+    p.className = 'empty';
+    p.textContent = 'No verdict changed between these two audits.';
+    compareResultEl.append(p);
+    return;
+  }
+
+  const list = document.createElement('ul');
+  list.className = 'compare-moves';
+  for (const move of checksDiff) {
+    const li = document.createElement('li');
+    const id = document.createElement('span');
+    id.className = 'compare-move-id';
+    id.textContent = move.checkId;
+    li.append(id);
+    if (move.before) {
+      li.append(badge(move.before.status, move.before.status));
+      li.append(document.createTextNode(' → '));
+    } else {
+      const news = document.createElement('span');
+      news.className = 'compare-move-new';
+      news.textContent = 'new — ';
+      li.append(news);
+    }
+    li.append(badge(move.after.status, move.after.status));
+    list.append(li);
+  }
+  compareResultEl.append(list);
 }
 
 loadSites();

@@ -18,6 +18,7 @@ seo-optimizer is an SEO launch-readiness auditor. It crawls a site, runs it agai
 - **@seo/scheduler** — the front door: submit an audit, get an id back, crawl and probes run on the queue, failures a repeat could fix are retried, and `recover()` resumes what a previous process left queued
 - **@seo/grader** — reads probe evidence against the corpus, writes checkStates, freezes readiness
 - **@seo/db** — Drizzle schema, migrations, client factory
+- **@seo/storage** — content-addressed `BlobStore` over S3/GCS/MinIO for page bodies, keyed by their own sha256 so a body already stored costs a read, not a write; not yet called by anything (see gotcha 5)
 - **@seo/testkit** — in-memory fixture website for tests
 
 Note: the corpus's "phases 0-7" are a property of the SEO check taxonomy. They are unrelated to the delivery phases in `ROADMAP.md`.
@@ -29,6 +30,7 @@ Note: the corpus's "phases 0-7" are a property of the SEO check taxonomy. They a
 - Vitest (tests run against source; no build needed for most)
 - Postgres 17 + Drizzle ORM + drizzle-kit migrations
 - Redis 7 (in docker-compose, not yet integrated in code)
+- MinIO (S3-compatible, in docker-compose for local dev) behind `@seo/storage`; production points the same client at real S3 or GCS
 - No UI and no `apps/` directory yet — this is a library
 
 ## Getting started
@@ -39,10 +41,10 @@ Prerequisites: Node.js 24+, Docker.
 npm install
 npx playwright install chromium   # headless browser @seo/crawler's renderPage drives
 cp .env.example .env
-npm run stack:up          # Postgres on localhost:5433, Redis on localhost:6380
+npm run stack:up          # Postgres on localhost:5433, Redis on localhost:6380, MinIO on localhost:9002
 npm run db:migrate
 npm run build
-npm test                  # integration tests auto-skip if DATABASE_URL is unset
+npm test                  # integration tests auto-skip if DATABASE_URL/STORAGE_ENDPOINT are unset
 ```
 
 Key scripts:
@@ -187,7 +189,7 @@ Pre-launch QA is the seventh, and the split is by what a finding sits between. 4
 
 Unit tests (no database needed): `packages/core/test/{site,cutover}.test.ts`, `packages/corpus/test/{corpus,provenance,provenance-v5.0,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,fetch,protocol,render,robots,sitemap,url}.test.ts`, `packages/probes/test/{probes,detectors,facets,news,qa,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store,lease}.test.ts`, `packages/grader/test/{grade,release-file}.test.ts` (the parser half), `packages/scheduler/test/{retry,lane}.test.ts`.
 
-Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/{scheduler,recovery,cancel,flags,ai-policy,release}.test.ts`, `packages/job-store/test/postgres.test.ts`, `packages/grader/test/{record,release,release-file}.test.ts`.
+Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/{scheduler,recovery,cancel,flags,ai-policy,release}.test.ts`, `packages/job-store/test/postgres.test.ts`, `packages/grader/test/{record,release,release-file}.test.ts`, `packages/storage/test/s3-blob-store.test.ts` (against MinIO; skips on `STORAGE_ENDPOINT`, not `DATABASE_URL`, and creates its bucket itself on first run).
 
 All tests skip gracefully if `DATABASE_URL` is unset — which means a green local run does not prove the database layer works. `vitest.config.ts` aliases packages to source, so no build step is needed during test.
 
@@ -199,7 +201,7 @@ All tests skip gracefully if `DATABASE_URL` is unset — which means a green loc
 
 ## CI
 
-`.github/workflows/ci.yml` runs on push to main/master and all PRs: spins up Postgres 17 as a service, then `npm ci`, `db:migrate`, `build`, `typecheck`, `test`. Integration tests do execute in CI because `DATABASE_URL` is set there.
+`.github/workflows/ci.yml` runs on push to main/master and all PRs: spins up Postgres 17 as a service, starts a MinIO container directly (GitHub's `services:` cannot pass MinIO the `server /data` argument it needs to run rather than print its own help), then `npm ci`, `db:migrate`, `build`, `typecheck`, `test`. Integration tests do execute in CI because `DATABASE_URL` and `STORAGE_ENDPOINT` are both set there.
 
 `master` is gated server-side by the repository ruleset "Require CI on master": a pull request is required, `test` and `roadmap` must pass, the branch must be up to date, and force-push and deletion are refused. Approvals are zero because GitHub forbids approving your own PR, so the checks are the gate. `roadmap` comes from `.github/workflows/roadmap-check.yml`, which asserts ROADMAP.md exists and still holds checkbox items.
 
@@ -225,6 +227,7 @@ packages/
   job-store/src/postgres.ts
   scheduler/src/{scheduler,run-audit,retry,lane,types}.ts
   grader/src/{grade,scope,record,release,release-file,types}.ts
+  storage/src/{blob-store,s3-blob-store,config}.ts
   testkit/src/{fixture-site,tls-server}.ts
 corpus/
   source/v4.4.tsv                  # immutable workbook export
@@ -239,9 +242,9 @@ scripts/{analyze,compare,compile-corpus,probe-matrix,record-release,triage}.ts  
 
 1. **drizzle-kit is strict.** Changing `schema.ts` without `npm run db:generate` makes migrations fail. Always diff first.
 2. **`npm run corpus:compile` bootstraps a version and then refuses.** It takes a required version argument, reads `corpus/source/v<version>.tsv`, and will not overwrite a version directory that already exists. `--force` does, discarding every hand edit — it is for fixing a botched bootstrap, not for editing the corpus.
-3. **Integration tests skip silently** when `DATABASE_URL` is unset. Run `npm run stack:up` before trusting a green test run.
+3. **Integration tests skip silently** when `DATABASE_URL` or `STORAGE_ENDPOINT` is unset. Run `npm run stack:up` before trusting a green test run.
 4. **The pre-push hook is opt-in** and must be enabled in each clone. It is a local convenience; the real gate is the server-side ruleset on `master`.
-5. **Response bodies are external by design.** The schema stores hashes and keys only; the content-addressing store does not exist yet (see Phase 6).
+5. **Response bodies are external by design.** The schema stores hashes and keys only. `@seo/storage`'s `BlobStore` is the content-addressed object store behind that key — `put(bytes)` hashes them, skips the write if that hash is already there, and returns the key `renders.bodyKey` would hold — but nothing yet calls it: `@seo/persistence` still leaves `bodyKey` null on every render row it writes. Wiring that write in, and a retrieval client for reconstructing an archived crawl, are the rest of Phase 6.
 6. **A body over its limit is cut, and says so.** `fetchPage` reads every body a chunk at a time and cancels the response at `maxBytes` (5 MB by default), setting `FetchResult.truncated`; `byteLength` of a cut body is how far the read got, not the size. Sitemaps are different: they are streamed through `createSitemapParser` (@seo/crawler `sitemap.ts`), opened first when they are gzip files (`gunzip`, recognised by magic bytes, not by label), and read up to `SITEMAP_MAX_BYTES`, the protocol's own 50 MB ceiling on the *expanded* size — so IGN's 4–7 MB quarterly files and TED's 10 MB one are read whole. A sitemap past that, or a gzip file damaged part way, is still marked on `CrawlResult.sitemaps`; the entry the cut severed is dropped, but what was read is still partial, so any detector reading a large document must check the flag and report `error`, never `fail`.
 7. **The crawler does not use the global `fetch`.** `fetchPage` requests through an undici 8 `Agent` of its own. The global `fetch` dispatches through whichever undici installed itself first — in a crawler process, cheerio's undici 7, whose HTTP/1.1 client crashes the process (an uncaught `assert(!this.paused)`) when a TLS server closes a gzip-encoded response behind a paused body. Under vitest Node's own dispatcher wins instead, which hides that crash from tests; `fetch.test.ts` restores cheerio's dispatcher for the HTTPS suite for that reason.
 

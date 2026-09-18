@@ -12,6 +12,7 @@
     { "path": "./packages/probes" },
     { "path": "./packages/queue" },
     { "path": "./packages/scheduler" },
+    { "path": "./packages/storage" },
     { "path": "./packages/testkit" }
   ]
 }

@@ -106,7 +106,7 @@ Last updated: 2026-09-18 (detectors implemented: 77/134)
 - [x] Detect and report rendering strategy mismatches in @seo/probes (`rendering-strategy-classifier`, 1.1, @seo/probes `indexability.ts`)
 
 ## Phase 6 — External Content Storage
-- [ ] Implement content-addressing system (S3/GCS integration) for page bodies
+- [x] Implement content-addressing system (S3/GCS integration) for page bodies
 - [ ] Map page body hashes to storage keys in database (body_key column prepared in schema)
 - [ ] Build blob retrieval client for reconstructing archived crawls
 - [ ] Add batch operations for uploading and purging stored content

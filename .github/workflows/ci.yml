@@ -29,6 +29,11 @@ jobs:
 
     env:
       DATABASE_URL: postgres://seo:seo@localhost:5432/seo_optimizer
+      STORAGE_BUCKET: seo-optimizer-bodies
+      STORAGE_ACCESS_KEY_ID: seo-storage
+      STORAGE_SECRET_ACCESS_KEY: seo-storage-secret
+      STORAGE_ENDPOINT: http://localhost:9000
+      STORAGE_FORCE_PATH_STYLE: 'true'
 
     steps:
       - uses: actions/checkout@v4
@@ -41,6 +46,22 @@ jobs:
       - run: npm ci
 
       - run: npx playwright install --with-deps chromium
+
+      # @seo/storage's suite skips itself when STORAGE_ENDPOINT is unset (see
+      # vitest.config.ts), the same reasoning the Postgres service above
+      # exists for. Run directly rather than as a GitHub Actions `services:`
+      # entry, because those cannot pass `server /data` — MinIO's image needs
+      # that argument to start the server rather than print its own help.
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=$STORAGE_ACCESS_KEY_ID \
+            -e MINIO_ROOT_PASSWORD=$STORAGE_SECRET_ACCESS_KEY \
+            quay.io/minio/minio server /data
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:9000/minio/health/live && break
+            sleep 1
+          done
 
       - run: npm run db:migrate
 

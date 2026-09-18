@@ -3555,3 +3555,104 @@ describe('review-integrity', () => {
     expect(observation.summary).toContain('datePublished');
   });
 });
+
+// --- 3.13 ugc-governance -----------------------------------------------------
+
+describe('ugc-governance', () => {
+  const check = (pages: readonly CrawledPage[]): Observation => runSite('ugc-governance', pages);
+
+  const commentPage = (path: string, body: string): CrawledPage =>
+    page({ path, html: `<html><body>${body}</body></html>` });
+
+  it('has nothing to say without a crawled HTML page', () => {
+    expect(check([]).outcome).toBe('not-applicable');
+  });
+
+  it('is not-applicable when no crawled page carries a comment form or Comment schema', () => {
+    const observation = check([
+      commentPage('/', '<p>Nothing here.</p> <a href="https://rival.example/">rival</a>'),
+    ]);
+    expect(observation.outcome).toBe('not-applicable');
+  });
+
+  it('fails an unqualified outbound link inside a comment form\'s container', () => {
+    const observation = check([
+      commentPage(
+        '/post',
+        '<div id="comments">' +
+          '<form><input name="comment" /><textarea name="comment_body"></textarea></form>' +
+          '<div class="comment-list"><a href="https://spammy.example/">check this out</a></div>' +
+          '</div>',
+      ),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.data?.['unqualifiedLinks']).toBe(1);
+    expect(observation.data?.['ugcPages']).toBe(1);
+  });
+
+  it('passes an outbound link inside a comment region carrying rel="ugc"', () => {
+    const observation = check([
+      commentPage(
+        '/post',
+        '<div id="comments">' +
+          '<form><input name="comment" /></form>' +
+          '<a href="https://spammy.example/" rel="ugc">check this out</a>' +
+          '</div>',
+      ),
+    ]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('passes an outbound link inside a comment region carrying rel="nofollow"', () => {
+    const observation = check([
+      commentPage(
+        '/post',
+        '<div id="comments">' +
+          '<form><textarea name="reply_text"></textarea></form>' +
+          '<a href="https://spammy.example/" rel="nofollow">check this out</a>' +
+          '</div>',
+      ),
+    ]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('leaves a same-site link inside a comment region alone', () => {
+    const observation = check([
+      commentPage(
+        '/post',
+        '<div id="comments">' +
+          '<form><input name="reply" /></form>' +
+          '<a href="/other-page">see also</a>' +
+          '</div>',
+      ),
+    ]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('is applicable on a Comment schema node alone, and does not scan links outside any comment region', () => {
+    const observation = check([
+      commentPage(
+        '/post',
+        '<script type="application/ld+json">' +
+          `{"@context":"${SCHEMA}","@type":"Comment","text":"nice post"}` +
+          '</script>' +
+          '<p>Some unrelated text with <a href="https://rival.example/">a link</a></p>',
+      ),
+    ]);
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data?.['ugcPages']).toBe(1);
+    expect(observation.data?.['unqualifiedLinks']).toBe(0);
+  });
+
+  it('catches a sponsor link in a comment-list container once a reply form elsewhere on the page proves the page carries UGC', () => {
+    const observation = check([
+      commentPage(
+        '/post',
+        '<div id="respond"><form><textarea name="comment"></textarea></form></div>' +
+          '<div id="comments"><a href="https://ad.example/">sponsor</a></div>',
+      ),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.data?.['unqualifiedLinks']).toBe(1);
+  });
+});

@@ -117,6 +117,23 @@ export interface ExtractedBreadcrumb {
 }
 
 /**
+ * A comment thread or reply form and the links inside it, for the
+ * ugc-governance detector.
+ *
+ * Bounded by whichever the page gives us: the nearest ancestor named for a
+ * comment thread (`#comments`, `.comment-list`, `#respond`, `#disqus_thread`
+ * and the like), else a comment/reply form's own parent, else the form
+ * itself. Recorded without judgement — whether an unqualified link inside it
+ * is a defect is the probe's call, on a page that carries UGC markup at all.
+ */
+export interface ExtractedCommentRegion {
+  /** A `<form>` in this region carries a field naming a comment or a reply. */
+  readonly hasForm: boolean;
+  /** Links inside the region, in document order. */
+  readonly links: readonly ExtractedLink[];
+}
+
+/**
  * A `<link rel="icon">` and friends, as declared.
  *
  * Only the declaration. Whether the file is there, and whether it is square,
@@ -255,6 +272,8 @@ export interface Extracted {
   readonly frames: readonly ExtractedFrame[];
   /** Visible breadcrumb trails, in document order. Empty when none is present. */
   readonly breadcrumbs: readonly ExtractedBreadcrumb[];
+  /** Comment/reply forms and threads found on the page, and the links inside each. */
+  readonly commentRegions: readonly ExtractedCommentRegion[];
   /** `<table>` elements, in document order, nested ones included. */
   readonly tables: readonly ExtractedTable[];
   /**
@@ -278,6 +297,13 @@ export interface Extracted {
 
 /** A fragment naming a page number: `#page=2`, `#/page/2`, `#!/page/2`, `#p2`. */
 const FRAGMENT_PAGE = /^#!?\/?(?:page|p)[-_=/]?\d+/i;
+
+/** A form field's name, id or placeholder that marks it as a comment or a reply. */
+const COMMENT_FIELD_RE = /comment|reply/i;
+
+/** A container the wild consistently names for a comment thread or its reply form. */
+const COMMENT_CONTAINER_SELECTOR =
+  '[id*="comment" i], [class*="comment" i], [id*="disqus" i], [id*="respond" i], [class*="respond" i]';
 
 const attr = (value: string | undefined): string | null => (value === undefined ? null : value);
 const clean = (value: string): string => value.replace(/\s+/g, ' ').trim();
@@ -460,6 +486,60 @@ export function extract(html: string, pageUrl: string): Extracted {
     breadcrumbs.push({ links, labels: [...new Set(labels)] });
   });
 
+  /** A field whose name, id or placeholder marks it as a comment or a reply. */
+  const isCommentField = (node: Cheerio<AnyNode>): boolean =>
+    [node.attr('name'), node.attr('id'), node.attr('placeholder')].some(
+      (value) => value !== undefined && COMMENT_FIELD_RE.test(value),
+    );
+  const isCommentForm = (form: Cheerio<AnyNode>): boolean =>
+    form
+      .find('input, textarea, select')
+      .toArray()
+      .some((field) => isCommentField($(field)));
+
+  const regionRootNodes: AnyNode[] = [];
+  $(COMMENT_CONTAINER_SELECTOR).each((_, element) => {
+    regionRootNodes.push(element);
+  });
+  $('form').each((_, element) => {
+    const form = $(element);
+    if (!isCommentForm(form)) return;
+    const named = form.closest(COMMENT_CONTAINER_SELECTOR);
+    regionRootNodes.push(named.length > 0 ? named.get(0)! : form.parent().get(0) ?? element);
+  });
+  // Keep only the outermost of any nested matches, so a form's own comment
+  // container and the #comments it sits in are not read as two regions.
+  const uniqueRootNodes = [...new Set(regionRootNodes)];
+  const regionRoots = uniqueRootNodes.filter(
+    (node) => !uniqueRootNodes.some((other) => other !== node && cheerio.contains(other, node)),
+  );
+
+  const commentRegions: ExtractedCommentRegion[] = regionRoots.map((root) => {
+    const node = $(root);
+    const hasForm = node.is('form')
+      ? isCommentForm(node)
+      : node
+          .find('form')
+          .toArray()
+          .some((form) => isCommentForm($(form)));
+    const regionLinks: ExtractedLink[] = [];
+    node.find('a[href]').each((_i, anchor) => {
+      const href = $(anchor).attr('href') ?? '';
+      const url = resolveUrl(href, base);
+      if (url === null) return;
+      const rel = attr($(anchor).attr('rel'));
+      regionLinks.push({
+        url,
+        href,
+        anchorText: clean($(anchor).text()),
+        name: nameOf($(anchor)),
+        rel,
+        nofollow: rel !== null && /\bnofollow\b/i.test(rel),
+      });
+    });
+    return { hasForm, links: regionLinks };
+  });
+
   const tables: ExtractedTable[] = [];
   $('table').each((_, element) => {
     const table = $(element);
@@ -629,6 +709,7 @@ export function extract(html: string, pageUrl: string): Extracted {
     media,
     frames,
     breadcrumbs,
+    commentRegions,
     tables,
     fragmentPageLinks,
     landmarks: LANDMARKS.filter((tag) => $(tag).length > 0),

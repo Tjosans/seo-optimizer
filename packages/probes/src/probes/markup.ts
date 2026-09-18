@@ -490,6 +490,74 @@ export const reviewIntegrity: SiteProbe = {
   },
 };
 
+// --- 3.13 ugc-governance ----------------------------------------------------
+
+const sample = <T>(items: readonly T[]): T[] => items.slice(0, 5);
+
+/** The `rel` values Google reads as not passing an editorial endorsement on to a visitor's own link. */
+const QUALIFIED_UGC_REL = /\b(ugc|nofollow)\b/i;
+
+/**
+ * 3.13 asks for moderation, publication thresholds and an escalation owner
+ * behind public content — evidence that lives in a moderation queue and a
+ * person's sign-off, which is why the check stays `assisted`. What raw
+ * markup shows is the one qualification defect visible on its face: a page
+ * carrying a comment or forum reply form, or a schema.org `Comment` node,
+ * is a page carrying user-generated content, and an outbound link inside
+ * that comment thread with no `ugc` or `nofollow` relationship passes a
+ * visitor's own link on as if the site endorsed it. `not-applicable` where
+ * the crawl found no UGC markup at all, on either signal.
+ */
+export const ugcGovernance: SiteProbe = {
+  id: 'ugc-governance',
+  scope: 'site',
+  title: 'Outbound links inside comment/forum content are marked ugc or nofollow',
+  run({ crawl, origin }) {
+    const html = crawl.pages.filter((page) => page.extracted !== null && page.fetch.status === 200);
+    if (html.length === 0) return notApplicable('No HTML pages were crawled.');
+
+    let ugcPages = 0;
+    const unqualified: { page: string; target: string }[] = [];
+
+    for (const page of html) {
+      const extracted = page.extracted;
+      if (extracted === null) continue;
+
+      const hasCommentSchema = jsonLdNodes(extracted.jsonLd).some((node) =>
+        typesOf(node).map(bareType).includes('Comment'),
+      );
+      const hasCommentForm = extracted.commentRegions.some((region) => region.hasForm);
+      if (!hasCommentForm && !hasCommentSchema) continue;
+      ugcPages += 1;
+
+      for (const region of extracted.commentRegions) {
+        for (const link of region.links) {
+          if (/^(mailto|tel):/i.test(link.url)) continue;
+          if (isSameSite(link.url, origin)) continue;
+          if (QUALIFIED_UGC_REL.test(link.rel ?? '')) continue;
+          unqualified.push({ page: page.normalizedUrl, target: link.url });
+        }
+      }
+    }
+
+    if (ugcPages === 0) {
+      return notApplicable('No comment/reply form and no Comment schema node found anywhere in the crawl.');
+    }
+
+    const data = { ugcPages, unqualifiedLinks: unqualified.length };
+    if (unqualified.length > 0) {
+      return fail(
+        `${unqualified.length} outbound link(s) inside comment/forum content carry no ugc or nofollow relationship.`,
+        { ...data, samples: sample(unqualified) },
+      );
+    }
+    return pass(
+      'Every outbound link inside comment/forum content is marked ugc or nofollow. Moderation and escalation are for a person.',
+      data,
+    );
+  },
+};
+
 export const markupProbes = [
   semanticHtml,
   headingOutline,
@@ -500,4 +568,5 @@ export const markupProbes = [
   analyticsImplementation,
   consentModeConfig,
   reviewIntegrity,
+  ugcGovernance,
 ];

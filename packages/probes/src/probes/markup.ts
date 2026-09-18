@@ -11,6 +11,8 @@ import { isSameSite } from '@seo/crawler';
 import type { CrawledPage } from '@seo/crawler';
 import type { PageProbe, SiteProbe } from '../types.js';
 import { fail, notApplicable, pass, warn } from '../types.js';
+import { bareType } from './content.js';
+import { jsonLdNodes, typesOf } from './metadata.js';
 
 const NO_HTML = 'No HTML was parsed for this response.';
 
@@ -356,6 +358,138 @@ export const consentModeConfig: PageProbe = {
   },
 };
 
+// --- 3.13 review-integrity -------------------------------------------------
+
+const ORGANIZATION_TYPES = new Set([
+  'Organization',
+  'LocalBusiness',
+  'Corporation',
+  'NGO',
+  'NewsMediaOrganization',
+]);
+
+const cleanText = (value: unknown): string | null =>
+  typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
+
+const foldName = (value: string): string => value.trim().toLowerCase();
+
+/** A `name`-bearing property, however JSON-LD ships it: a bare string or an embedded node. */
+const namedProperty = (
+  node: Record<string, unknown>,
+  property: string,
+): { readonly name: string | null } | null => {
+  const value = node[property];
+  if (typeof value === 'string') return { name: cleanText(value) };
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    return { name: cleanText((value as Record<string, unknown>)['name']) };
+  }
+  return null;
+};
+
+interface ReviewDefect {
+  readonly url: string;
+  readonly issue: string;
+}
+
+/**
+ * 3.13 asks for genuine provenance and moderation on reviews before they
+ * ship — evidence of who requested them and how they are moderated, which
+ * lives outside any one page and stays the person's to attest. What the
+ * markup shows without that context is three defects visible on their face:
+ * a `Review` whose `itemReviewed` names the site's own publisher rather than
+ * a product or service (self-serving), a `Review` with no `author` at all,
+ * and an `AggregateRating` that pairs a rating value with a `ratingCount` or
+ * `reviewCount` of zero. A `Review` with no `datePublished` is not on this
+ * list of face-value defects — Google's guidance does not require one — so
+ * it only warns.
+ */
+export const reviewIntegrity: SiteProbe = {
+  id: 'review-integrity',
+  scope: 'site',
+  title: 'Review and rating markup is attributed and not self-reviewed',
+  run({ crawl }) {
+    const selfNames = new Set<string>();
+    for (const page of crawl.pages) {
+      const extracted = page.extracted;
+      if (extracted === null) continue;
+      const siteName = extracted.openGraph['og:site_name'];
+      if (siteName !== undefined && siteName.trim() !== '') selfNames.add(foldName(siteName));
+      for (const node of jsonLdNodes(extracted.jsonLd)) {
+        if (!typesOf(node).map(bareType).some((type) => ORGANIZATION_TYPES.has(type))) continue;
+        const name = cleanText(node['name']);
+        if (name !== null) selfNames.add(foldName(name));
+      }
+    }
+
+    const selfServing: ReviewDefect[] = [];
+    const noAuthor: ReviewDefect[] = [];
+    const zeroCount: ReviewDefect[] = [];
+    const noDate: ReviewDefect[] = [];
+    let reviewNodes = 0;
+    let htmlPages = 0;
+
+    for (const page of crawl.pages) {
+      const extracted = page.extracted;
+      if (extracted === null) continue;
+      htmlPages += 1;
+      const url = page.normalizedUrl;
+
+      for (const node of jsonLdNodes(extracted.jsonLd)) {
+        const types = typesOf(node).map(bareType);
+        const isReview = types.includes('Review');
+        const isAggregate = types.includes('AggregateRating');
+        if (!isReview && !isAggregate) continue;
+        reviewNodes += 1;
+
+        if (isReview) {
+          const subject = namedProperty(node, 'itemReviewed');
+          if (subject !== null && subject.name !== null && selfNames.has(foldName(subject.name))) {
+            selfServing.push({ url, issue: `itemReviewed "${subject.name}" is the publishing organisation` });
+          }
+          const author = namedProperty(node, 'author');
+          if (author === null || author.name === null) {
+            noAuthor.push({ url, issue: 'no author' });
+          }
+          if (cleanText(node['datePublished']) === null) {
+            noDate.push({ url, issue: 'no datePublished' });
+          }
+        }
+
+        if (isAggregate) {
+          const rating = node['ratingValue'];
+          const count = node['ratingCount'] ?? node['reviewCount'];
+          const countNumber = typeof count === 'string' ? Number(count) : count;
+          const hasRating = rating !== undefined && rating !== null && cleanText(String(rating)) !== null;
+          if (hasRating && typeof countNumber === 'number' && countNumber === 0) {
+            zeroCount.push({ url, issue: 'ratingCount/reviewCount is 0 beside a rating value' });
+          }
+        }
+      }
+    }
+
+    if (htmlPages === 0) return notApplicable('The crawl reached no HTML pages.');
+    if (reviewNodes === 0) {
+      return notApplicable('No Review or AggregateRating markup found on the crawl.');
+    }
+
+    const failures = [...selfServing, ...noAuthor, ...zeroCount];
+    if (failures.length > 0) {
+      return fail(
+        `${failures.length} review/rating defect(s): ${selfServing.length} self-serving, ${noAuthor.length} with no author, ${zeroCount.length} with a zero count beside a rating.`,
+        { selfServing, noAuthor, zeroCount },
+      );
+    }
+
+    if (noDate.length > 0) {
+      return warn(`${noDate.length} Review node(s) carry no datePublished.`, { noDate });
+    }
+
+    return pass(`${reviewNodes} Review/AggregateRating node(s) across ${htmlPages} page(s) show no integrity defects.`, {
+      reviewNodes,
+    });
+  },
+};
+
 export const markupProbes = [
   semanticHtml,
   headingOutline,
@@ -365,4 +499,5 @@ export const markupProbes = [
   soft404,
   analyticsImplementation,
   consentModeConfig,
+  reviewIntegrity,
 ];

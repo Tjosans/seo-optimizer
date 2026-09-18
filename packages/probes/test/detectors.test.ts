@@ -3454,3 +3454,104 @@ describe('publisher-discover-readiness', () => {
     ).toBe('pass');
   });
 });
+
+// --- 3.13 review-integrity --------------------------------------------------
+
+const jsonLdScript = (data: unknown): string =>
+  `<script type="application/ld+json">${JSON.stringify(data)}</script>`;
+
+const reviewPage = (
+  path: string,
+  blocks: readonly unknown[],
+  siteName?: string,
+): CrawledPage =>
+  page({
+    path,
+    html:
+      '<html><head>' +
+      (siteName === undefined ? '' : `<meta property="og:site_name" content="${siteName}">`) +
+      blocks.map(jsonLdScript).join('') +
+      '</head><body><p>content</p></body></html>',
+  });
+
+const runReviewIntegrity = (pages: readonly CrawledPage[]): Observation =>
+  runSite('review-integrity', pages);
+
+const validReview = {
+  '@context': SCHEMA,
+  '@type': 'Review',
+  itemReviewed: { '@type': 'Product', name: 'Widget' },
+  author: { '@type': 'Person', name: 'Jane Reviewer' },
+  datePublished: '2026-01-15',
+};
+
+describe('review-integrity', () => {
+  it('is not-applicable on a site with no Review or AggregateRating markup', () => {
+    expect(runReviewIntegrity([page({ path: '/' })]).outcome).toBe('not-applicable');
+  });
+
+  it('passes a Review with an author, a date, and a product subject', () => {
+    expect(runReviewIntegrity([reviewPage('/a', [validReview])]).outcome).toBe('pass');
+  });
+
+  it('fails a Review whose itemReviewed names the site\'s own publisher', () => {
+    const observation = runReviewIntegrity([
+      reviewPage(
+        '/a',
+        [
+          {
+            '@context': SCHEMA,
+            '@type': 'Review',
+            itemReviewed: { '@type': 'Organization', name: 'Acme Co' },
+            author: { '@type': 'Person', name: 'Jane Reviewer' },
+            datePublished: '2026-01-15',
+          },
+        ],
+        'Acme Co',
+      ),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('self-serving');
+  });
+
+  it('fails a Review with no author', () => {
+    const observation = runReviewIntegrity([
+      reviewPage('/a', [{ ...validReview, author: undefined }]),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('no author');
+  });
+
+  it('fails an AggregateRating pairing a rating value with a zero count', () => {
+    const observation = runReviewIntegrity([
+      reviewPage('/a', [
+        {
+          '@context': SCHEMA,
+          '@type': 'AggregateRating',
+          ratingValue: '4.5',
+          ratingCount: 0,
+        },
+      ]),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('zero count');
+  });
+
+  it('passes an AggregateRating with a positive count', () => {
+    expect(
+      runReviewIntegrity([
+        reviewPage('/a', [
+          { '@context': SCHEMA, '@type': 'AggregateRating', ratingValue: '4.5', ratingCount: 12 },
+        ]),
+      ]).outcome,
+    ).toBe('pass');
+  });
+
+  it('warns on a Review with no datePublished and no other defects', () => {
+    const observation = runReviewIntegrity([
+      reviewPage('/a', [{ ...validReview, datePublished: undefined }]),
+    ]);
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toContain('datePublished');
+  });
+});

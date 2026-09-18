@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>seo-optimizer dashboard</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<header>
+  <h1>seo-optimizer</h1>
+  <p class="sub">audit results &amp; historical trend</p>
+</header>
+
+<main>
+  <section id="sites-panel">
+    <h2>Sites</h2>
+    <ul id="site-list" class="site-list"><li class="empty">Loading&hellip;</li></ul>
+  </section>
+
+  <section id="detail-panel" class="hidden">
+    <h2 id="site-name"></h2>
+    <p id="site-origin" class="sub"></p>
+
+    <h3>Readiness trend</h3>
+    <div id="trend-chart"></div>
+
+    <h3>Audit history</h3>
+    <table id="audit-table">
+      <thead>
+        <tr><th>Date</th><th>Corpus</th><th>Status</th><th>Decision</th><th>Overall</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <div id="result-panel" class="hidden">
+      <h3>Check results — <span id="result-audit-id"></span></h3>
+      <table id="checks-table">
+        <thead>
+          <tr><th>Check</th><th>Applicability</th><th>Status</th><th>Coverage</th><th>Evidence</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <div id="evidence-panel" class="hidden">
+        <h3>Probe evidence — <span id="evidence-check-id"></span></h3>
+        <ul id="evidence-list"></ul>
+      </div>
+
+      <div id="attest-panel" class="hidden">
+        <h3>Attest — <span id="attest-check-id"></span></h3>
+        <form id="attest-form">
+          <label>Attested by
+            <input id="attest-by" type="text" required />
+          </label>
+          <label>Status
+            <select id="attest-status" required>
+              <option value="passed">passed</option>
+              <option value="failed">failed</option>
+              <option value="in-progress">in-progress</option>
+              <option value="skipped">skipped</option>
+              <option value="not-started">not-started</option>
+            </select>
+          </label>
+          <label>Applicability
+            <select id="attest-applicability">
+              <option value="yes">yes</option>
+              <option value="no">no</option>
+              <option value="review">review</option>
+            </select>
+          </label>
+          <label id="attest-rationale-label" class="hidden">Rationale (required when not applicable)
+            <input id="attest-rationale" type="text" />
+          </label>
+          <label>Statement
+            <textarea id="attest-statement" rows="3" required></textarea>
+          </label>
+          <label>Expires
+            <input id="attest-expires" type="date" required />
+          </label>
+          <button id="attest-submit" type="submit">Record attestation</button>
+        </form>
+        <p id="attest-message"></p>
+      </div>
+
+      <div id="compare-panel">
+        <h3>Compare with&hellip;</h3>
+        <div class="compare-controls">
+          <select id="compare-site-select"></select>
+          <select id="compare-audit-select" disabled></select>
+          <button id="compare-button" type="button" disabled>Compare</button>
+        </div>
+        <div id="compare-result"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>

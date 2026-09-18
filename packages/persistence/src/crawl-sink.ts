@@ -25,6 +25,7 @@ import { crawl } from '@seo/crawler';
 import type { CrawlOptions, CrawlResult, CrawledPage } from '@seo/crawler';
 import { crawls, pageLinks, pages, renders } from '@seo/db';
 import type { Database } from '@seo/db';
+import type { BlobStore } from '@seo/storage';
 import { eq, sql } from 'drizzle-orm';
 import {
   chunk,
@@ -58,27 +59,46 @@ export interface CrawlSink {
  * The audit is the caller's to create: an audit spans several crawls — raw,
  * rendered, a re-crawl after a fix — and deciding when a new one begins is a
  * product question, not a mapping one.
+ *
+ * `blobStore`, when given, is where a page's raw body is uploaded before its
+ * render row is written, so `renders.bodyKey` names something retrievable
+ * rather than sitting null. Optional because a caller with no store configured
+ * — most tests, and any run before `STORAGE_*` is set — persists exactly as
+ * before: a hash with no key.
  */
 export async function openCrawl(
   db: Database,
-  args: { readonly auditId: string; readonly options: CrawlOptions },
+  args: {
+    readonly auditId: string;
+    readonly options: CrawlOptions;
+    readonly blobStore?: BlobStore;
+  },
 ): Promise<CrawlSink> {
   const crawlId = crypto.randomUUID();
   await db.insert(crawls).values(toCrawlRow({ id: crawlId, ...args }));
 
   const pageIdByUrl = new Map<string, string>();
+  const { blobStore } = args;
 
   const onPage = async (page: CrawledPage): Promise<void> => {
     const pageId = crypto.randomUUID();
     const discoveredFromId =
       page.discoveredFrom === null ? null : pageIdByUrl.get(page.discoveredFrom) ?? null;
 
+    // Uploaded ahead of the transaction: the store is its own system, with its
+    // own idempotency (the same bytes always return the same key), so there is
+    // nothing for a database transaction to make atomic here.
+    const bodyKey =
+      page.extracted === null || blobStore === undefined
+        ? null
+        : await blobStore.put(new TextEncoder().encode(page.fetch.body));
+
     // One transaction per page: a page whose links were only half written
     // would be a false report about what that page points at.
     await db.transaction(async (tx) => {
       await tx.insert(pages).values(toPageRow({ id: pageId, crawlId, page, discoveredFromId }));
 
-      const render = toRenderRow({ id: crypto.randomUUID(), pageId, page });
+      const render = toRenderRow({ id: crypto.randomUUID(), pageId, page, bodyKey });
       if (render !== null) await tx.insert(renders).values(render);
 
       const links = toPageLinkRows({ crawlId, fromPageId: pageId, page });
@@ -145,7 +165,11 @@ export interface CrawlToDatabaseResult {
  */
 export async function crawlToDatabase(
   db: Database,
-  args: { readonly auditId: string; readonly options: CrawlOptions },
+  args: {
+    readonly auditId: string;
+    readonly options: CrawlOptions;
+    readonly blobStore?: BlobStore;
+  },
 ): Promise<CrawlToDatabaseResult> {
   const sink = await openCrawl(db, args);
   const caller = args.options.onPage;

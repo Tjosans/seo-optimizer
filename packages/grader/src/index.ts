@@ -4,3 +4,4 @@ export * from './grade.js';
 export * from './record.js';
 export * from './release.js';
 export * from './release-file.js';
+export * from './attestation.js';

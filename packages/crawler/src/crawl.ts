@@ -20,9 +20,65 @@ import { negotiateProtocol } from './protocol.js';
 import type { ProtocolCheck } from './protocol.js';
 import { lookupDomainRdap, registrableDomain } from './rdap.js';
 import type { RdapCheck } from './rdap.js';
+import { renderPage } from './render.js';
+import type { RenderResult } from './render.js';
 import { SITEMAP_MAX_BYTES, createSitemapParser } from './sitemap.js';
 import type { SitemapNews, SitemapVideo } from './sitemap.js';
 import { isSameSite, normalizeUrl } from './url.js';
+
+/**
+ * What a page's rendered capture adds to, or withholds from, the raw one.
+ *
+ * Every field compares raw against rendered on a signal corpus check 1.1
+ * names outright — raw/rendered directive and canonical conflicts, content and
+ * links a crawler that does not render would never see. No verdict lives
+ * here: whether a difference is a defect is `rendering-strategy-classifier`'s
+ * question, once it exists, on the same reasoning `extract()` itself never
+ * judges what it reads.
+ */
+export interface RenderComparison {
+  readonly titleMatches: boolean;
+  readonly canonicalMatches: boolean;
+  readonly metaRobotsMatches: boolean;
+  readonly wordCountRaw: number;
+  readonly wordCountRendered: number;
+  readonly linkCountRaw: number;
+  readonly linkCountRendered: number;
+  readonly jsonLdCountRaw: number;
+  readonly jsonLdCountRendered: number;
+  /** The rendered document's text, verbatim, is the raw document's. */
+  readonly textMatches: boolean;
+}
+
+function compareRenders(raw: Extracted, rendered: Extracted): RenderComparison {
+  return {
+    titleMatches: raw.title === rendered.title,
+    canonicalMatches: raw.canonical === rendered.canonical,
+    metaRobotsMatches: raw.metaRobots === rendered.metaRobots,
+    wordCountRaw: raw.wordCount,
+    wordCountRendered: rendered.wordCount,
+    linkCountRaw: raw.links.length,
+    linkCountRendered: rendered.links.length,
+    jsonLdCountRaw: raw.jsonLd.length,
+    jsonLdCountRendered: rendered.jsonLd.length,
+    textMatches: raw.text === rendered.text,
+  };
+}
+
+/**
+ * A page's rendered capture, alongside what it was compared against.
+ *
+ * Present only when `renderPages` asked for one and the page was HTML the raw
+ * fetch actually read; `comparison` is null on top of that whenever the
+ * render itself failed, since there is then nothing to compare the raw
+ * extraction against.
+ */
+export interface RenderedPage {
+  readonly render: RenderResult;
+  /** Null when `render.error` is set, or the rendered document was not HTML. */
+  readonly extracted: Extracted | null;
+  readonly comparison: RenderComparison | null;
+}
 
 export interface CrawledPage {
   readonly url: string;
@@ -33,6 +89,11 @@ export interface CrawledPage {
   readonly fetch: FetchResult;
   /** Null when the response was not HTML, or when the fetch failed. */
   readonly extracted: Extracted | null;
+  /**
+   * Absent unless `renderPages` was set. Null when it was set but this page
+   * had no HTML for a render to compare against.
+   */
+  readonly rendered?: RenderedPage | null;
 }
 
 export interface CrawlOptions {
@@ -86,6 +147,21 @@ export interface CrawlOptions {
   readonly negotiateImpl?: typeof negotiateProtocol;
   /** Injection seam for the RDAP lookup, like `fetchImpl` for requests. */
   readonly rdapImpl?: typeof lookupDomainRdap;
+  /**
+   * Also run each fetched HTML page through a headless browser, and compare
+   * what a browser builds against what the server sent.
+   *
+   * Off by default: a render costs a browser process running a page's scripts
+   * to completion, a different order of expense than a fetch, and is still an
+   * extra visit to the host being crawled, paced by the same politeness delay
+   * as everything else here.
+   */
+  readonly renderPages?: boolean;
+  /** Injection seam for the render, like `fetchImpl` for requests. */
+  readonly renderImpl?: typeof renderPage;
+  /** Passed through to every render this crawl makes. */
+  readonly renderTimeoutMs?: number;
+  readonly renderSettleMs?: number;
   /** Called as each page completes, so a long crawl can stream to storage. */
   readonly onPage?: (page: CrawledPage) => void | Promise<void>;
 }
@@ -548,6 +624,32 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
       ? extract(result.body, result.finalUrl)
       : null;
 
+    let rendered: RenderedPage | null | undefined;
+    if (options.renderPages === true) {
+      if (extracted === null) {
+        rendered = null;
+      } else {
+        // A second real request to the same host, so it waits out the same
+        // politeness delay as the fetch that just preceded it rather than
+        // arriving back to back.
+        await sleep(delayMs, options.signal);
+        const render = await (options.renderImpl ?? renderPage)(result.finalUrl, {
+          userAgent: options.userAgent,
+          ...(options.renderTimeoutMs === undefined ? {} : { timeoutMs: options.renderTimeoutMs }),
+          ...(options.renderSettleMs === undefined ? {} : { settleMs: options.renderSettleMs }),
+          ...(options.signal === undefined ? {} : { signal: options.signal }),
+        });
+        const renderedExtracted = render.error === null && render.html !== ''
+          ? extract(render.html, render.finalUrl)
+          : null;
+        rendered = {
+          render,
+          extracted: renderedExtracted,
+          comparison: renderedExtracted === null ? null : compareRenders(extracted, renderedExtracted),
+        };
+      }
+    }
+
     const page: CrawledPage = {
       url: entry.url,
       normalizedUrl: entry.normalizedUrl,
@@ -555,6 +657,7 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
       discoveredFrom: entry.discoveredFrom,
       fetch: result,
       extracted,
+      ...(rendered === undefined ? {} : { rendered }),
     };
     pages.push(page);
     await options.onPage?.(page);

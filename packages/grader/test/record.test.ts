@@ -240,3 +240,117 @@ describe.skipIf(!url)('recording a grade', () => {
     expect(await statesOf()).toHaveLength(0);
   });
 });
+
+describe.skipIf(!url)('exception-proof launch gates', () => {
+  const handle = createDatabase(url ?? '', { max: 4 });
+  const { db } = handle;
+  const EXCEPTION_ORIGIN = 'https://grader-test-exception.example';
+
+  const CORPUS: Corpus = {
+    version: 'test',
+    reviewed: '2026-09-04',
+    checks: [check({ id: '1.5', automation: 'assisted' as AutomationTier, detectors: ['delta'] })],
+  };
+  const IMPLEMENTED = new Set(['delta']);
+
+  let auditId: string;
+  let resultId: string;
+
+  afterAll(async () => {
+    await db.delete(sites).where(eq(sites.origin, EXCEPTION_ORIGIN));
+    await handle.close();
+  });
+
+  beforeEach(async () => {
+    await db.delete(sites).where(eq(sites.origin, EXCEPTION_ORIGIN));
+    const [site] = await db
+      .insert(sites)
+      .values({ name: 'exception fixture', origin: EXCEPTION_ORIGIN })
+      .returning({ id: sites.id });
+    const [audit] = await db
+      .insert(audits)
+      .values({ siteId: site!.id, corpusVersion: 'test' })
+      .returning({ id: audits.id });
+    auditId = audit!.id;
+
+    const [result] = await db
+      .insert(probeResults)
+      .values({
+        auditId,
+        probeId: 'delta',
+        scope: 'site' as const,
+        outcome: 'fail' as const,
+        summary: 'delta failed',
+      })
+      .returning({ id: probeResults.id });
+    resultId = result!.id;
+  });
+
+  const failingGrade = () =>
+    gradeAudit({
+      corpus: CORPUS,
+      flags: [],
+      evidence: [
+        {
+          run: {
+            probeId: 'delta',
+            scope: 'site',
+            observation: { outcome: 'fail', summary: 'delta failed' },
+          },
+          resultId,
+        },
+      ],
+      implementedDetectors: IMPLEMENTED,
+    });
+
+  it('overwrites an attestation on an exception-proof gate with a fresh failed measurement', async () => {
+    await db.insert(checkStates).values({
+      auditId,
+      checkId: '1.5',
+      applicability: 'yes',
+      status: 'passed',
+      coverage: 'attested',
+      evidence: 'signed off as an accepted risk',
+      attestationExpiresAt: new Date(Date.now() + 86_400_000),
+    });
+
+    const recorded = await recordGrade(db, { auditId, corpus: CORPUS, grade: failingGrade() });
+
+    expect(recorded.preserved).toEqual([]);
+    expect(recorded.written).toBe(1);
+
+    const [state] = await db
+      .select()
+      .from(checkStates)
+      .where(and(eq(checkStates.auditId, auditId), eq(checkStates.checkId, '1.5')));
+    expect(state?.status).toBe('failed');
+    expect(state?.coverage).toBe('verified');
+  });
+
+  it('still honors an attestation on an exception-proof gate absent a fresh failure', async () => {
+    await db.insert(checkStates).values({
+      auditId,
+      checkId: '1.5',
+      applicability: 'yes',
+      status: 'passed',
+      coverage: 'attested',
+      evidence: 'signed off as an accepted risk',
+      attestationExpiresAt: new Date(Date.now() + 86_400_000),
+    });
+
+    // No detector evidence this time: the fresh grade is ungraded, not failed.
+    const recorded = await recordGrade(db, {
+      auditId,
+      corpus: CORPUS,
+      grade: gradeAudit({ corpus: CORPUS, flags: [], evidence: [], implementedDetectors: IMPLEMENTED }),
+    });
+
+    expect(recorded.preserved).toEqual(['1.5']);
+    const [state] = await db
+      .select()
+      .from(checkStates)
+      .where(and(eq(checkStates.auditId, auditId), eq(checkStates.checkId, '1.5')));
+    expect(state?.status).toBe('passed');
+    expect(state?.coverage).toBe('attested');
+  });
+});

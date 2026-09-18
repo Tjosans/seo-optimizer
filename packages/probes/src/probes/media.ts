@@ -5,8 +5,9 @@
  */
 
 import { isAllowed, isSameSite, resolveUrl } from '@seo/crawler';
-import type { PageProbe } from '../types.js';
+import type { PageProbe, SiteProbe } from '../types.js';
 import { fail, notApplicable, pass, warn } from '../types.js';
+import { declaresArticle } from './content.js';
 
 const NO_HTML = 'No HTML was parsed for this response.';
 
@@ -202,6 +203,71 @@ export const imageDiscoverability: PageProbe = {
   },
 };
 
+/** Discover's minimum representative-image width, per Google's own guidance. */
+const DISCOVER_MIN_WIDTH = 1200;
+
+/**
+ * 2.16 scopes itself to sites electing Discover presentation or Preferred
+ * Sources (`site.flags` names `discover`), and its own `doneWhen` defers
+ * almost everything to a person: accurate previews, documented policy
+ * decisions, actual indexed evidence, Preferred Sources adoption. The one
+ * requirement stated as a requirement rather than a record is the
+ * representative image large-preview eligibility needs — declared at
+ * Discover's minimum width, and not opted out of by `max-image-preview`. A
+ * page the crawl does not type as an article is outside 2.16's subject
+ * entirely, the same reading `author-date-signals` already gives "articles".
+ */
+export const publisherDiscoverReadiness: SiteProbe = {
+  id: 'publisher-discover-readiness',
+  scope: 'site',
+  title: 'Article pages carry a Discover-eligible representative image',
+  run({ crawl }) {
+    const ineligible: { url: string; reason: string }[] = [];
+    const missing: string[] = [];
+    let articles = 0;
+
+    for (const page of crawl.pages) {
+      const extracted = page.extracted;
+      if (extracted === null || page.fetch.status !== 200) continue;
+      if (!declaresArticle(extracted)) continue;
+      articles += 1;
+      const url = page.normalizedUrl;
+
+      const image = extracted.openGraph['og:image'];
+      if (image === undefined) {
+        missing.push(url);
+        continue;
+      }
+
+      const width = Number.parseInt(extracted.openGraph['og:image:width'] ?? '', 10);
+      if (Number.isFinite(width) && width < DISCOVER_MIN_WIDTH) {
+        ineligible.push({ url, reason: `og:image:width is ${width}px, under Discover's ${DISCOVER_MIN_WIDTH}px` });
+      }
+
+      const directives = `${extracted.metaRobots ?? ''} ${page.fetch.headers['x-robots-tag'] ?? ''}`;
+      const preview = /max-image-preview:\s*(\S+)/i.exec(directives)?.[1];
+      if (preview !== undefined && preview.toLowerCase() !== 'large') {
+        ineligible.push({ url, reason: `max-image-preview is "${preview}", not "large"` });
+      }
+    }
+
+    if (articles === 0) return notApplicable('The site has no pages typed as articles.');
+
+    if (ineligible.length > 0) {
+      return fail(
+        `${ineligible.length} article page(s) opt out of Discover's large-preview image eligibility.`,
+        { samples: ineligible.slice(0, 5) },
+      );
+    }
+    if (missing.length > 0) {
+      return warn(`${missing.length} of ${articles} article page(s) declare no og:image.`, {
+        samples: missing.slice(0, 5),
+      });
+    }
+    return pass(`All ${articles} article page(s) declare a Discover-eligible representative image.`);
+  },
+};
+
 export const mediaProbes = [
   imageAltQuality,
   imageDimensions,
@@ -209,4 +275,5 @@ export const mediaProbes = [
   lcpNotLazy,
   mediaAlternatives,
   imageDiscoverability,
+  publisherDiscoverReadiness,
 ];

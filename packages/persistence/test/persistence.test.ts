@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { crawl, extract, parseRobots } from '@seo/crawler';
@@ -14,9 +15,12 @@ import {
 } from '@seo/db';
 import { runProbes } from '@seo/probes';
 import type { ProbeRun, SiteContext } from '@seo/probes';
+import type { BlobStore } from '@seo/storage';
 import {
   crawlToDatabase,
   persistProbeRuns,
+  readArchivedCrawl,
+  readRenderBody,
   toCrawlCompletion,
   toPageLinkRows,
   toPageRow,
@@ -24,6 +28,30 @@ import {
 } from '@seo/persistence';
 import { startFixtureSite } from '@seo/testkit';
 import type { FixtureSite } from '@seo/testkit';
+
+/** An in-memory stand-in for `S3BlobStore`, sharded the same way so a test can assert the format too. */
+class FakeBlobStore implements BlobStore {
+  readonly written = new Map<string, Uint8Array>();
+
+  async put(bytes: Uint8Array): Promise<string> {
+    const hash = createHash('sha256').update(bytes).digest('hex');
+    const key = `sha256/${hash.slice(0, 2)}/${hash.slice(2)}`;
+    this.written.set(key, bytes);
+    return key;
+  }
+
+  async get(key: string): Promise<Uint8Array | null> {
+    return this.written.get(key) ?? null;
+  }
+
+  async putMany(bodies: readonly Uint8Array[]): Promise<string[]> {
+    return Promise.all(bodies.map((bytes) => this.put(bytes)));
+  }
+
+  async deleteMany(keys: readonly string[]): Promise<void> {
+    for (const key of keys) this.written.delete(key);
+  }
+}
 
 let site: FixtureSite;
 let options: CrawlOptions;
@@ -122,6 +150,14 @@ describe('mapping a crawled page to rows', () => {
     expect(row?.bodyHash).not.toBe(row?.textHash);
   });
 
+  it('leaves bodyKey null with no key supplied, and carries whatever key it is given', () => {
+    const page = crawled('/');
+    expect(toRenderRow({ id: 'r1', pageId: 'p1', page })?.bodyKey).toBeNull();
+    expect(
+      toRenderRow({ id: 'r2', pageId: 'p1', page, bodyKey: 'sha256/ab/cd' })?.bodyKey,
+    ).toBe('sha256/ab/cd');
+  });
+
   it('emits one redirect edge per chain rather than one per hop', () => {
     const rows = toPageLinkRows({ crawlId: 'c1', fromPageId: 'p1', page: crawled('/old') });
     const redirects = rows.filter((row) => row.kind === 'redirect');
@@ -158,6 +194,37 @@ describe('mapping a crawled page to rows', () => {
     };
     expect(toCrawlCompletion(slow, options).requestDelayMs).toBe(2000);
     expect(toCrawlCompletion(result, options).requestDelayMs).toBe(0);
+  });
+});
+
+describe('reading a render body back out of a blob store', () => {
+  const store = new FakeBlobStore();
+
+  it('reports not-stored when no key was ever recorded', async () => {
+    const read = await readRenderBody(store, { bodyKey: null, bodyHash: 'irrelevant' });
+    expect(read).toEqual({ status: 'not-stored', body: null });
+  });
+
+  it('reports missing when the store holds nothing under the key', async () => {
+    const read = await readRenderBody(store, {
+      bodyKey: 'sha256/00/does-not-exist',
+      bodyHash: 'irrelevant',
+    });
+    expect(read).toEqual({ status: 'missing', body: null });
+  });
+
+  it('reports corrupt when the bytes at the key do not hash to what was recorded', async () => {
+    const key = await store.put(new TextEncoder().encode('<html>actual</html>'));
+    const read = await readRenderBody(store, { bodyKey: key, bodyHash: 'not-the-real-hash' });
+    expect(read).toEqual({ status: 'corrupt', body: null });
+  });
+
+  it('returns the body once the hash confirms it is what was written', async () => {
+    const body = '<html>hello, archive</html>';
+    const key = await store.put(new TextEncoder().encode(body));
+    const hash = createHash('sha256').update(body, 'utf8').digest('hex');
+    const read = await readRenderBody(store, { bodyKey: key, bodyHash: hash });
+    expect(read).toEqual({ status: 'ok', body });
   });
 });
 
@@ -336,5 +403,74 @@ describe.skipIf(!url)('persisting a crawl and its observations', () => {
     await expect(
       persistProbeRuns(db, { auditId, crawlId, runs: [stray] }),
     ).rejects.toThrow(/has no row in this crawl/);
+  });
+});
+
+/**
+ * A `BlobStore` is optional, so this is its own crawl rather than added to the
+ * suite above: every other test there asserts a shape that must hold whether
+ * or not a store is configured, and mixing the two would leave it ambiguous
+ * which behaviour a given assertion was protecting.
+ */
+describe.skipIf(!url)('mapping page bodies into a blob store', () => {
+  const handle = createDatabase(url ?? '', { max: 2 });
+  const { db } = handle;
+  const store = new FakeBlobStore();
+
+  let origin: string;
+  let crawlId: string;
+
+  beforeAll(async () => {
+    origin = `${site.origin}/#blob-store-test`;
+    const [row] = await db.insert(sites).values({ name: 'fixture-blobstore', origin }).returning();
+    const [audit] = await db
+      .insert(audits)
+      .values({ siteId: row!.id, corpusVersion: '4.4' })
+      .returning();
+
+    const persisted = await crawlToDatabase(db, { auditId: audit!.id, options, blobStore: store });
+    crawlId = persisted.crawlId;
+  }, 60_000);
+
+  afterAll(async () => {
+    await db.delete(sites).where(eq(sites.origin, origin));
+    await handle.close();
+  });
+
+  it('uploads each raw body and keys the render row by what came back', async () => {
+    const rows = await db
+      .select({ bodyKey: renders.bodyKey, bodyHash: renders.bodyHash })
+      .from(renders)
+      .innerJoin(pages, eq(pages.id, renders.pageId))
+      .where(eq(pages.crawlId, crawlId));
+
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.bodyKey).toMatch(/^sha256\/[0-9a-f]{2}\/[0-9a-f]{62}$/);
+      // The store actually holds the bytes at that key, not just a plausible-looking string.
+      expect(await store.get(row.bodyKey!)).not.toBeNull();
+    }
+  });
+
+  it('reconstructs every page body the crawl wrote, verified against its hash', async () => {
+    const archived = await readArchivedCrawl(db, store, crawlId);
+    expect(archived.length).toBeGreaterThan(0);
+    expect(archived.every((render) => render.status === 'ok')).toBe(true);
+    expect(archived.every((render) => typeof render.body === 'string')).toBe(true);
+
+    const home = archived.find((render) => render.body?.includes('Home | Fixture'));
+    expect(home).toBeDefined();
+  });
+
+  it('reads back not-stored for a render written with no store at all', async () => {
+    const [row] = await db.insert(sites).values({ name: 'no-store', origin: `${site.origin}/#no-store` }).returning();
+    const [audit] = await db.insert(audits).values({ siteId: row!.id, corpusVersion: '4.4' }).returning();
+    const persisted = await crawlToDatabase(db, { auditId: audit!.id, options });
+
+    const archived = await readArchivedCrawl(db, store, persisted.crawlId);
+    expect(archived.length).toBeGreaterThan(0);
+    expect(archived.every((render) => render.status === 'not-stored')).toBe(true);
+
+    await db.delete(sites).where(eq(sites.id, row!.id));
   });
 });

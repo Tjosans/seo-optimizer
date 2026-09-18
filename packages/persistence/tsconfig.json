@@ -5,6 +5,7 @@
   "references": [
     { "path": "../crawler" },
     { "path": "../db" },
-    { "path": "../probes" }
+    { "path": "../probes" },
+    { "path": "../storage" }
   ]
 }

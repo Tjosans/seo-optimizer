@@ -60,6 +60,7 @@ import type { Database } from '@seo/db';
 import { UnknownReleaseError, findRelease } from '@seo/grader';
 import { JobQueue } from '@seo/queue';
 import type { Job, JobEvent, JobStore, RetryAttempt, RetryPolicy } from '@seo/queue';
+import type { BlobStore } from '@seo/storage';
 import { auditLane } from './lane.js';
 import { auditRetryPolicy } from './retry.js';
 import { runAudit } from './run-audit.js';
@@ -107,6 +108,16 @@ export interface AuditSchedulerOptions {
    */
   readonly store?: JobStore<AuditJob>;
   /**
+   * Where a page's raw body is uploaded before its render row is written, so
+   * `renders.bodyKey` carries the result instead of staying null.
+   *
+   * Already-constructed, the same way `db` is: this class has no opinion on
+   * S3 versus GCS versus MinIO, or where `STORAGE_*` comes from — a caller
+   * builds one with `createBlobStore(storageConfigFromEnv())` (@seo/storage)
+   * and hands it in. Without one, audits behave exactly as before.
+   */
+  readonly blobStore?: BlobStore;
+  /**
    * How often to renew this scheduler's claim on the audits it is running.
    *
    * Set it, with a store that leases, to share one queue namespace with a
@@ -137,6 +148,7 @@ export class AuditScheduler {
    * the queue cannot answer: what is outstanding for *anyone*, not just here.
    */
   readonly #store: JobStore<AuditJob> | undefined;
+  readonly #blobStore: BlobStore | undefined;
   /**
    * When this process took the queue over, read from the database clock.
    *
@@ -155,11 +167,13 @@ export class AuditScheduler {
     this.#corpus = options.corpus;
 
     this.#store = options.store;
+    this.#blobStore = options.blobStore;
 
     const policy = options.retry === false ? undefined : (options.retry ?? auditRetryPolicy());
     this.#queue = new JobQueue<AuditJob, AuditOutcome>({
       concurrency: options.concurrency ?? 2,
-      handler: (job, context) => runAudit(this.#db, job, this.#corpus, context.signal),
+      handler: (job, context) =>
+        runAudit(this.#db, job, this.#corpus, context.signal, this.#blobStore),
       ...(policy === undefined
         ? {}
         : { retry: (attempt: RetryAttempt<AuditJob>) => this.#decideRetry(policy, attempt) }),

@@ -10,6 +10,7 @@
     "@seo/crawler": "*",
     "@seo/db": "*",
     "@seo/probes": "*",
+    "@seo/storage": "*",
     "drizzle-orm": "^0.45.2"
   }
 }

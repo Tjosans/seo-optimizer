@@ -117,6 +117,23 @@ export interface ExtractedBreadcrumb {
 }
 
 /**
+ * A comment thread or reply form and the links inside it, for the
+ * ugc-governance detector.
+ *
+ * Bounded by whichever the page gives us: the nearest ancestor named for a
+ * comment thread (`#comments`, `.comment-list`, `#respond`, `#disqus_thread`
+ * and the like), else a comment/reply form's own parent, else the form
+ * itself. Recorded without judgement — whether an unqualified link inside it
+ * is a defect is the probe's call, on a page that carries UGC markup at all.
+ */
+export interface ExtractedCommentRegion {
+  /** A `<form>` in this region carries a field naming a comment or a reply. */
+  readonly hasForm: boolean;
+  /** Links inside the region, in document order. */
+  readonly links: readonly ExtractedLink[];
+}
+
+/**
  * A `<link rel="icon">` and friends, as declared.
  *
  * Only the declaration. Whether the file is there, and whether it is square,
@@ -135,6 +152,20 @@ export interface ExtractedIcon {
 
 export interface ExtractedHeading {
   readonly level: number;
+  readonly text: string;
+}
+
+/**
+ * One `<script>` element, external or inline, in document order — every
+ * `<script>` interleaved as authored, unlike `scripts`/`inlineScripts`, which
+ * split the two apart and so lose which came first. The consent-mode-config
+ * detector needs that ordering to tell a default set before a Google tag
+ * loads from one set after.
+ */
+export interface ExtractedScriptTag {
+  /** Resolved absolute URL, or null for an inline script. */
+  readonly src: string | null;
+  /** The element's own text; empty for an external script. */
   readonly text: string;
 }
 
@@ -165,6 +196,8 @@ export interface ExtractedContent {
   readonly sections: readonly ExtractedSection[];
   /** Absolute URLs of the links inside the reading matter, in document order. */
   readonly links: readonly string[];
+  /** The reading matter's own text, cleaned and joined — headings included, chrome excluded. */
+  readonly text: string;
 }
 
 /**
@@ -225,6 +258,10 @@ export interface Extracted {
   readonly twitter: Readonly<Record<string, string>>;
   /** Absolute URLs of external scripts, in document order. */
   readonly scripts: readonly string[];
+  /** Text of `<script>` elements with no `src`, in document order, for the analytics-implementation detector. */
+  readonly inlineScripts: readonly string[];
+  /** Every `<script>`, external and inline, interleaved in document order. */
+  readonly scriptTags: readonly ExtractedScriptTag[];
   /** Absolute URLs of `<link rel="stylesheet">` sheets, in document order. */
   readonly stylesheets: readonly string[];
   /** Declared favicons and touch icons, for the favicon-site-name detector. */
@@ -235,6 +272,8 @@ export interface Extracted {
   readonly frames: readonly ExtractedFrame[];
   /** Visible breadcrumb trails, in document order. Empty when none is present. */
   readonly breadcrumbs: readonly ExtractedBreadcrumb[];
+  /** Comment/reply forms and threads found on the page, and the links inside each. */
+  readonly commentRegions: readonly ExtractedCommentRegion[];
   /** `<table>` elements, in document order, nested ones included. */
   readonly tables: readonly ExtractedTable[];
   /**
@@ -258,6 +297,13 @@ export interface Extracted {
 
 /** A fragment naming a page number: `#page=2`, `#/page/2`, `#!/page/2`, `#p2`. */
 const FRAGMENT_PAGE = /^#!?\/?(?:page|p)[-_=/]?\d+/i;
+
+/** A form field's name, id or placeholder that marks it as a comment or a reply. */
+const COMMENT_FIELD_RE = /comment|reply/i;
+
+/** A container the wild consistently names for a comment thread or its reply form. */
+const COMMENT_CONTAINER_SELECTOR =
+  '[id*="comment" i], [class*="comment" i], [id*="disqus" i], [id*="respond" i], [class*="respond" i]';
 
 const attr = (value: string | undefined): string | null => (value === undefined ? null : value);
 const clean = (value: string): string => value.replace(/\s+/g, ' ').trim();
@@ -440,6 +486,60 @@ export function extract(html: string, pageUrl: string): Extracted {
     breadcrumbs.push({ links, labels: [...new Set(labels)] });
   });
 
+  /** A field whose name, id or placeholder marks it as a comment or a reply. */
+  const isCommentField = (node: Cheerio<AnyNode>): boolean =>
+    [node.attr('name'), node.attr('id'), node.attr('placeholder')].some(
+      (value) => value !== undefined && COMMENT_FIELD_RE.test(value),
+    );
+  const isCommentForm = (form: Cheerio<AnyNode>): boolean =>
+    form
+      .find('input, textarea, select')
+      .toArray()
+      .some((field) => isCommentField($(field)));
+
+  const regionRootNodes: AnyNode[] = [];
+  $(COMMENT_CONTAINER_SELECTOR).each((_, element) => {
+    regionRootNodes.push(element);
+  });
+  $('form').each((_, element) => {
+    const form = $(element);
+    if (!isCommentForm(form)) return;
+    const named = form.closest(COMMENT_CONTAINER_SELECTOR);
+    regionRootNodes.push(named.length > 0 ? named.get(0)! : form.parent().get(0) ?? element);
+  });
+  // Keep only the outermost of any nested matches, so a form's own comment
+  // container and the #comments it sits in are not read as two regions.
+  const uniqueRootNodes = [...new Set(regionRootNodes)];
+  const regionRoots = uniqueRootNodes.filter(
+    (node) => !uniqueRootNodes.some((other) => other !== node && cheerio.contains(other, node)),
+  );
+
+  const commentRegions: ExtractedCommentRegion[] = regionRoots.map((root) => {
+    const node = $(root);
+    const hasForm = node.is('form')
+      ? isCommentForm(node)
+      : node
+          .find('form')
+          .toArray()
+          .some((form) => isCommentForm($(form)));
+    const regionLinks: ExtractedLink[] = [];
+    node.find('a[href]').each((_i, anchor) => {
+      const href = $(anchor).attr('href') ?? '';
+      const url = resolveUrl(href, base);
+      if (url === null) return;
+      const rel = attr($(anchor).attr('rel'));
+      regionLinks.push({
+        url,
+        href,
+        anchorText: clean($(anchor).text()),
+        name: nameOf($(anchor)),
+        rel,
+        nofollow: rel !== null && /\bnofollow\b/i.test(rel),
+      });
+    });
+    return { hasForm, links: regionLinks };
+  });
+
   const tables: ExtractedTable[] = [];
   $('table').each((_, element) => {
     const table = $(element);
@@ -499,6 +599,19 @@ export function extract(html: string, pageUrl: string): Extracted {
     if (url !== null) scripts.push(url);
   });
 
+  const inlineScripts: string[] = [];
+  $('script:not([src])').each((_, element) => {
+    const text = $(element).text();
+    if (text.trim() !== '') inlineScripts.push(text);
+  });
+
+  const scriptTags: ExtractedScriptTag[] = [];
+  $('script').each((_, element) => {
+    const srcAttr = $(element).attr('src');
+    const src = srcAttr === undefined ? null : resolveUrl(srcAttr, base);
+    scriptTags.push({ src, text: src === null ? $(element).text() : '' });
+  });
+
   const stylesheets: string[] = [];
   $('link[rel="stylesheet"][href]').each((_, element) => {
     const url = resolveUrl($(element).attr('href') ?? '', base);
@@ -523,11 +636,17 @@ export function extract(html: string, pageUrl: string): Extracted {
 
   const sections: { heading: ExtractedHeading | null; words: number }[] = [{ heading: null, words: 0 }];
   const contentLinks: string[] = [];
+  // Joined with spaces, like the byline below: cheerio's own `.text()` runs
+  // adjacent elements' text together with nothing between them, which would
+  // fuse a heading and the paragraph after it into one word.
+  const textParts: string[] = [];
   const walk = (nodes: readonly WalkNode[]): void => {
     for (const node of nodes) {
       if (node.type === 'text') {
         const current = sections[sections.length - 1];
         if (current !== undefined) current.words += countWords(node.data ?? '');
+        const said = clean(node.data ?? '');
+        if (said !== '') textParts.push(said);
         continue;
       }
       if (node.type !== 'tag') continue;
@@ -535,6 +654,7 @@ export function extract(html: string, pageUrl: string): Extracted {
       if (/^h[1-6]$/.test(name)) {
         const heading = { level: Number(name.slice(1)), text: clean($(node as unknown as AnyNode).text()) };
         sections.push({ heading, words: 0 });
+        if (heading.text !== '') textParts.push(heading.text);
         continue;
       }
       if (name === 'a' && node.attribs?.['href'] !== undefined) {
@@ -582,15 +702,18 @@ export function extract(html: string, pageUrl: string): Extracted {
     openGraph,
     twitter,
     scripts,
+    inlineScripts,
+    scriptTags,
     stylesheets,
     icons,
     media,
     frames,
     breadcrumbs,
+    commentRegions,
     tables,
     fragmentPageLinks,
     landmarks: LANDMARKS.filter((tag) => $(tag).length > 0),
-    content: { root: rootKind, sections, links: contentLinks },
+    content: { root: rootKind, sections, links: contentLinks, text: clean(textParts.join(' ')) },
     authorship: {
       metaAuthor: meta('meta[name="author"]'),
       byline,

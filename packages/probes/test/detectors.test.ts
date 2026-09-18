@@ -17,7 +17,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { extract, parseRobots } from '@seo/crawler';
-import type { AuxiliaryFetch, CrawledPage, CrawlResult, FetchResult } from '@seo/crawler';
+import type { AuxiliaryFetch, CrawledPage, CrawlResult, Extracted, FetchResult, RenderComparison } from '@seo/crawler';
 import { probeById } from '@seo/probes';
 import type { Observation, PageProbe, SiteContext, SiteProbe } from '@seo/probes';
 
@@ -3158,5 +3158,612 @@ describe('paywall-access-model', () => {
     expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
       /cannot tell which side of the gate/,
     );
+  });
+});
+
+// --- 3.10 cannibalization ---------------------------------------------------
+
+interface CannibalSpec {
+  readonly title?: string;
+  readonly h1?: string | null;
+  readonly canonical?: string | null;
+  readonly noindex?: boolean;
+  readonly status?: number;
+}
+
+const named = (
+  path: string,
+  { title = 'Guide', h1, canonical, noindex = false, status = 200 }: CannibalSpec = {},
+): CrawledPage =>
+  page({
+    path,
+    status,
+    html:
+      '<html><head>' +
+      `<title>${title}</title>` +
+      (canonical === undefined ? '' : canonical === null ? '' : `<link rel="canonical" href="${ORIGIN}${canonical}">`) +
+      (noindex ? '<meta name="robots" content="noindex">' : '') +
+      `</head><body>${h1 === undefined ? `<h1>${title}</h1>` : h1 === null ? '' : `<h1>${h1}</h1>`}<p>text</p></body></html>`,
+  });
+
+const runCannibal = (pages: readonly CrawledPage[]): Observation => runSite('cannibalization', pages);
+
+describe('cannibalization', () => {
+  it('says nothing with fewer than two indexable, self-canonical pages', () => {
+    expect(runCannibal([named('/a')]).outcome).toBe('not-applicable');
+  });
+
+  it('fails two self-canonical pages sharing a title after trimming and case-folding', () => {
+    const observation = runCannibal([
+      named('/a', { title: ' Best Running Shoes ', h1: 'Something else' }),
+      named('/b', { title: 'best running shoes', h1: 'Another thing' }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('title or h1');
+    const clusters = observation.data?.['clusters'] as { signal: string; urls: string[] }[];
+    expect(clusters[0]?.signal).toBe('title');
+    expect(clusters[0]?.urls).toEqual(expect.arrayContaining([`${ORIGIN}/a`, `${ORIGIN}/b`]));
+  });
+
+  it('fails two self-canonical pages sharing an h1 with different titles', () => {
+    const observation = runCannibal([
+      named('/a', { title: 'Page A', h1: 'Running shoes' }),
+      named('/b', { title: 'Page B', h1: 'running shoes' }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    const clusters = observation.data?.['clusters'] as { signal: string }[];
+    expect(clusters.some((cluster) => cluster.signal === 'h1')).toBe(true);
+  });
+
+  it('leaves a page alone once it canonicalizes onto the one it would otherwise cannibalize', () => {
+    const observation = runCannibal([
+      named('/a', { title: 'Best running shoes' }),
+      named('/b', { title: 'Best running shoes', canonical: '/a' }),
+      named('/c', { title: 'Unrelated page' }),
+    ]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('leaves a noindexed duplicate out of the comparison', () => {
+    const observation = runCannibal([
+      named('/a', { title: 'Best running shoes' }),
+      named('/b', { title: 'Best running shoes', noindex: true }),
+      named('/c', { title: 'Unrelated page' }),
+    ]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('passes distinct pages with no shared title or h1', () => {
+    const observation = runCannibal([named('/a', { title: 'Alpha' }), named('/b', { title: 'Beta' })]);
+    expect(observation.outcome).toBe('pass');
+  });
+});
+
+// --- 3.7 launch-content-completeness -----------------------------------
+
+const launchPage = (body: string, opts: { noindex?: boolean; truncated?: boolean } = {}): CrawledPage => {
+  const built = page({
+    path: '/page',
+    html: `<html><head><title>Page</title>${opts.noindex ? '<meta name="robots" content="noindex">' : ''}</head><body>${body}</body></html>`,
+  });
+  return { ...built, fetch: { ...built.fetch, truncated: opts.truncated ?? false } };
+};
+
+const runLaunchContent = (target: CrawledPage): Observation =>
+  runPage('launch-content-completeness', target, [target]);
+
+describe('launch-content-completeness', () => {
+  it('passes reading matter with no placeholder text and enough words', () => {
+    const observation = runLaunchContent(launchPage(`<main><h1>Guide</h1><p>${words(80)}</p></main>`));
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data).toMatchObject({ words: 80 });
+  });
+
+  it('fails a page with no reading matter at all', () => {
+    const observation = runLaunchContent(launchPage('<main></main>'));
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('no reading matter at all');
+  });
+
+  it('fails placeholder text still on the page', () => {
+    const observation = runLaunchContent(
+      launchPage(`<main><h1>Guide</h1><p>Lorem ipsum dolor sit amet, ${words(60)}</p></main>`),
+    );
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('Placeholder text');
+  });
+
+  it('fails a TODO marker, bounded so an unrelated word is left alone', () => {
+    const todo = runLaunchContent(launchPage(`<main><h1>Guide</h1><p>TODO write this section. ${words(60)}</p></main>`));
+    expect(todo.outcome).toBe('fail');
+
+    const clean = runLaunchContent(launchPage(`<main><h1>Guide</h1><p>Mastodon instructions. ${words(60)}</p></main>`));
+    expect(clean.outcome).toBe('pass');
+  });
+
+  it('warns on thin, placeholder-free reading matter', () => {
+    const observation = runLaunchContent(launchPage(`<main><h1>Guide</h1><p>${words(20)}</p></main>`));
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toContain('20 word(s)');
+  });
+
+  it('is not applicable to a noindexed page', () => {
+    expect(runLaunchContent(launchPage(`<main><h1>Guide</h1><p>${words(80)}</p></main>`, { noindex: true })).outcome).toBe(
+      'not-applicable',
+    );
+  });
+
+  it('reports a body cut at the size limit as unobservable', () => {
+    expect(
+      runLaunchContent(launchPage(`<main><h1>Guide</h1><p>${words(80)}</p></main>`, { truncated: true })).outcome,
+    ).toBe('error');
+  });
+});
+
+// --- 2.5 analytics-implementation ---------------------------------------
+
+const gtagSnippet = (id: string): string =>
+  `<script async src="https://www.googletagmanager.com/gtag/js?id=${id}"></script>` +
+  `<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}` +
+  `gtag('js',new Date());gtag('config','${id}');</script>`;
+
+const gtmSnippet = (id: string): string =>
+  `<script>(function(w,d,s,l,i){w[l]=w[l]||[];var f=d.getElementsByTagName(s)[0],j=d.createElement(s);` +
+  `j.src='https://www.googletagmanager.com/gtm.js?id='+i;f.parentNode.insertBefore(j,f);` +
+  `})(window,document,'script','dataLayer','${id}');</script>`;
+
+const analyticsPage = (path: string, head: string): CrawledPage =>
+  page({ path, html: `<html><head>${head}</head><body><p>content</p></body></html>` });
+
+const runAnalytics = (pages: readonly CrawledPage[]): Observation => runSite('analytics-implementation', pages);
+
+describe('analytics-implementation', () => {
+  it('warns when no page carries a GA4 or GTM id', () => {
+    expect(runAnalytics([analyticsPage('/a', ''), analyticsPage('/b', '')]).outcome).toBe('warn');
+  });
+
+  it('passes pages that all load the same GA4 id', () => {
+    const observation = runAnalytics([
+      analyticsPage('/a', gtagSnippet('G-ABC123')),
+      analyticsPage('/b', gtagSnippet('G-ABC123')),
+    ]);
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data).toMatchObject({ ids: ['G-ABC123'] });
+  });
+
+  it('passes a page naming its GTM container id only in an inline script', () => {
+    expect(runAnalytics([analyticsPage('/a', gtmSnippet('GTM-XYZ789'))]).outcome).toBe('pass');
+  });
+
+  it('fails a page whose gtag script tag is pasted in twice', () => {
+    const observation = runAnalytics([analyticsPage('/a', gtagSnippet('G-ABC123') + gtagSnippet('G-ABC123'))]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('more than once');
+  });
+
+  it('does not flag the ordinary src-plus-inline-config pair as a duplicate', () => {
+    expect(runAnalytics([analyticsPage('/a', gtagSnippet('G-ABC123'))]).outcome).toBe('pass');
+  });
+
+  it('fails when pages disagree on which id they load', () => {
+    const observation = runAnalytics([
+      analyticsPage('/a', gtagSnippet('G-ABC123')),
+      analyticsPage('/b', gtagSnippet('G-DIFFERENT')),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('disagree');
+  });
+
+  it('leaves an untagged page out of the agreement comparison', () => {
+    expect(runAnalytics([analyticsPage('/a', gtagSnippet('G-ABC123')), analyticsPage('/b', '')]).outcome).toBe(
+      'pass',
+    );
+  });
+});
+
+// --- 2.6 consent-mode-config ---------------------------------------------
+
+const GTAG_TAG = '<script async src="https://www.googletagmanager.com/gtag/js?id=G-ABC123"></script>';
+const DEFAULT_CALL =
+  "<script>gtag('consent','default',{ad_storage:'denied',analytics_storage:'denied'});</script>";
+const CMP_SCRIPT = '<script src="https://consent.cookiebot.com/uc.js" data-cbid="abc"></script>';
+
+const consentPage = (head: string): CrawledPage => page({ path: '/', html: `<html><head>${head}</head><body><p>content</p></body></html>` });
+
+const runConsent = (target: CrawledPage): Observation => runPage('consent-mode-config', target, [target]);
+
+describe('consent-mode-config', () => {
+  it('is not-applicable when no page loads a Google tag', () => {
+    expect(runConsent(consentPage('')).outcome).toBe('not-applicable');
+  });
+
+  it('passes a consent default set before the Google tag loads', () => {
+    expect(runConsent(consentPage(DEFAULT_CALL + GTAG_TAG)).outcome).toBe('pass');
+  });
+
+  it('fails a consent default set only after the Google tag has already loaded', () => {
+    const observation = runConsent(consentPage(GTAG_TAG + DEFAULT_CALL));
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('already loaded');
+  });
+
+  it('fails a declared consent banner with no consent default anywhere', () => {
+    const observation = runConsent(consentPage(CMP_SCRIPT + GTAG_TAG));
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('consent banner');
+  });
+
+  it('warns when no consent default and no known consent banner is present', () => {
+    expect(runConsent(consentPage(GTAG_TAG)).outcome).toBe('warn');
+  });
+});
+
+// --- 2.16 publisher-discover-readiness -------------------------------------
+
+const ARTICLE_JSONLD =
+  '<script type="application/ld+json">' +
+  JSON.stringify({ '@context': SCHEMA, '@type': 'Article', headline: 'A piece' }) +
+  '</script>';
+
+const discoverPage = (path: string, head: string): CrawledPage =>
+  page({ path, html: `<html><head>${ARTICLE_JSONLD}${head}</head><body><p>content</p></body></html>` });
+
+const ogImage = (width?: number): string =>
+  `<meta property="og:image" content="https://example.com/a.jpg">` +
+  (width === undefined ? '' : `<meta property="og:image:width" content="${width}">`);
+
+const runDiscover = (pages: readonly CrawledPage[]): Observation => runSite('publisher-discover-readiness', pages);
+
+describe('publisher-discover-readiness', () => {
+  it('is not-applicable on a site with no article pages', () => {
+    expect(runDiscover([page({ path: '/' })]).outcome).toBe('not-applicable');
+  });
+
+  it('warns on an article with no og:image', () => {
+    const observation = runDiscover([discoverPage('/a', '')]);
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toContain('no og:image');
+  });
+
+  it('fails an og:image declared under Discover\'s minimum width', () => {
+    const observation = runDiscover([discoverPage('/a', ogImage(600))]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('opt out');
+  });
+
+  it('passes an og:image declared at or above the minimum width', () => {
+    expect(runDiscover([discoverPage('/a', ogImage(1200))]).outcome).toBe('pass');
+  });
+
+  it('leaves an og:image with no declared width unjudged on that signal', () => {
+    expect(runDiscover([discoverPage('/a', ogImage())]).outcome).toBe('pass');
+  });
+
+  it('fails a max-image-preview directive other than large', () => {
+    const observation = runDiscover([
+      discoverPage('/a', ogImage(1200) + '<meta name="robots" content="max-image-preview:standard">'),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('opt out');
+  });
+
+  it('passes an explicit max-image-preview:large directive', () => {
+    expect(
+      runDiscover([discoverPage('/a', ogImage(1200) + '<meta name="robots" content="max-image-preview:large">')])
+        .outcome,
+    ).toBe('pass');
+  });
+});
+
+// --- 3.13 review-integrity --------------------------------------------------
+
+const jsonLdScript = (data: unknown): string =>
+  `<script type="application/ld+json">${JSON.stringify(data)}</script>`;
+
+const reviewPage = (
+  path: string,
+  blocks: readonly unknown[],
+  siteName?: string,
+): CrawledPage =>
+  page({
+    path,
+    html:
+      '<html><head>' +
+      (siteName === undefined ? '' : `<meta property="og:site_name" content="${siteName}">`) +
+      blocks.map(jsonLdScript).join('') +
+      '</head><body><p>content</p></body></html>',
+  });
+
+const runReviewIntegrity = (pages: readonly CrawledPage[]): Observation =>
+  runSite('review-integrity', pages);
+
+const validReview = {
+  '@context': SCHEMA,
+  '@type': 'Review',
+  itemReviewed: { '@type': 'Product', name: 'Widget' },
+  author: { '@type': 'Person', name: 'Jane Reviewer' },
+  datePublished: '2026-01-15',
+};
+
+describe('review-integrity', () => {
+  it('is not-applicable on a site with no Review or AggregateRating markup', () => {
+    expect(runReviewIntegrity([page({ path: '/' })]).outcome).toBe('not-applicable');
+  });
+
+  it('passes a Review with an author, a date, and a product subject', () => {
+    expect(runReviewIntegrity([reviewPage('/a', [validReview])]).outcome).toBe('pass');
+  });
+
+  it('fails a Review whose itemReviewed names the site\'s own publisher', () => {
+    const observation = runReviewIntegrity([
+      reviewPage(
+        '/a',
+        [
+          {
+            '@context': SCHEMA,
+            '@type': 'Review',
+            itemReviewed: { '@type': 'Organization', name: 'Acme Co' },
+            author: { '@type': 'Person', name: 'Jane Reviewer' },
+            datePublished: '2026-01-15',
+          },
+        ],
+        'Acme Co',
+      ),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('self-serving');
+  });
+
+  it('fails a Review with no author', () => {
+    const observation = runReviewIntegrity([
+      reviewPage('/a', [{ ...validReview, author: undefined }]),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('no author');
+  });
+
+  it('fails an AggregateRating pairing a rating value with a zero count', () => {
+    const observation = runReviewIntegrity([
+      reviewPage('/a', [
+        {
+          '@context': SCHEMA,
+          '@type': 'AggregateRating',
+          ratingValue: '4.5',
+          ratingCount: 0,
+        },
+      ]),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('zero count');
+  });
+
+  it('passes an AggregateRating with a positive count', () => {
+    expect(
+      runReviewIntegrity([
+        reviewPage('/a', [
+          { '@context': SCHEMA, '@type': 'AggregateRating', ratingValue: '4.5', ratingCount: 12 },
+        ]),
+      ]).outcome,
+    ).toBe('pass');
+  });
+
+  it('warns on a Review with no datePublished and no other defects', () => {
+    const observation = runReviewIntegrity([
+      reviewPage('/a', [{ ...validReview, datePublished: undefined }]),
+    ]);
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toContain('datePublished');
+  });
+});
+
+// --- 3.13 ugc-governance -----------------------------------------------------
+
+describe('ugc-governance', () => {
+  const check = (pages: readonly CrawledPage[]): Observation => runSite('ugc-governance', pages);
+
+  const commentPage = (path: string, body: string): CrawledPage =>
+    page({ path, html: `<html><body>${body}</body></html>` });
+
+  it('has nothing to say without a crawled HTML page', () => {
+    expect(check([]).outcome).toBe('not-applicable');
+  });
+
+  it('is not-applicable when no crawled page carries a comment form or Comment schema', () => {
+    const observation = check([
+      commentPage('/', '<p>Nothing here.</p> <a href="https://rival.example/">rival</a>'),
+    ]);
+    expect(observation.outcome).toBe('not-applicable');
+  });
+
+  it('fails an unqualified outbound link inside a comment form\'s container', () => {
+    const observation = check([
+      commentPage(
+        '/post',
+        '<div id="comments">' +
+          '<form><input name="comment" /><textarea name="comment_body"></textarea></form>' +
+          '<div class="comment-list"><a href="https://spammy.example/">check this out</a></div>' +
+          '</div>',
+      ),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.data?.['unqualifiedLinks']).toBe(1);
+    expect(observation.data?.['ugcPages']).toBe(1);
+  });
+
+  it('passes an outbound link inside a comment region carrying rel="ugc"', () => {
+    const observation = check([
+      commentPage(
+        '/post',
+        '<div id="comments">' +
+          '<form><input name="comment" /></form>' +
+          '<a href="https://spammy.example/" rel="ugc">check this out</a>' +
+          '</div>',
+      ),
+    ]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('passes an outbound link inside a comment region carrying rel="nofollow"', () => {
+    const observation = check([
+      commentPage(
+        '/post',
+        '<div id="comments">' +
+          '<form><textarea name="reply_text"></textarea></form>' +
+          '<a href="https://spammy.example/" rel="nofollow">check this out</a>' +
+          '</div>',
+      ),
+    ]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('leaves a same-site link inside a comment region alone', () => {
+    const observation = check([
+      commentPage(
+        '/post',
+        '<div id="comments">' +
+          '<form><input name="reply" /></form>' +
+          '<a href="/other-page">see also</a>' +
+          '</div>',
+      ),
+    ]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('is applicable on a Comment schema node alone, and does not scan links outside any comment region', () => {
+    const observation = check([
+      commentPage(
+        '/post',
+        '<script type="application/ld+json">' +
+          `{"@context":"${SCHEMA}","@type":"Comment","text":"nice post"}` +
+          '</script>' +
+          '<p>Some unrelated text with <a href="https://rival.example/">a link</a></p>',
+      ),
+    ]);
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data?.['ugcPages']).toBe(1);
+    expect(observation.data?.['unqualifiedLinks']).toBe(0);
+  });
+
+  it('catches a sponsor link in a comment-list container once a reply form elsewhere on the page proves the page carries UGC', () => {
+    const observation = check([
+      commentPage(
+        '/post',
+        '<div id="respond"><form><textarea name="comment"></textarea></form></div>' +
+          '<div id="comments"><a href="https://ad.example/">sponsor</a></div>',
+      ),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.data?.['unqualifiedLinks']).toBe(1);
+  });
+});
+
+// --- 1.1 rendering-strategy-classifier --------------------------------------
+
+const compareForTest = (raw: Extracted, rendered: Extracted): RenderComparison => ({
+  titleMatches: raw.title === rendered.title,
+  canonicalMatches: raw.canonical === rendered.canonical,
+  metaRobotsMatches: raw.metaRobots === rendered.metaRobots,
+  wordCountRaw: raw.wordCount,
+  wordCountRendered: rendered.wordCount,
+  linkCountRaw: raw.links.length,
+  linkCountRendered: rendered.links.length,
+  jsonLdCountRaw: raw.jsonLd.length,
+  jsonLdCountRendered: rendered.jsonLd.length,
+  textMatches: raw.text === rendered.text,
+});
+
+const withRender = (target: CrawledPage, renderedHtml: string | null, error: string | null = null): CrawledPage => {
+  const renderedExtracted =
+    error === null && renderedHtml !== null && renderedHtml !== '' ? extract(renderedHtml, target.url) : null;
+  return {
+    ...target,
+    rendered: {
+      render: {
+        requestedUrl: target.url,
+        finalUrl: target.url,
+        status: error === null ? 200 : null,
+        html: renderedHtml ?? '',
+        totalMs: error === null ? 10 : null,
+        error,
+      },
+      extracted: renderedExtracted,
+      comparison:
+        renderedExtracted === null || target.extracted === null
+          ? null
+          : compareForTest(target.extracted, renderedExtracted),
+    },
+  };
+};
+
+describe('rendering-strategy-classifier', () => {
+  it('is not applicable when no render was captured for the crawl', () => {
+    const target = page({ path: '/' });
+    expect(runPage('rendering-strategy-classifier', target, [target]).outcome).toBe('not-applicable');
+  });
+
+  it('errors when the render itself failed', () => {
+    const target = withRender(page({ path: '/' }), null, 'timeout');
+    expect(runPage('rendering-strategy-classifier', target, [target]).outcome).toBe('error');
+  });
+
+  it('errors when the rendered response was empty', () => {
+    const target = withRender(page({ path: '/' }), '');
+    expect(runPage('rendering-strategy-classifier', target, [target]).outcome).toBe('error');
+  });
+
+  it('fails when raw and rendered disagree about noindex', () => {
+    const raw = page({
+      path: '/gated',
+      html:
+        '<html><head><meta name="robots" content="noindex">' +
+        '<link rel="canonical" href="https://example.com/gated"></head>' +
+        '<body><p>Some content here.</p></body></html>',
+    });
+    const target = withRender(
+      raw,
+      '<html><head><link rel="canonical" href="https://example.com/gated"></head>' +
+        '<body><p>Some content here.</p></body></html>',
+    );
+    const observation = runPage('rendering-strategy-classifier', target, [target]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/noindex/i);
+  });
+
+  it('fails when raw and rendered declare different canonicals', () => {
+    const raw = page({
+      path: '/x',
+      html: '<html><head><link rel="canonical" href="https://example.com/x"></head><body><p>content</p></body></html>',
+    });
+    const target = withRender(
+      raw,
+      '<html><head><link rel="canonical" href="https://example.com/other"></head><body><p>content</p></body></html>',
+    );
+    const observation = runPage('rendering-strategy-classifier', target, [target]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/canonical/i);
+  });
+
+  it('fails when the raw response has no reading matter that the rendered page fills in', () => {
+    const raw = page({ path: '/app', html: '<html><body></body></html>' });
+    const target = withRender(raw, `<html><body><p>${Array(80).fill('word').join(' ')}</p></body></html>`);
+    const observation = runPage('rendering-strategy-classifier', target, [target]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/no reading matter/i);
+  });
+
+  it('warns when rendering adds substantially to raw content without conflicting directives', () => {
+    const raw = page({ path: '/blog', html: `<html><body><p>${Array(60).fill('word').join(' ')}</p></body></html>` });
+    const target = withRender(raw, `<html><body><p>${Array(160).fill('word').join(' ')}</p></body></html>`);
+    const observation = runPage('rendering-strategy-classifier', target, [target]);
+    expect(observation.outcome).toBe('warn');
+  });
+
+  it('passes when raw and rendered agree', () => {
+    const html =
+      '<html><head><link rel="canonical" href="https://example.com/p"></head><body><p>Hello world</p></body></html>';
+    const raw = page({ path: '/p', html });
+    const target = withRender(raw, html);
+    const observation = runPage('rendering-strategy-classifier', target, [target]);
+    expect(observation.outcome).toBe('pass');
   });
 });

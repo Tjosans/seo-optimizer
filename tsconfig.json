@@ -1,6 +1,8 @@
 {
   "files": [],
   "references": [
+    { "path": "./apps/api" },
+    { "path": "./apps/dashboard" },
     { "path": "./packages/core" },
     { "path": "./packages/corpus" },
     { "path": "./packages/crawler" },
@@ -11,6 +13,7 @@
     { "path": "./packages/probes" },
     { "path": "./packages/queue" },
     { "path": "./packages/scheduler" },
+    { "path": "./packages/storage" },
     { "path": "./packages/testkit" }
   ]
 }

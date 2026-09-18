@@ -3397,3 +3397,60 @@ describe('consent-mode-config', () => {
     expect(runConsent(consentPage(GTAG_TAG)).outcome).toBe('warn');
   });
 });
+
+// --- 2.16 publisher-discover-readiness -------------------------------------
+
+const ARTICLE_JSONLD =
+  '<script type="application/ld+json">' +
+  JSON.stringify({ '@context': SCHEMA, '@type': 'Article', headline: 'A piece' }) +
+  '</script>';
+
+const discoverPage = (path: string, head: string): CrawledPage =>
+  page({ path, html: `<html><head>${ARTICLE_JSONLD}${head}</head><body><p>content</p></body></html>` });
+
+const ogImage = (width?: number): string =>
+  `<meta property="og:image" content="https://example.com/a.jpg">` +
+  (width === undefined ? '' : `<meta property="og:image:width" content="${width}">`);
+
+const runDiscover = (pages: readonly CrawledPage[]): Observation => runSite('publisher-discover-readiness', pages);
+
+describe('publisher-discover-readiness', () => {
+  it('is not-applicable on a site with no article pages', () => {
+    expect(runDiscover([page({ path: '/' })]).outcome).toBe('not-applicable');
+  });
+
+  it('warns on an article with no og:image', () => {
+    const observation = runDiscover([discoverPage('/a', '')]);
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toContain('no og:image');
+  });
+
+  it('fails an og:image declared under Discover\'s minimum width', () => {
+    const observation = runDiscover([discoverPage('/a', ogImage(600))]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('opt out');
+  });
+
+  it('passes an og:image declared at or above the minimum width', () => {
+    expect(runDiscover([discoverPage('/a', ogImage(1200))]).outcome).toBe('pass');
+  });
+
+  it('leaves an og:image with no declared width unjudged on that signal', () => {
+    expect(runDiscover([discoverPage('/a', ogImage())]).outcome).toBe('pass');
+  });
+
+  it('fails a max-image-preview directive other than large', () => {
+    const observation = runDiscover([
+      discoverPage('/a', ogImage(1200) + '<meta name="robots" content="max-image-preview:standard">'),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('opt out');
+  });
+
+  it('passes an explicit max-image-preview:large directive', () => {
+    expect(
+      runDiscover([discoverPage('/a', ogImage(1200) + '<meta name="robots" content="max-image-preview:large">')])
+        .outcome,
+    ).toBe('pass');
+  });
+});

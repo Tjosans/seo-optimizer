@@ -18,6 +18,8 @@ import { ALLOW_ALL, crawlDelayMs, isAllowed, parseRobots } from './robots.js';
 import type { Robots } from './robots.js';
 import { negotiateProtocol } from './protocol.js';
 import type { ProtocolCheck } from './protocol.js';
+import { lookupDomainRdap, registrableDomain } from './rdap.js';
+import type { RdapCheck } from './rdap.js';
 import { SITEMAP_MAX_BYTES, createSitemapParser } from './sitemap.js';
 import type { SitemapNews, SitemapVideo } from './sitemap.js';
 import { isSameSite, normalizeUrl } from './url.js';
@@ -82,6 +84,8 @@ export interface CrawlOptions {
   readonly fetchImpl?: typeof fetchPage;
   /** Injection seam for the TLS handshake, like `fetchImpl` for requests. */
   readonly negotiateImpl?: typeof negotiateProtocol;
+  /** Injection seam for the RDAP lookup, like `fetchImpl` for requests. */
+  readonly rdapImpl?: typeof lookupDomainRdap;
   /** Called as each page completes, so a long crawl can stream to storage. */
   readonly onPage?: (page: CrawledPage) => void | Promise<void>;
 }
@@ -110,8 +114,11 @@ export interface AuxiliaryFetch {
    *   site treats that crawler differently from this one.
    * `external-link` — a link target off the crawled site, fetched to answer
    *   whether it is broken; `broken-links` (corpus 4.1) is the reader.
+   * `asset` — a stylesheet or script a page declared, fetched to weigh it
+   *   against Googlebot's per-file fetch limit; `crawler-fetch-limit`
+   *   (corpus 1.5) is the reader.
    */
-  readonly reason: 'host-variant' | 'icon' | 'user-agent-test' | 'external-link';
+  readonly reason: 'host-variant' | 'icon' | 'user-agent-test' | 'external-link' | 'asset';
   readonly url: string;
   /** The `user-agent` sent, when it was not the crawl's own. */
   readonly userAgent?: string;
@@ -219,6 +226,14 @@ export interface CrawlResult {
    * existed. Absent is not HTTP/1.1 — it is not knowing.
    */
   readonly protocol?: ProtocolCheck;
+  /**
+   * The root document's host, as its own registry's RDAP record describes it.
+   *
+   * Absent under the same conditions as `protocol`, plus one more: a host with
+   * no registrable domain to look up — an IP literal, `localhost`, any
+   * single-label name — for which there is nothing a registry could answer.
+   */
+  readonly rdap?: RdapCheck;
 }
 
 interface QueueEntry {
@@ -556,6 +571,7 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
   }
 
   let protocol: ProtocolCheck | undefined;
+  let rdap: RdapCheck | undefined;
 
   // After the walk, because the icons a site declares are found by reading its
   // root document, and reading it is what the walk just did.
@@ -605,6 +621,21 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
       externalFetched += 1;
     }
 
+    // Googlebot fetches a page's CSS and JavaScript separately, each under its
+    // own limit, but the walk only ever reads the document — `crawler-fetch-limit`
+    // (1.5) cannot weigh what it never saw. Fetched once per URL, deduplicated
+    // across every page that links it, the same way icons are.
+    const assets = new Set<string>();
+    for (const entry of pages) {
+      for (const url of [...(entry.extracted?.stylesheets ?? []), ...(entry.extracted?.scripts ?? [])]) {
+        assets.add(url);
+      }
+    }
+    for (const url of [...assets].slice(0, MAX_ASSET_FETCHES)) {
+      stopIfCancelled(options.signal);
+      await aside('asset', url);
+    }
+
     // With the host the root document actually came from, after redirects: the
     // version a visitor gets is the canonical host's, not the seed spelling's.
     const landed = root?.fetch.error === null ? root.fetch.finalUrl : null;
@@ -613,6 +644,22 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
       if (!first) await sleep(delayMs, options.signal);
       first = false;
       protocol = await (options.negotiateImpl ?? negotiateProtocol)(landed, {
+        ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+      });
+    }
+
+    // Registration is a fact about the host, not the scheme, so this asks
+    // regardless of whether `landed` answered over HTTP or HTTPS — unlike the
+    // handshake above, which only HTTPS has an answer to.
+    // Skipped, like the host variants, for a host no registry could answer
+    // for — an IP, `localhost`, any single-label name — which is why it never
+    // fires against the fixture site.
+    const rdapHost = landed !== null ? hostOf(landed)?.replace(/:\d+$/, '') ?? null : null;
+    if (rdapHost !== null && registrableDomain(rdapHost) !== null) {
+      stopIfCancelled(options.signal);
+      if (!first) await sleep(delayMs, options.signal);
+      first = false;
+      rdap = await (options.rdapImpl ?? lookupDomainRdap)(rdapHost, {
         ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
       });
     }
@@ -640,6 +687,7 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
     ],
     auxiliary,
     ...(protocol === undefined ? {} : { protocol }),
+    ...(rdap === undefined ? {} : { rdap }),
   };
 }
 
@@ -671,6 +719,14 @@ const MAX_EXTERNAL_LINK_FETCHES = 30;
  * external-link budget confirming that one host is up.
  */
 const MAX_EXTERNAL_LINKS_PER_HOST = 3;
+
+/**
+ * How many distinct stylesheet/script URLs one crawl will fetch to weigh
+ * against `crawler-fetch-limit` (1.5). A site's asset URLs repeat across
+ * pages far more than they vary, so a modest cap still reaches most of a
+ * site's actual bundles.
+ */
+const MAX_ASSET_FETCHES = 20;
 
 /**
  * The scheme and host spellings that must all end up in the same place.

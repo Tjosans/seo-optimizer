@@ -627,8 +627,9 @@ describe('the external-link auxiliary pass', () => {
       maxPages: 2,
       maxDepth: 1,
       fetchImpl: fetchImpl as unknown as typeof fetchPage,
-      // No real TLS handshake to a host that does not exist.
+      // No real TLS handshake or RDAP lookup against a host that does not exist.
       negotiateImpl: async (origin) => ({ origin, alpn: null, tlsVersion: null, error: null }),
+      rdapImpl: async (domain) => ({ domain, expiresAt: null, registrar: null, statuses: [], fetchedAt: new Date().toISOString(), error: null }),
     });
   });
 
@@ -648,5 +649,70 @@ describe('the external-link auxiliary pass', () => {
   it('never fetches an external target beyond the per-host cap', () => {
     expect(crawled.auxiliary.some((entry) => entry.url === `${HOST_A}/4`)).toBe(false);
     expect(crawled.auxiliary.some((entry) => entry.url === `${HOST_A}/5`)).toBe(false);
+  });
+});
+
+// --- extraction of linked stylesheets ----------------------------------------
+
+describe('stylesheet extraction', () => {
+  it('records <link rel="stylesheet"> hrefs, resolved to absolute URLs, in document order', () => {
+    const html =
+      '<html><head>' +
+      '<link rel="stylesheet" href="/style.css">' +
+      '<link rel="icon" href="/favicon.ico">' +
+      '<link rel="stylesheet" href="https://cdn.example.com/theme.css">' +
+      '</head><body></body></html>';
+    const extracted = extract(html, 'https://site.test/page');
+    expect(extracted.stylesheets).toEqual(['https://site.test/style.css', 'https://cdn.example.com/theme.css']);
+  });
+});
+
+// --- the asset auxiliary pass -------------------------------------------------
+
+describe('the asset auxiliary pass', () => {
+  const ORIGIN = 'https://asset-site.test';
+
+  const fetchImpl = async (url: string): Promise<FetchResult> => {
+    const isRoot = url === `${ORIGIN}/`;
+    const body = isRoot
+      ? '<html><head>' +
+        '<link rel="stylesheet" href="/app.css">' +
+        '<script src="/app.js"></script>' +
+        '<script src="/app.js"></script>' +
+        '</head><body><p>hi</p></body></html>'
+      : '/* asset */';
+    return {
+      requestedUrl: url,
+      finalUrl: url,
+      status: 200,
+      headers: {},
+      redirectChain: [],
+      body,
+      byteLength: body.length,
+      truncated: false,
+      contentType: isRoot ? 'text/html' : url.endsWith('.css') ? 'text/css' : 'application/javascript',
+      ttfbMs: 1,
+      totalMs: 1,
+      error: null,
+    };
+  };
+
+  let crawled: CrawlResult;
+
+  beforeAll(async () => {
+    crawled = await crawl({
+      seeds: [`${ORIGIN}/`],
+      userAgent: 'seo-optimizer/0.1 (+test)',
+      maxPages: 1,
+      maxDepth: 1,
+      fetchImpl: fetchImpl as unknown as typeof fetchPage,
+      negotiateImpl: async (origin) => ({ origin, alpn: null, tlsVersion: null, error: null }),
+      rdapImpl: async (domain) => ({ domain, expiresAt: null, registrar: null, statuses: [], fetchedAt: new Date().toISOString(), error: null }),
+    });
+  });
+
+  it('fetches each distinct linked stylesheet and script once', () => {
+    const assets = crawled.auxiliary.filter((entry) => entry.reason === 'asset');
+    expect(assets.map((entry) => entry.url)).toEqual([`${ORIGIN}/app.css`, `${ORIGIN}/app.js`]);
   });
 });

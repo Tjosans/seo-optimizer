@@ -18,6 +18,7 @@ import { markupProbes } from './probes/markup.js';
 import { mediaProbes } from './probes/media.js';
 import { metadataProbes } from './probes/metadata.js';
 import { newsProbes } from './probes/news.js';
+import { paywallProbes } from './probes/paywall.js';
 import { qaProbes } from './probes/qa.js';
 import { siteProbes } from './probes/site.js';
 import { videoProbes } from './probes/video.js';
@@ -34,6 +35,7 @@ export const PROBES: readonly Probe[] = [
   ...mediaProbes,
   ...metadataProbes,
   ...newsProbes,
+  ...paywallProbes,
   ...qaProbes,
   ...siteProbes,
   ...videoProbes,

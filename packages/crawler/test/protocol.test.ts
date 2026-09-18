@@ -82,6 +82,15 @@ describe('the handshake inside a crawl', () => {
         asked.push(url);
         return { origin: new URL(url).origin, alpn: 'h2', tlsVersion: 'TLSv1.3', error: null };
       },
+      // No real RDAP lookup against a registry for a host that does not exist.
+      rdapImpl: async (hostname: string) => ({
+        domain: hostname,
+        expiresAt: null,
+        registrar: null,
+        statuses: [],
+        fetchedAt: new Date().toISOString(),
+        error: null,
+      }),
     });
     return { result, asked };
   };

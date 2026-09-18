@@ -18,8 +18,15 @@
  * reading matter, and `author-date-signals` judges what a site's articles
  * claim about themselves — including the one thing no page can see about
  * itself, a date a template stamped on every article.
+ *
+ * `trust-pages-presence` (3.4) shares this file for its subject, not its
+ * question: whether the site's trust pages — About, Contact, a privacy
+ * policy, terms — are linked from somewhere the crawl read and answer rather
+ * than 404. 3.4 is `assisted` for the same reason: which pages the approved
+ * 0.9 scope requires is a person's decision, not a crawl's.
  */
 
+import { isSameSite, normalizeUrl } from '@seo/crawler';
 import type { Extracted } from '@seo/crawler';
 import type { PageProbe, SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
@@ -345,4 +352,309 @@ export const authorDateSignals: SiteProbe = {
   },
 };
 
-export const contentProbes = [answerFirstStructure, authorDateSignals];
+// --- trust-pages-presence ---------------------------------------------------
+
+/*
+ * A link to About, Contact, a privacy policy or terms, by its whole anchor
+ * text or a whole path segment — the same rule `news-article-policy` reads
+ * its contact and about links by, and for the same reason: a front page links
+ * to "About the storm damage" as often as to "About us", and a word match
+ * would take the first for the second.
+ */
+const ABOUT_TEXT = /^(about|about us|about the [\p{L} ]+|who we are|our story|om oss|über uns|qui sommes-nous|chi siamo|quiénes somos)$/iu;
+const ABOUT_SEGMENT = /^(about|about-us|about_us|aboutus|who-we-are|om-oss|ueber-uns|uber-uns|qui-sommes-nous|chi-siamo|quienes-somos)(\.\w+)?$/i;
+const CONTACT_TEXT = /^(contact|contact us|contact the [\p{L} ]+|kontakt|contacto|contato|contatti|nous contacter)$/iu;
+const CONTACT_SEGMENT = /^(contact|contact-us|contactus|kontakt|contacto|contato|contatti|nous-contacter)(\.\w+)?$/i;
+const PRIVACY_TEXT = /^(privacy( policy| notice)?|datenschutz(erklärung)?|politique de confidentialité|informativa sulla privacy|política de privacidad|integritetspolicy)$/iu;
+const PRIVACY_SEGMENT = /^(privacy(-policy|-notice)?|datenschutz(erklaerung)?|politique-de-confidentialite|informativa-sulla-privacy|politica-de-privacidad|integritetspolicy)(\.\w+)?$/i;
+const TERMS_TEXT = /^(terms( (of|and) (service|use|conditions))?|tos|conditions générales|allgemeine geschäftsbedingungen|agb|términos y condiciones|termini e condizioni)$/iu;
+const TERMS_SEGMENT = /^(terms(-of-(service|use))?|terms-and-conditions|tos|conditions-generales|agb|terminos-y-condiciones|termini-e-condizioni)(\.\w+)?$/i;
+
+const pathSegmentsOf = (url: string): string[] => {
+  try {
+    return new URL(url).pathname.split('/').filter((segment) => segment !== '');
+  } catch {
+    return [];
+  }
+};
+
+/** Whether a link, by what it says or where it goes, is one of these. */
+const linksToTrustPage = (link: Extracted['links'][number], label: RegExp, segment: RegExp): boolean =>
+  label.test(link.anchorText.trim()) || pathSegmentsOf(link.url).some((part) => segment.test(part));
+
+interface TrustCategory {
+  readonly name: string;
+  readonly text: RegExp;
+  readonly segment: RegExp;
+}
+
+const TRUST_CATEGORIES: readonly TrustCategory[] = [
+  { name: 'About', text: ABOUT_TEXT, segment: ABOUT_SEGMENT },
+  { name: 'Contact', text: CONTACT_TEXT, segment: CONTACT_SEGMENT },
+  { name: 'Privacy policy', text: PRIVACY_TEXT, segment: PRIVACY_SEGMENT },
+  { name: 'Terms', text: TERMS_TEXT, segment: TERMS_SEGMENT },
+];
+
+/**
+ * The four trust pages v5.0 3.4 names as near-universal — About, Contact, a
+ * privacy policy, terms — are linked from somewhere the crawl read, and the
+ * link answers rather than 404s or 5xx's.
+ *
+ * 3.4's full list is longer — "the privacy, terms, company, returns,
+ * accessibility or consumer-information pages required by the approved 0.9
+ * scope" — and which of those a given site owes its visitors is the 0.9 scope
+ * decision, not something a crawl can read off the site itself. What is
+ * observable without that decision is these four, which v5.0's own example
+ * names first and which apply "for launch + when details change" regardless
+ * of profile.
+ *
+ * A category with no matching link anywhere in the crawl is held for a
+ * person, since its absence may be exactly what the approved scope chose. A
+ * matching link whose target the crawl reached and found broken is not: a
+ * page promising a privacy policy and delivering a 404 is a defect a machine
+ * can name outright, whichever pages 0.9 requires.
+ */
+export const trustPagesPresence: SiteProbe = {
+  id: 'trust-pages-presence',
+  scope: 'site',
+  title: 'About, contact and legal pages are linked, and the link answers',
+  run({ crawl }) {
+    const html = crawl.pages.filter((page) => page.extracted !== null && page.fetch.status === 200);
+    if (html.length === 0) return notApplicable('No HTML pages were crawled, so no links were read.');
+
+    const fetched = new Map(crawl.pages.map((page) => [page.normalizedUrl, page]));
+    const linkedTargets = new Map<string, Set<string>>();
+
+    for (const page of html) {
+      for (const link of page.extracted?.links ?? []) {
+        for (const category of TRUST_CATEGORIES) {
+          if (!linksToTrustPage(link, category.text, category.segment)) continue;
+          const target = normalizeUrl(link.url);
+          if (target === null) continue;
+          const targets = linkedTargets.get(category.name) ?? new Set<string>();
+          targets.add(target);
+          linkedTargets.set(category.name, targets);
+        }
+      }
+    }
+
+    const broken: { category: string; url: string; status: number | null }[] = [];
+    const missing: string[] = [];
+    const unchecked: { category: string; url: string }[] = [];
+
+    for (const category of TRUST_CATEGORIES) {
+      const targets = linkedTargets.get(category.name);
+      if (targets === undefined || targets.size === 0) {
+        missing.push(category.name);
+        continue;
+      }
+      let anyOk = false;
+      const brokenHere: { category: string; url: string; status: number | null }[] = [];
+      const uncheckedHere: { category: string; url: string }[] = [];
+      for (const target of targets) {
+        const reached = fetched.get(target);
+        if (reached === undefined) {
+          uncheckedHere.push({ category: category.name, url: target });
+          continue;
+        }
+        const { status, error } = reached.fetch;
+        if (error === null && status !== null && status < 400) anyOk = true;
+        else brokenHere.push({ category: category.name, url: target, status });
+      }
+      if (!anyOk) {
+        broken.push(...brokenHere);
+        unchecked.push(...uncheckedHere);
+      }
+    }
+
+    const data = {
+      pagesRead: html.length,
+      linked: TRUST_CATEGORIES.filter((category) => !missing.includes(category.name)).map((category) => category.name),
+      missing,
+    };
+
+    if (broken.length > 0) {
+      return fail(
+        `${broken.length} trust page link(s) lead to a page that answers with an error: ` +
+          `${broken.map((item) => item.category).join(', ')}.`,
+        { ...data, samples: broken.slice(0, 5) },
+      );
+    }
+    if (missing.length > 0 || unchecked.length > 0) {
+      const doubts = [
+        ...(missing.length > 0 ? [`no crawled page links to ${missing.join(', ')}`] : []),
+        ...(unchecked.length > 0
+          ? [`${unchecked.length} linked trust page(s) were not fetched, so they were not verified to answer`]
+          : []),
+      ];
+      return warn(`For the 0.9 scope review: ${doubts.join('; ')}.`, { ...data, unchecked: unchecked.slice(0, 5) });
+    }
+    return pass(
+      `About, Contact, a privacy policy and terms are all linked from a crawled page, and each link answers. ` +
+        'Which pages 0.9 requires, and whether their content is accurate, is for a person.',
+      data,
+    );
+  },
+};
+
+// --- outbound-link-qualification --------------------------------------------
+
+/*
+ * A path segment that files a page as paid or sponsored content, matched
+ * whole so a slug that merely mentions "sponsored" is left alone. Reads the
+ * same fact `news-article-policy`'s SPONSORED_SEGMENT (news.ts) does — that
+ * check asks whether the page discloses being paid for; this one asks
+ * whether its outbound links say so too.
+ */
+const SPONSORED_SEGMENT = /^(sponsored|sponsor(ed)?-content|paid-?posts?|paid-?content|partner-?content|advertorials?|brand-?studio)$/i;
+
+/** The page declares, by type or by the section it is filed in, that it is paid content. */
+const declaresSponsored = (extracted: Extracted, finalUrl: string): boolean =>
+  jsonLdNodes(extracted.jsonLd).some((node) =>
+    typesOf(node).some((type) => bareType(type) === 'AdvertiserContentArticle'),
+  ) || pathSegmentsOf(finalUrl).some((segment) => SPONSORED_SEGMENT.test(segment));
+
+/** The `rel` values Google reads as not passing an ordinary editorial endorsement. */
+const QUALIFIED_REL = /\b(nofollow|sponsored|ugc)\b/i;
+
+/**
+ * 3.13 asks that paid links carry "sponsored or accepted nofollow"; what a
+ * crawl can see is the one page-level fact that makes a link paid without a
+ * person's say-so — the page itself declares it is advertising, the same
+ * declaration `news-article-policy` already reads for its own disclosure
+ * finding. An outbound link on such a page with no `sponsored`, `ugc` or
+ * `nofollow` relationship is the defect 3.13 names outright.
+ *
+ * Everything else 3.13 asks for — UGC governance, moderation, review
+ * provenance, the arrangements behind an unmarked page nobody has typed as
+ * advertising — is not observable this way, and stays for `ugc-governance`
+ * and `review-integrity` to add; the check is not graded end to end until
+ * all three exist.
+ */
+export const outboundLinkQualification: SiteProbe = {
+  id: 'outbound-link-qualification',
+  scope: 'site',
+  title: 'Outbound links on pages the site itself declares sponsored are marked sponsored or nofollow',
+  run({ crawl, origin }) {
+    const html = crawl.pages.filter((page) => page.extracted !== null && page.fetch.status === 200);
+    if (html.length === 0) return notApplicable('No HTML pages were crawled, so no links were read.');
+
+    const unqualified: { page: string; target: string }[] = [];
+    let sponsoredPages = 0;
+
+    for (const page of html) {
+      const extracted = page.extracted;
+      if (extracted === null || !declaresSponsored(extracted, page.fetch.finalUrl)) continue;
+      sponsoredPages += 1;
+      for (const link of extracted.links) {
+        if (/^(mailto|tel):/i.test(link.url)) continue;
+        if (isSameSite(link.url, origin)) continue;
+        if (QUALIFIED_REL.test(link.rel ?? '')) continue;
+        unqualified.push({ page: page.normalizedUrl, target: link.url });
+      }
+    }
+
+    if (sponsoredPages === 0) {
+      return notApplicable(
+        'No crawled page types itself AdvertiserContentArticle or is filed under a sponsored/paid-content section.',
+      );
+    }
+
+    const data = { sponsoredPages, unqualifiedLinks: unqualified.length };
+    if (unqualified.length > 0) {
+      return fail(
+        `${unqualified.length} outbound link(s) on page(s) the site itself declares sponsored carry no sponsored, ` +
+          'ugc or nofollow relationship.',
+        { ...data, samples: sample(unqualified) },
+      );
+    }
+    return pass(
+      'Every outbound link on a page the site declares sponsored is marked sponsored, ugc or nofollow. ' +
+        'Moderation, provenance and the rest of 3.13 are for a person.',
+      data,
+    );
+  },
+};
+
+// --- batch-page-quality ------------------------------------------------
+
+/** Fewer headings than this describes too little structure to call a match meaningful. */
+const MIN_SIGNATURE_HEADINGS = 2;
+
+/** This many pages sharing one signature is a template, not three writers landing on the same outline. */
+const BATCH_MIN = 3;
+
+/**
+ * The one slice of 3.9's "duplicate/template-only output" a crawl can settle
+ * on its own: pages under different URLs whose reading matter divides into
+ * the same headings, in the same order, each holding the same word count.
+ * Bodies do not reach this engine (see CLAUDE.md, "Response bodies are
+ * external by design") so word-for-word duplication cannot be read directly —
+ * but a template that never varies its own outline or how much it writes
+ * under each heading is exactly what "template-only" describes, whatever
+ * words it filled in. A batch that shares headings but writes a different
+ * amount under each is not this signature's business; that is a writer
+ * reusing a structure, which 3.9 does not forbid.
+ *
+ * Entities, unsupported promises, factual errors, and doorway patterns that
+ * do vary their word counts are not observable this way, and the check
+ * cannot pass on structure alone — 3.9 stays with a person for the rest of
+ * its risk-based sample.
+ */
+export const batchPageQuality: SiteProbe = {
+  id: 'batch-page-quality',
+  scope: 'site',
+  title: 'A published batch is not template-only output wearing different URLs',
+  run({ crawl, flags }) {
+    if (!flags.includes('bulk-publishing')) {
+      return notApplicable('Site profile does not claim bulk or programmatic publishing.');
+    }
+
+    const html = crawl.pages.filter(
+      (page) => page.extracted !== null && page.fetch.status === 200 && !page.fetch.truncated,
+    );
+    if (html.length === 0) return notApplicable('No HTML pages were crawled.');
+
+    const groups = new Map<string, { url: string; title: string | null }[]>();
+    for (const page of html) {
+      const sections = (page.extracted?.content.sections ?? []).filter((section) => section.heading !== null);
+      if (sections.length < MIN_SIGNATURE_HEADINGS) continue;
+      const key = sections
+        .map((section) => `${section.heading?.level}:${section.heading?.text.trim().toLowerCase()}:${section.words}`)
+        .join('~');
+      const group = groups.get(key) ?? [];
+      group.push({ url: page.normalizedUrl, title: page.extracted?.title ?? null });
+      groups.set(key, group);
+    }
+
+    const templated = [...groups.values()].filter((group) => group.length >= BATCH_MIN);
+    if (templated.length === 0) {
+      return pass(
+        `${html.length} page(s) read; none share an identical heading structure and word count with ` +
+          `${BATCH_MIN} or more other pages. Entities, unsupported claims and the editorial risk sample are for a person.`,
+        { pagesRead: html.length },
+      );
+    }
+
+    const affected = templated.reduce((sum, group) => sum + group.length, 0);
+    return fail(
+      `${templated.length} batch(es) totalling ${affected} page(s) share an identical section structure and ` +
+        'word count under different URLs: template-only output, not distinct pages.',
+      {
+        pagesRead: html.length,
+        batches: templated.slice(0, 5).map((group) => ({
+          pages: group.length,
+          samples: sample(group.map((page) => page.url)),
+        })),
+      },
+    );
+  },
+};
+
+export const contentProbes = [
+  answerFirstStructure,
+  authorDateSignals,
+  trustPagesPresence,
+  outboundLinkQualification,
+  batchPageQuality,
+];

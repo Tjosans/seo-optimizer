@@ -22,6 +22,7 @@ import { probeById } from '@seo/probes';
 import type { Observation, PageProbe, SiteContext, SiteProbe } from '@seo/probes';
 
 const ORIGIN = 'https://example.com';
+const SCHEMA = 'https://schema.org';
 
 interface PageSpec {
   readonly path: string;
@@ -378,6 +379,68 @@ describe('locale-canonical', () => {
   });
 });
 
+// --- 3.12 locale-content-parity ----------------------------------------------
+
+const localeHeadingPage = (
+  path: string,
+  entries: readonly [string, string][],
+  headings: readonly string[],
+): CrawledPage =>
+  page({
+    path,
+    html:
+      '<html><head>' +
+      entries.map(([lang, href]) => `<link rel="alternate" hreflang="${lang}" href="${ORIGIN}${href}">`).join('') +
+      '</head><body>' +
+      headings.map((heading) => `<h2>${heading}</h2>`).join('') +
+      '</body></html>',
+  });
+
+describe('locale-content-parity', () => {
+  it('says nothing about a site that makes no hreflang claim', () => {
+    expect(runSite('locale-content-parity', [page({ path: '/' })]).outcome).toBe('not-applicable');
+  });
+
+  it('warns when the profile says multilingual but no page carries hreflang', () => {
+    const observation = runSite('locale-content-parity', [page({ path: '/' })], ['multilingual']);
+    expect(observation.outcome).toBe('warn');
+  });
+
+  it('passes a locale pair with genuinely different content', () => {
+    const en = localeHeadingPage('/en/', [['en', '/en/'], ['fr', '/fr/']], ['Welcome', 'Our story', 'Contact us']);
+    const fr = localeHeadingPage(
+      '/fr/',
+      [['en', '/en/'], ['fr', '/fr/']],
+      ['Bienvenue', 'Notre histoire', 'Contactez-nous'],
+    );
+    expect(runSite('locale-content-parity', [en, fr]).outcome).toBe('pass');
+  });
+
+  it('fails a locale pair whose headings are word-for-word identical', () => {
+    const headings = ['Welcome', 'Our story', 'Contact us'];
+    const en = localeHeadingPage('/en/', [['en', '/en/'], ['fr', '/fr/']], headings);
+    const fr = localeHeadingPage('/fr/', [['en', '/en/'], ['fr', '/fr/']], headings);
+    const observation = runSite('locale-content-parity', [en, fr]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/word-for-word identical/);
+  });
+
+  it('holds a pair with too little heading text to compare', () => {
+    const en = localeHeadingPage('/en/', [['en', '/en/'], ['fr', '/fr/']], ['Welcome']);
+    const fr = localeHeadingPage('/fr/', [['en', '/en/'], ['fr', '/fr/']], ['Bienvenue']);
+    const observation = runSite('locale-content-parity', [en, fr]);
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toMatch(/enough heading text/);
+  });
+
+  it('does not compare regional variants of the same language', () => {
+    const headings = ['Welcome', 'Our story', 'Contact us'];
+    const us = localeHeadingPage('/us/', [['en-US', '/us/'], ['en-GB', '/uk/']], headings);
+    const uk = localeHeadingPage('/uk/', [['en-US', '/us/'], ['en-GB', '/uk/']], headings);
+    expect(runSite('locale-content-parity', [us, uk]).outcome).toBe('warn');
+  });
+});
+
 // --- 1.13 pagination-crawl-path ---------------------------------------------
 
 const listing = (path: string, nextHref: string | null): CrawledPage =>
@@ -434,6 +497,40 @@ describe('pagination-crawl-path', () => {
     ]);
     expect(observation.outcome).toBe('fail');
     expect(observation.summary).toMatch(/noindex/);
+  });
+
+  it('fails a paginated page that canonicalizes onto the unpaginated URL', () => {
+    const observation = runSite('pagination-crawl-path', [
+      listing('/blog', '/blog?page=2'),
+      page({
+        path: '/blog?page=2',
+        html: `<html><head><link rel="canonical" href="${ORIGIN}/blog"></head><body>2</body></html>`,
+      }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/canonicalize/);
+  });
+
+  it('fails a "next" link addressed only by a URL fragment', () => {
+    const observation = runSite('pagination-crawl-path', [
+      page({
+        path: '/blog',
+        html: `<html><body><a href="#page=2" rel="next">Next</a></body></html>`,
+      }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/URL fragment/);
+  });
+
+  it('fails a "next" link whose fragment is the only thing that changes', () => {
+    const observation = runSite('pagination-crawl-path', [
+      page({
+        path: '/blog',
+        html: `<html><body><a href="${ORIGIN}/blog#page=2" rel="next">Next</a></body></html>`,
+      }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/URL fragment/);
   });
 });
 
@@ -1376,6 +1473,155 @@ describe('product-lifecycle-state', () => {
   });
 });
 
+// --- 2.11 product-schema -----------------------------------------------------
+
+interface ProductNodeSpec {
+  readonly name?: string;
+  readonly offers?: readonly Record<string, unknown>[];
+  readonly review?: unknown;
+  readonly aggregateRating?: unknown;
+  readonly image?: string;
+  readonly gtin13?: string;
+  readonly brand?: string;
+  readonly sku?: string;
+}
+
+const productWith = (path: string, spec: ProductNodeSpec = {}): CrawledPage => {
+  const node: Record<string, unknown> = { '@context': SCHEMA, '@type': 'Product' };
+  if (spec.name !== undefined) node.name = spec.name;
+  if (spec.offers !== undefined) node.offers = spec.offers;
+  if (spec.review !== undefined) node.review = spec.review;
+  if (spec.aggregateRating !== undefined) node.aggregateRating = spec.aggregateRating;
+  if (spec.image !== undefined) node.image = spec.image;
+  if (spec.gtin13 !== undefined) node.gtin13 = spec.gtin13;
+  if (spec.brand !== undefined) node.brand = spec.brand;
+  if (spec.sku !== undefined) node.sku = spec.sku;
+  return page({
+    path,
+    html:
+      '<html><head><title>Shirt</title>' +
+      `<script type="application/ld+json">${JSON.stringify(node)}</script>` +
+      '</head><body><p>shirt</p></body></html>',
+  });
+};
+
+const COMPLETE_OFFER = { '@type': 'Offer', price: '10.00', priceCurrency: 'USD', availability: `${SCHEMA}/InStock` };
+
+const runProductSchema = (pages: readonly CrawledPage[]): Observation =>
+  runSite('product-schema', pages, ['ecommerce']);
+
+describe('product-schema', () => {
+  it('says nothing about a site whose profile claims no catalogue', () => {
+    const observation = runSite('product-schema', [
+      productWith('/p/shirt', { name: 'Shirt', offers: [COMPLETE_OFFER] }),
+    ]);
+    expect(observation.outcome).toBe('not-applicable');
+  });
+
+  it('says nothing when no page declares itself a product', () => {
+    const observation = runProductSchema([page({ path: '/c/shirts' })]);
+    expect(observation.outcome).toBe('not-applicable');
+    expect(observation.summary).toMatch(/declares itself a product/);
+  });
+
+  it('fails a product page with no Product structured data at all', () => {
+    const observation = runProductSchema([product('/p/shirt', { declares: 'og' })]);
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /carries no Product structured data/,
+    );
+  });
+
+  it('fails Product markup missing a name', () => {
+    const observation = runProductSchema([productWith('/p/shirt', { offers: [COMPLETE_OFFER] })]);
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /has no name/,
+    );
+  });
+
+  it('fails Product markup with none of offers, review or aggregateRating', () => {
+    const observation = runProductSchema([productWith('/p/shirt', { name: 'Shirt' })]);
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /none of offers, review or aggregateRating/,
+    );
+  });
+
+  it('passes a Product with only a review, no offers', () => {
+    const observation = runProductSchema([
+      productWith('/p/shirt', {
+        name: 'Shirt',
+        review: { '@type': 'Review', author: 'A. Reader', reviewBody: 'Great shirt' },
+        image: `${ORIGIN}/shirt.jpg`,
+        gtin13: '0012345678905',
+      }),
+    ]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('fails an offer missing price and priceCurrency', () => {
+    const observation = runProductSchema([
+      productWith('/p/shirt', { name: 'Shirt', offers: [{ '@type': 'Offer', availability: `${SCHEMA}/InStock` }] }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /missing price, priceCurrency/,
+    );
+  });
+
+  it('warns rather than fails a complete offer with no image or identifier', () => {
+    const observation = runProductSchema([
+      productWith('/p/shirt', { name: 'Shirt', offers: [COMPLETE_OFFER] }),
+    ]);
+    expect(observation.outcome).toBe('warn');
+    const issues = (observation.data?.['samples'] as { issue: string }[]).map((s) => s.issue);
+    expect(issues.some((issue) => issue.includes('no image'))).toBe(true);
+    expect(issues.some((issue) => issue.includes('no global identifier'))).toBe(true);
+  });
+
+  it('warns on an offer with no declared availability', () => {
+    const observation = runProductSchema([
+      productWith('/p/shirt', {
+        name: 'Shirt',
+        offers: [{ '@type': 'Offer', price: '10.00', priceCurrency: 'USD' }],
+        image: `${ORIGIN}/shirt.jpg`,
+        gtin13: '0012345678905',
+      }),
+    ]);
+    expect(observation.outcome).toBe('warn');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /no availability/,
+    );
+  });
+
+  it('accepts a brand+sku pairing as an identifier', () => {
+    const observation = runProductSchema([
+      productWith('/p/shirt', {
+        name: 'Shirt',
+        offers: [COMPLETE_OFFER],
+        image: `${ORIGIN}/shirt.jpg`,
+        brand: 'Acme',
+        sku: 'SHIRT-1',
+      }),
+    ]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('passes a complete product', () => {
+    const observation = runProductSchema([
+      productWith('/p/shirt', {
+        name: 'Shirt',
+        offers: [COMPLETE_OFFER],
+        image: `${ORIGIN}/shirt.jpg`,
+        gtin13: '0012345678905',
+      }),
+    ]);
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data?.['markedUp']).toBe(1);
+  });
+});
+
 // --- 2.7 schema-eligibility-matrix ------------------------------------------
 
 /** A page whose visible content is `body` and whose JSON-LD is `blocks`. */
@@ -1389,8 +1635,6 @@ const marked = (path: string, blocks: readonly unknown[], body = 'Hello'): Crawl
         .join('') +
       `</head><body><h1>${body}</h1></body></html>`,
   });
-
-const SCHEMA = 'https://schema.org';
 
 interface SchemaSample {
   readonly url: string;
@@ -2060,6 +2304,81 @@ describe('http-version', () => {
   });
 });
 
+// --- 1.18 domain-expiry-rdap -------------------------------------------------
+
+describe('domain-expiry-rdap', () => {
+  const FETCHED_AT = '2026-06-01T00:00:00.000Z';
+
+  const rdap = (overrides: Partial<NonNullable<CrawlResult['rdap']>> = {}): NonNullable<CrawlResult['rdap']> => ({
+    domain: 'example.com',
+    expiresAt: '2027-06-01T00:00:00.000Z',
+    registrar: 'Example Registrar, Inc.',
+    statuses: ['client transfer prohibited'],
+    fetchedAt: FETCHED_AT,
+    error: null,
+    ...overrides,
+  });
+
+  const runRdap = (check?: CrawlResult['rdap']): Observation => {
+    const site = siteOf([page({ path: '/', depth: 0 })]);
+    return siteProbe('domain-expiry-rdap').run({
+      ...site,
+      crawl: { ...site.crawl, ...(check === undefined ? {} : { rdap: check }) },
+    });
+  };
+
+  it('passes a domain comfortably inside its term', () => {
+    const observation = runRdap(rdap());
+    expect(observation.outcome).toBe('pass');
+    expect(observation.summary).toContain('does not expire until');
+  });
+
+  it('holds a domain expiring within 30 days as a near-term risk', () => {
+    const observation = runRdap(rdap({ expiresAt: '2026-06-20T00:00:00.000Z' }));
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toContain('within 30 days');
+  });
+
+  it('fails a domain that has already expired', () => {
+    const observation = runRdap(rdap({ expiresAt: '2026-05-01T00:00:00.000Z' }));
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('expired');
+  });
+
+  it('fails a domain in the post-expiry deletion process regardless of the date', () => {
+    const observation = runRdap(rdap({ statuses: ['redemption period'] }));
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('redemption period');
+  });
+
+  it('reports a lookup failure as unobservable, never as a defect', () => {
+    const observation = runRdap(rdap({ expiresAt: null, error: 'RDAP answered 404' }));
+    expect(observation.outcome).toBe('error');
+    expect(observation.summary).toContain('RDAP answered 404');
+  });
+
+  it('reports a record with no expiration event as unobservable', () => {
+    const observation = runRdap(rdap({ expiresAt: null }));
+    expect(observation.outcome).toBe('error');
+  });
+
+  it('reports a crawl of a real domain that recorded no RDAP lookup as unobservable', () => {
+    expect(runRdap().outcome).toBe('error');
+  });
+
+  it('is not applicable on a host no registry answers for, such as the fixture site', () => {
+    // The crawl never looks up a single-label host — the same rule that
+    // keeps host variants off the fixture site — so no lookup is recorded.
+    const site = siteOf([page({ path: '/', depth: 0 })]);
+    const root = site.crawl.pages[0]!;
+    const finalUrl = 'http://localhost:4321/';
+    const crawlOf = { ...site.crawl, pages: [{ ...root, fetch: { ...root.fetch, finalUrl } }] };
+    const observation = siteProbe('domain-expiry-rdap').run({ ...site, crawl: crawlOf });
+    expect(observation.outcome).toBe('not-applicable');
+    expect(observation.summary).toContain('no registrable domain');
+  });
+});
+
 // --- 3.11 content-accessibility --------------------------------------------
 
 describe('content-accessibility', () => {
@@ -2438,5 +2757,406 @@ describe('crawler-fetch-limit', () => {
     expect(check(sized(9_000_000, { contentType: 'video/mp4', truncated: true })).outcome).toBe('not-applicable');
     expect(check(sized(3_000_000, { contentType: 'image/png' })).outcome).toBe('not-applicable');
     expect(check(sized(3_000_000, { status: 404 })).outcome).toBe('not-applicable');
+  });
+
+  describe('linked stylesheets and scripts', () => {
+    const STYLE_URL = `${ORIGIN}/style.css`;
+    const SCRIPT_URL = `${ORIGIN}/app.js`;
+
+    const withAssets = (byteLength: number): CrawledPage => {
+      const base = sized(byteLength);
+      const html = `<html><head><link rel="stylesheet" href="${STYLE_URL}"><script src="${SCRIPT_URL}"></script></head><body><p>page</p></body></html>`;
+      return { ...base, extracted: extract(html, base.url) };
+    };
+
+    const assetFetch = (url: string, byteLength: number, contentType: string): AuxiliaryFetch => ({
+      reason: 'asset',
+      url,
+      fetch: {
+        requestedUrl: url,
+        finalUrl: url,
+        status: 200,
+        headers: { 'content-type': contentType },
+        redirectChain: [],
+        body: '',
+        byteLength,
+        truncated: false,
+        contentType,
+        ttfbMs: 1,
+        totalMs: 1,
+        error: null,
+      },
+    });
+
+    const checkWithAssets = (target: CrawledPage, auxiliary: readonly AuxiliaryFetch[]): Observation =>
+      pageProbe('crawler-fetch-limit').run({ page: target, site: siteOf([target], [], auxiliary) });
+
+    it('passes a page whose document and linked assets are all well within the limit', () => {
+      const target = withAssets(48_000);
+      const observation = checkWithAssets(target, [
+        assetFetch(STYLE_URL, 10_000, 'text/css'),
+        assetFetch(SCRIPT_URL, 20_000, 'application/javascript'),
+      ]);
+      expect(observation.outcome).toBe('pass');
+      expect(observation.data?.['assets']).toEqual([
+        { url: STYLE_URL, kind: 'stylesheet', outcome: 'pass', bytes: 10_000, share: 1 },
+        { url: SCRIPT_URL, kind: 'script', outcome: 'pass', bytes: 20_000, share: 1 },
+      ]);
+    });
+
+    it('fails the page when a linked script is past the limit, even though the document itself passes', () => {
+      const target = withAssets(48_000);
+      const observation = checkWithAssets(target, [
+        assetFetch(STYLE_URL, 10_000, 'text/css'),
+        assetFetch(SCRIPT_URL, 3_000_000, 'application/javascript'),
+      ]);
+      expect(observation.outcome).toBe('fail');
+      expect(observation.summary).toContain('linked script');
+      expect(observation.summary).toContain(SCRIPT_URL);
+    });
+
+    it('does not judge an asset the crawl never fetched', () => {
+      const target = withAssets(48_000);
+      const observation = checkWithAssets(target, []);
+      expect(observation.outcome).toBe('pass');
+      expect(observation.data?.['assets']).toEqual([]);
+      expect(observation.data?.['assetsUnchecked']).toBe(2);
+    });
+  });
+});
+
+describe('private-response-caching', () => {
+  const withHeaders = (headers: Record<string, string>): CrawledPage => {
+    const base = page({ path: '/account' });
+    return { ...base, fetch: { ...base.fetch, headers: { 'content-type': 'text/html', ...headers } } };
+  };
+
+  const check = (target: CrawledPage): Observation => runPage('private-response-caching', target, [target]);
+
+  it('says nothing about a response that does not declare itself publicly cacheable', () => {
+    expect(check(withHeaders({})).outcome).toBe('not-applicable');
+    expect(check(withHeaders({ 'cache-control': 'private, max-age=60' })).outcome).toBe('not-applicable');
+    expect(check(withHeaders({ 'cache-control': 'max-age=60' })).outcome).toBe('not-applicable');
+  });
+
+  it('fails a publicly cacheable response that sets a cookie', () => {
+    const observation = check(
+      withHeaders({ 'cache-control': 'public, max-age=300', 'set-cookie': 'session=abc123; Path=/' }),
+    );
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/sets a cookie/i);
+  });
+
+  it('fails a publicly cacheable response that varies by Cookie', () => {
+    const observation = check(
+      withHeaders({ 'cache-control': 'public, max-age=300', vary: 'Accept-Encoding, Cookie' }),
+    );
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/varies by cookie/i);
+  });
+
+  it('passes a publicly cacheable response with no cookie exposure', () => {
+    const observation = check(withHeaders({ 'cache-control': 'public, max-age=300' }));
+    expect(observation.outcome).toBe('pass');
+  });
+});
+
+// --- 3.4 trust-pages-presence -----------------------------------------------
+
+describe('trust-pages-presence', () => {
+  const homeWithLinks = (links: string): CrawledPage =>
+    page({ path: '/', html: `<html><body><footer>${links}</footer></body></html>` });
+
+  const FULL_FOOTER =
+    '<a href="/about">About</a> <a href="/contact">Contact</a> ' +
+    '<a href="/privacy-policy">Privacy</a> <a href="/terms">Terms</a>';
+
+  const check = (pages: readonly CrawledPage[]): Observation => runSite('trust-pages-presence', pages);
+
+  it('has nothing to say without a crawled HTML page', () => {
+    expect(check([]).outcome).toBe('not-applicable');
+  });
+
+  it('warns when no page links to any of the four trust pages', () => {
+    const observation = check([page({ path: '/' })]);
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toContain('About, Contact, Privacy policy, Terms');
+    expect(observation.data?.['missing']).toEqual(['About', 'Contact', 'Privacy policy', 'Terms']);
+  });
+
+  it('passes when every trust page is linked and answers 200', () => {
+    const observation = check([
+      homeWithLinks(FULL_FOOTER),
+      page({ path: '/about' }),
+      page({ path: '/contact' }),
+      page({ path: '/privacy-policy' }),
+      page({ path: '/terms' }),
+    ]);
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data?.['missing']).toEqual([]);
+  });
+
+  it('matches a trust page by its path segment even when the link text does not name it', () => {
+    const observation = check([
+      homeWithLinks('<a href="/legal/privacy-policy">Legal</a>'),
+      page({ path: '/legal/privacy-policy' }),
+    ]);
+    expect(observation.data?.['linked']).toContain('Privacy policy');
+  });
+
+  it('warns on a category with no matching link, alongside the ones that are found', () => {
+    const partial =
+      '<a href="/about">About</a> <a href="/contact">Contact</a> <a href="/privacy-policy">Privacy</a>';
+    const observation = check([
+      homeWithLinks(partial),
+      page({ path: '/about' }),
+      page({ path: '/contact' }),
+      page({ path: '/privacy-policy' }),
+    ]);
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toContain('no crawled page links to Terms');
+    expect(observation.data?.['missing']).toEqual(['Terms']);
+  });
+
+  it('fails a linked trust page that the crawl found answering with an error', () => {
+    const observation = check([
+      homeWithLinks(FULL_FOOTER),
+      page({ path: '/about' }),
+      page({ path: '/contact' }),
+      page({ path: '/privacy-policy', status: 404 }),
+      page({ path: '/terms' }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('Privacy policy');
+  });
+
+  it('warns rather than fails a linked trust page the crawl never fetched', () => {
+    const observation = check([
+      homeWithLinks(FULL_FOOTER),
+      page({ path: '/about' }),
+      page({ path: '/contact' }),
+      page({ path: '/privacy-policy' }),
+      // /terms is linked but not among the crawled pages.
+    ]);
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toContain('were not fetched');
+  });
+});
+
+// --- 3.13 outbound-link-qualification ----------------------------------------
+
+describe('outbound-link-qualification', () => {
+  const check = (pages: readonly CrawledPage[]): Observation => runSite('outbound-link-qualification', pages);
+
+  const sponsoredByType = (path: string, body: string): CrawledPage =>
+    page({
+      path,
+      html:
+        `<html><body><script type="application/ld+json">` +
+        `{"@context":"${SCHEMA}","@type":"AdvertiserContentArticle"}</script>${body}</body></html>`,
+    });
+
+  it('has nothing to say without a crawled HTML page', () => {
+    expect(check([]).outcome).toBe('not-applicable');
+  });
+
+  it('is not-applicable when no crawled page declares itself sponsored', () => {
+    const observation = check([
+      page({ path: '/', html: '<html><body><a href="https://rival.example/">rival</a></body></html>' }),
+    ]);
+    expect(observation.outcome).toBe('not-applicable');
+  });
+
+  it('fails an outbound link on a page typed AdvertiserContentArticle with no rel qualifier', () => {
+    const observation = check([
+      sponsoredByType('/deals/best-mattress', '<a href="https://partner.example/buy">Buy now</a>'),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.data?.['unqualifiedLinks']).toBe(1);
+  });
+
+  it('fails an outbound link on a page filed under a /sponsored/ segment', () => {
+    const observation = check([
+      page({ path: '/sponsored/best-mattress', html: '<a href="https://partner.example/buy">Buy now</a>' }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+  });
+
+  it('leaves a slug that merely mentions "sponsored" alone', () => {
+    const observation = check([
+      page({ path: '/sponsored-by-nobody-story', html: '<a href="https://partner.example/buy">Buy now</a>' }),
+    ]);
+    expect(observation.outcome).toBe('not-applicable');
+  });
+
+  it('passes when every outbound link on a sponsored page carries sponsored, ugc or nofollow', () => {
+    const observation = check([
+      sponsoredByType(
+        '/deals/best-mattress',
+        '<a href="https://partner.example/buy" rel="sponsored">Buy now</a> ' +
+          '<a href="https://other.example/" rel="nofollow">More</a>',
+      ),
+    ]);
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data?.['unqualifiedLinks']).toBe(0);
+  });
+
+  it('does not count an internal link or a mailto/tel link against a sponsored page', () => {
+    const observation = check([
+      sponsoredByType(
+        '/deals/best-mattress',
+        '<a href="/other-page">Elsewhere on site</a> <a href="mailto:hi@example.com">Email</a>',
+      ),
+    ]);
+    expect(observation.outcome).toBe('pass');
+  });
+});
+
+// --- 3.9 batch-page-quality -------------------------------------------------
+
+describe('batch-page-quality', () => {
+  const TEMPLATE = '<h1>Why choose us</h1><p>%WORDS%</p><h2>Our services</h2><p>%WORDS%</p>';
+
+  const templated = (path: string, words: number): CrawledPage =>
+    page({ path, html: `<html><body>${TEMPLATE.replace(/%WORDS%/g, Array(words).fill('word').join(' '))}</body></html>` });
+
+  const check = (pages: readonly CrawledPage[], flags: readonly string[] = ['bulk-publishing']): Observation =>
+    runSite('batch-page-quality', pages, flags);
+
+  it('is not applicable without the bulk-publishing flag', () => {
+    const observation = check([templated('/a', 10), templated('/b', 10), templated('/c', 10)], []);
+    expect(observation.outcome).toBe('not-applicable');
+  });
+
+  it('is not applicable with no crawled HTML', () => {
+    expect(check([]).outcome).toBe('not-applicable');
+  });
+
+  it('passes a batch with too few pages sharing one structure to call it a template', () => {
+    const observation = check([templated('/a', 10), templated('/b', 10)]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('passes pages whose headings match but whose word counts differ', () => {
+    const observation = check([templated('/a', 10), templated('/b', 20), templated('/c', 30)]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('fails three or more pages sharing an identical heading structure and word count', () => {
+    const observation = check([templated('/a', 10), templated('/b', 10), templated('/c', 10)]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('template-only output');
+    expect(observation.data?.['batches']).toEqual([{ pages: 3, samples: [`${ORIGIN}/a`, `${ORIGIN}/b`, `${ORIGIN}/c`] }]);
+  });
+
+  it('ignores pages with too little heading structure to compare', () => {
+    const bare = (path: string): CrawledPage => page({ path, html: '<html><body><p>Just text, no headings.</p></body></html>' });
+    const observation = check([bare('/a'), bare('/b'), bare('/c')]);
+    expect(observation.outcome).toBe('pass');
+  });
+});
+
+// --- 2.15 paywall-access-model ------------------------------------------------
+
+const articleWith = (path: string, node: Record<string, unknown>): CrawledPage =>
+  page({
+    path,
+    html:
+      '<html><head><title>Story</title>' +
+      `<script type="application/ld+json">${JSON.stringify({ '@context': SCHEMA, '@type': 'NewsArticle', ...node })}</script>` +
+      '</head><body><p>story</p></body></html>',
+  });
+
+const runPaywall = (pages: readonly CrawledPage[]): Observation =>
+  runSite('paywall-access-model', pages, ['paywall']);
+
+describe('paywall-access-model', () => {
+  it('says nothing about a site whose profile claims no paywall', () => {
+    const observation = runSite('paywall-access-model', [
+      articleWith('/story', { isAccessibleForFree: false }),
+    ]);
+    expect(observation.outcome).toBe('not-applicable');
+  });
+
+  it('says nothing when no crawled page declares isAccessibleForFree', () => {
+    const observation = runPaywall([page({ path: '/' })]);
+    expect(observation.outcome).toBe('not-applicable');
+    expect(observation.summary).toMatch(/deliberately exclude/);
+  });
+
+  it('passes a page whose isAccessibleForFree is a plain boolean', () => {
+    const observation = runPaywall([articleWith('/story', { isAccessibleForFree: false })]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('passes a page whose isAccessibleForFree is a "False" string', () => {
+    const observation = runPaywall([articleWith('/story', { isAccessibleForFree: 'False' })]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('fails an isAccessibleForFree value that is not a recognized true/false', () => {
+    const observation = runPaywall([articleWith('/story', { isAccessibleForFree: 'sometimes' })]);
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /not a recognized true\/false/,
+    );
+  });
+
+  it('passes a partial gate whose hasPart entries carry cssSelector and isAccessibleForFree', () => {
+    const observation = runPaywall([
+      articleWith('/story', {
+        isAccessibleForFree: false,
+        hasPart: [
+          { '@type': 'WebPageElement', isAccessibleForFree: true, cssSelector: '.intro' },
+          { '@type': 'WebPageElement', isAccessibleForFree: false, cssSelector: '.body' },
+        ],
+      }),
+    ]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('fails a hasPart entry with no cssSelector', () => {
+    const observation = runPaywall([
+      articleWith('/story', {
+        isAccessibleForFree: false,
+        hasPart: [{ '@type': 'WebPageElement', isAccessibleForFree: true }],
+      }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /no cssSelector/,
+    );
+  });
+
+  it('fails hasPart sections declared on a page with no isAccessibleForFree of its own', () => {
+    const observation = runPaywall([
+      page({
+        path: '/story',
+        html:
+          '<html><head><title>Story</title>' +
+          `<script type="application/ld+json">${JSON.stringify({
+            '@context': SCHEMA,
+            '@type': 'NewsArticle',
+            hasPart: [{ '@type': 'WebPageElement', isAccessibleForFree: false, cssSelector: '.body' }],
+          })}</script></head><body><p>story</p></body></html>`,
+      }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /no isAccessibleForFree/,
+    );
+  });
+
+  it('fails a hasPart entry with no isAccessibleForFree of its own', () => {
+    const observation = runPaywall([
+      articleWith('/story', {
+        isAccessibleForFree: false,
+        hasPart: [{ '@type': 'WebPageElement', cssSelector: '.body' }],
+      }),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(String((observation.data?.['samples'] as { issue: string }[])[0]?.issue)).toMatch(
+      /cannot tell which side of the gate/,
+    );
   });
 });

@@ -611,6 +611,102 @@ export const hreflangImplementation: SiteProbe = {
 };
 
 /**
+ * `locale-content-parity` (3.12): whether the pages an hreflang cluster names
+ * as different languages actually say different things.
+ *
+ * 3.12's own "done when" asks that a qualified human review intent,
+ * terminology, currency and legal scope for each locale — nothing a crawl can
+ * do. But a page publishing the same heading text word for word as a page
+ * claiming a different language has not been localized at all, whatever a
+ * human review would find; that is a defect a crawl can name outright, the
+ * same way `author-date-signals` names a date stamped identically across an
+ * archive without asking whether any one date is correct.
+ *
+ * Scoped to reciprocal hreflang pairs whose *self-declared* locale codes
+ * differ in primary subtag — `en-GB` and `en-US` are one language and are
+ * `locale-canonical`'s question, not this one's — and only where each side
+ * carries enough heading text to compare at all. A pair with too little text,
+ * or that the crawl never reached, says nothing either way and is left for
+ * the person 3.12 already asks for.
+ */
+export const localeContentParity: SiteProbe = {
+  id: 'locale-content-parity',
+  scope: 'site',
+  title: 'Locale pages carry distinct, localized content',
+  run({ crawl, flags }) {
+    const pages = htmlPages(crawl.pages);
+    const annotated = pages.filter((page) => (page.extracted?.hreflang.length ?? 0) > 0);
+
+    if (annotated.length === 0) {
+      return flags.includes('multilingual')
+        ? warn('The site profile says this site is multilingual, but no crawled page carries an hreflang annotation.')
+        : notApplicable('No crawled page carries an hreflang annotation.');
+    }
+
+    const byUrl = new Map(pages.map((page) => [page.normalizedUrl, page]));
+    const primarySubtag = (tag: string | null | undefined): string | null => {
+      const trimmed = tag?.trim() ?? '';
+      return trimmed === '' ? null : trimmed.split(/[-_]/)[0]!.toLowerCase();
+    };
+    const ownLocaleOf = (page: CrawledPage): string | null => {
+      const entries = page.extracted?.hreflang ?? [];
+      const self = entries.find(
+        (entry) => entry.hreflang.toLowerCase() !== 'x-default' && normalizeUrl(entry.url) === page.normalizedUrl,
+      );
+      return primarySubtag(self?.hreflang ?? page.extracted?.lang ?? null);
+    };
+    const headingsOf = (page: CrawledPage): string[] =>
+      (page.extracted?.headings ?? []).map((heading) => heading.text.trim()).filter((text) => text.length > 0);
+
+    const checked = new Set<string>();
+    const identical: { a: string; b: string; headings: number }[] = [];
+    let comparable = 0;
+
+    for (const page of annotated) {
+      const ownLocale = ownLocaleOf(page);
+      for (const entry of page.extracted?.hreflang ?? []) {
+        if (entry.hreflang.toLowerCase() === 'x-default') continue;
+        const targetLocale = primarySubtag(entry.hreflang);
+        if (targetLocale === null || targetLocale === ownLocale) continue;
+
+        const targetUrl = normalizeUrl(entry.url);
+        if (targetUrl === null || targetUrl === page.normalizedUrl) continue;
+        const target = byUrl.get(targetUrl);
+        if (target === undefined) continue;
+
+        const pairKey = [page.normalizedUrl, targetUrl].sort().join(' :: ');
+        if (checked.has(pairKey)) continue;
+        checked.add(pairKey);
+
+        const ours = headingsOf(page);
+        const theirs = headingsOf(target);
+        if (ours.length < 2 || theirs.length < 2) continue;
+
+        comparable += 1;
+        if (ours.length === theirs.length && ours.every((text, index) => text === theirs[index])) {
+          identical.push({ a: page.normalizedUrl, b: targetUrl, headings: ours.length });
+        }
+      }
+    }
+
+    if (identical.length > 0) {
+      return fail(
+        `${identical.length} locale pair(s) declare different languages but publish word-for-word identical headings.`,
+        { samples: identical.slice(0, 10) },
+      );
+    }
+    if (comparable === 0) {
+      return warn('No locale pair had enough heading text to compare content.', {
+        annotatedPages: annotated.length,
+      });
+    }
+    return pass(`${comparable} locale pair(s) show distinct content per declared language.`, {
+      annotatedPages: annotated.length,
+    });
+  },
+};
+
+/**
  * Can a crawler get past page one without running JavaScript?
  *
  * The failure this exists to catch is a listing whose "load more" is a button
@@ -622,6 +718,15 @@ export const hreflangImplementation: SiteProbe = {
  *
  * A site with no pagination at all is not a defect. Silence here means the
  * crawl found no paginated series, which is the normal shape of a small site.
+ *
+ * Two further shapes fail the same "reachable without interaction or
+ * JavaScript" requirement even where a page 2 exists and answers 200. A page
+ * whose "next" link is addressed only by a URL fragment (`#page=2`) names no
+ * separate address at all — a fragment is never sent to the server, so a
+ * crawler has nothing to request. And a paginated page that canonicalizes
+ * onto the unpaginated URL is telling search engines to index page one only,
+ * a blanket collapse that drops the rest of the series from the index even
+ * though every page answered 200 along the way.
  */
 export const paginationCrawlPath: SiteProbe = {
   id: 'pagination-crawl-path',
@@ -633,21 +738,39 @@ export const paginationCrawlPath: SiteProbe = {
 
     const fetched = new Map(crawl.pages.map((page) => [page.normalizedUrl, page]));
     const found: { from: string; to: string }[] = [];
+    const fragmentOnly: { from: string; href: string }[] = [];
 
     for (const page of pages) {
+      for (const href of page.extracted?.fragmentPageLinks ?? []) {
+        fragmentOnly.push({ from: page.normalizedUrl, href });
+      }
       for (const link of page.extracted?.links ?? []) {
         if (!isSameSite(link.url, origin)) continue;
         const isPagination =
           (link.rel !== null && /\b(next|prev)\b/i.test(link.rel)) || PAGED_URL.test(link.url);
         if (!isPagination) continue;
         const target = normalizeUrl(link.url);
-        if (target === null || target === page.normalizedUrl) continue;
+        if (target === null) continue;
+        if (target === page.normalizedUrl) {
+          // The path is unchanged; whatever moves the reader is client-side.
+          // A page number that appears only in the fragment is the same fact
+          // as one dropped entirely — no request a crawler could make differs.
+          if (link.url.includes('#')) fragmentOnly.push({ from: page.normalizedUrl, href: link.href });
+          continue;
+        }
         found.push({ from: page.normalizedUrl, to: target });
       }
     }
 
-    if (found.length === 0) {
+    if (found.length === 0 && fragmentOnly.length === 0) {
       return notApplicable('The crawl found no paginated series in the raw HTML.');
+    }
+
+    if (fragmentOnly.length > 0) {
+      return fail(
+        `${fragmentOnly.length} paginated link(s) are addressed only by a URL fragment, so no separate page exists for a crawler to request.`,
+        { samples: fragmentOnly.slice(0, 10), realPaginatedLinks: found.length },
+      );
     }
 
     // A link in the markup is the claim; a fetched page is the proof.
@@ -676,6 +799,17 @@ export const paginationCrawlPath: SiteProbe = {
       return fail(`${noindex.length} paginated page(s) are noindex, hiding their items.`, {
         samples: noindex.slice(0, 10),
       });
+    }
+
+    const blanketCanonical = reached.filter(({ to }) => {
+      const canonical = normalizeUrl(fetched.get(to)?.extracted?.canonical ?? '');
+      return canonical !== null && canonical !== to && !PAGED_URL.test(canonical);
+    });
+    if (blanketCanonical.length > 0) {
+      return fail(
+        `${blanketCanonical.length} paginated page(s) canonicalize onto an unpaginated URL, collapsing the series onto page one and dropping the rest from the index.`,
+        { samples: blanketCanonical.slice(0, 10) },
+      );
     }
 
     return pass(
@@ -1139,6 +1273,7 @@ export const siteProbes = [
   thirdPartyBudget,
   hreflangClusterQa,
   hreflangImplementation,
+  localeContentParity,
   paginationCrawlPath,
   hostRedirect,
   faviconSiteName,

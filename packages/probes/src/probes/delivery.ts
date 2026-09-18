@@ -4,7 +4,8 @@
  * markup, so they apply to every response, not just HTML.
  */
 
-import type { FetchResult } from '@seo/crawler';
+import { isAllowed, isSameSite, registrableDomain } from '@seo/crawler';
+import type { AuxiliaryFetch, FetchResult } from '@seo/crawler';
 import type { PageProbe, SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
 
@@ -202,6 +203,78 @@ export const httpVersion: SiteProbe = {
   },
 };
 
+const hostnameOf = (url: string): string | null => {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
+  }
+};
+
+/** A domain expiring inside this many days of the RDAP lookup is a near-term risk. */
+const EXPIRY_WARNING_DAYS = 30;
+
+/** RDAP statuses that mean the registration has already lapsed into the deletion process. */
+const LAPSED_STATUSES = ['pending delete', 'redemption period'];
+
+/**
+ * Whether the production domain is at risk of expiring out from under the site.
+ *
+ * 1.18's "Done when" is mostly a registrar-account record — named owner,
+ * recovery contacts, protected access — that no public record carries. Expiry
+ * is the one fact settled either way by the registry's own RDAP record: a
+ * domain days from lapsing, or already in the post-expiry deletion process,
+ * is a defect however the rest of the record reads, and a domain comfortably
+ * inside its term is not something a person needs to re-confirm. Registrar
+ * name and transfer-lock status are recorded for the review the rest of 1.18
+ * still needs, but do not move this verdict — many legitimately-run domains
+ * carry no lock status in RDAP at all.
+ */
+export const domainExpiryRdap: SiteProbe = {
+  id: 'domain-expiry-rdap',
+  scope: 'site',
+  title: 'The production domain is not at risk of near-term expiry',
+  run({ crawl }) {
+    const rdap = crawl.rdap;
+    if (rdap === undefined) {
+      const root = [...crawl.pages].sort((a, b) => a.depth - b.depth)[0];
+      const host = root === undefined ? null : hostnameOf(root.fetch.finalUrl);
+      if (host !== null && registrableDomain(host) === null) {
+        return notApplicable(`${host} has no registrable domain, so there is no registry to ask.`);
+      }
+      return errored('No RDAP lookup was recorded for this crawl.');
+    }
+    const data = {
+      domain: rdap.domain,
+      registrar: rdap.registrar,
+      expiresAt: rdap.expiresAt,
+      statuses: rdap.statuses,
+    };
+    if (rdap.error !== null) {
+      return errored(`The RDAP lookup for ${rdap.domain} failed: ${rdap.error}.`, data);
+    }
+    if (rdap.statuses.some((status) => LAPSED_STATUSES.includes(status.toLowerCase()))) {
+      return fail(`${rdap.domain} carries an RDAP status of the post-expiry deletion process: ${rdap.statuses.join(', ')}.`, data);
+    }
+    if (rdap.expiresAt === null) {
+      return errored(`The RDAP record for ${rdap.domain} names no expiration date.`, data);
+    }
+    const expires = new Date(rdap.expiresAt);
+    const fetchedAt = new Date(rdap.fetchedAt);
+    if (Number.isNaN(expires.getTime())) {
+      return errored(`The RDAP record for ${rdap.domain} names an unparseable expiration date "${rdap.expiresAt}".`, data);
+    }
+    const daysLeft = (expires.getTime() - fetchedAt.getTime()) / 86_400_000;
+    if (daysLeft < 0) {
+      return fail(`${rdap.domain} expired ${rdap.expiresAt}.`, data);
+    }
+    if (daysLeft <= EXPIRY_WARNING_DAYS) {
+      return warn(`${rdap.domain} expires ${rdap.expiresAt}, within ${EXPIRY_WARNING_DAYS} days.`, data);
+    }
+    return pass(`${rdap.domain} does not expire until ${rdap.expiresAt}.`, data);
+  },
+};
+
 /**
  * Googlebot's per-file fetch limits for Search, uncompressed: v5.0 1.5, SRC040,
  * verified 2026-09-08. Google writes "2MB" and "64MB" without saying which
@@ -240,15 +313,17 @@ function measure(fetch: FetchResult): { bytes: number; exact: boolean; from: 'bo
   return { bytes: fetch.byteLength, exact: false, from: 'body' };
 }
 
+interface SizeVerdict {
+  readonly outcome: 'pass' | 'warn' | 'fail' | 'error';
+  readonly note: string;
+  readonly bytes: number;
+  readonly exact: boolean;
+  readonly measuredFrom: 'body' | 'content-length';
+  readonly share: number;
+}
+
 /**
- * Whether Googlebot reads each document to its end.
- *
- * Search fetches the first 2 MB of a file, or 64 MB of a PDF, and indexes what
- * it got: a page past the limit is not refused, it is quietly cut, and the
- * links, structured data and text below the cut stop existing for Search.
- * v5.0 1.5 asks for each document against the limit "and a margin", and keeps
- * that apart from page weight — this is the size of one file, not of
- * everything the page loads.
+ * Judges one response's uncompressed size against Googlebot's per-file limit.
  *
  * Only a file past the limit on either reading of "MB" fails; one between
  * the two readings is a `warn`, since Google may read it whole and a margin
@@ -256,11 +331,71 @@ function measure(fetch: FetchResult): { bytes: number; exact: boolean; from: 'bo
  * the cut is already past the limit, since the file is at least that large. Cut below the limit,
  * with no length declared, the size is unknown, and that is an `error`.
  */
+interface FetchLimit {
+  readonly decimal: number;
+  readonly binary: number;
+  readonly label: string;
+}
+
+function judgeSize(fetch: FetchResult, limit: FetchLimit, named: string): SizeVerdict {
+  const size = measure(fetch);
+  const share = Math.round((size.bytes / limit.decimal) * 100);
+  const base = { bytes: size.bytes, exact: size.exact, measuredFrom: size.from, share };
+
+  if (size.bytes > limit.binary) {
+    const amount = size.exact ? bytesText(size.bytes) : `At least ${bytesText(size.bytes)} (the crawler stopped reading there)`;
+    return {
+      ...base,
+      outcome: 'fail',
+      note: `${amount} uncompressed, past ${named}: Search indexes the first ${limit.label} and nothing after it.`,
+    };
+  }
+  if (!size.exact) {
+    return {
+      ...base,
+      outcome: 'error',
+      note: `The crawler stopped reading at ${bytesText(size.bytes)}, inside the ${limit.label} limit, and no Content-Length says how large the file is.`,
+    };
+  }
+  if (size.bytes > limit.decimal) {
+    return {
+      ...base,
+      outcome: 'warn',
+      note: `${bytesText(size.bytes)} uncompressed: past ${named} if Google counts ${bytesText(limit.decimal)}, inside it at ${bytesText(limit.binary)}. Google does not say which, and either way there is no margin left.`,
+    };
+  }
+  if (size.bytes >= limit.decimal * FETCH_LIMIT_MARGIN) {
+    return {
+      ...base,
+      outcome: 'warn',
+      note: `${bytesText(size.bytes)} uncompressed, ${share}% of ${named}, inside the ${Math.round((1 - FETCH_LIMIT_MARGIN) * 100)}% margin 1.5 asks to keep.`,
+    };
+  }
+  return { ...base, outcome: 'pass', note: `${bytesText(size.bytes)} uncompressed, ${share}% of ${named}.` };
+}
+
+/** Higher outrates lower: a fail anywhere outranks a warn or error elsewhere, so the worst finding wins the page's verdict. */
+const SEVERITY: Record<SizeVerdict['outcome'], number> = { pass: 0, warn: 1, error: 2, fail: 3 };
+
+/**
+ * Whether Googlebot reads each document, stylesheet and script to its end.
+ *
+ * Search fetches the first 2 MB of a file, or 64 MB of a PDF, and indexes what
+ * it got: a page past the limit is not refused, it is quietly cut, and the
+ * links, structured data and text below the cut stop existing for Search.
+ * v5.0 1.5 asks for each document *and resource* against the limit "and a
+ * margin", and keeps that apart from page weight — this is the size of one
+ * file, not of everything the page loads. Googlebot fetches CSS and
+ * JavaScript separately from the document, under the same per-file limit, so
+ * a page's linked stylesheets and scripts are judged alongside it — each one
+ * the crawl fetched (@seo/crawler's bounded `asset` auxiliary pass), read
+ * from `site.crawl.auxiliary`, since a probe never fetches on its own.
+ */
 export const crawlerFetchLimit: PageProbe = {
   id: 'crawler-fetch-limit',
   scope: 'page',
-  title: "Each document fits within Googlebot's per-file fetch limit",
-  run({ page }) {
+  title: "Each document and its linked CSS/JS fit within Googlebot's per-file fetch limit",
+  run({ page, site }) {
     const { fetch } = page;
     if (fetch.error !== null || fetch.status === null || fetch.status < 200 || fetch.status >= 300) {
       return notApplicable('No successful response to measure (see http-status).');
@@ -272,46 +407,133 @@ export const crawlerFetchLimit: PageProbe = {
 
     const pdf = type === 'application/pdf';
     const limit = pdf ? GOOGLEBOT_PDF_FETCH_LIMIT : GOOGLEBOT_FETCH_LIMIT;
-    const size = measure(fetch);
-    const share = Math.round((size.bytes / limit.decimal) * 100);
+    const doc = judgeSize(fetch, limit, `Googlebot's ${limit.label} ${pdf ? 'PDF' : 'per-file'} limit`);
+
+    const stylesheetUrls = new Set(page.extracted?.stylesheets ?? []);
+    const assetUrls = [...new Set([...stylesheetUrls, ...(page.extracted?.scripts ?? [])])];
+    const assets = assetUrls
+      .map((url) => site.crawl.auxiliary.find((entry) => entry.reason === 'asset' && entry.url === url))
+      .filter((entry): entry is AuxiliaryFetch => entry !== undefined)
+      .map((entry) => ({
+        url: entry.url,
+        kind: stylesheetUrls.has(entry.url) ? ('stylesheet' as const) : ('script' as const),
+        ...judgeSize(entry.fetch, GOOGLEBOT_FETCH_LIMIT, `Googlebot's ${GOOGLEBOT_FETCH_LIMIT.label} per-file limit`),
+      }));
+
+    let worst: { outcome: SizeVerdict['outcome']; note: string; source: string } = { ...doc, source: 'document' };
+    for (const asset of assets) {
+      if (SEVERITY[asset.outcome] > SEVERITY[worst.outcome]) {
+        worst = { outcome: asset.outcome, note: asset.note, source: `linked ${asset.kind} ${asset.url}` };
+      }
+    }
+    const summary = worst.source === 'document' ? worst.note : `${worst.note} (${worst.source})`;
     const data = {
       url: fetch.finalUrl,
       contentType: type,
-      bytes: size.bytes,
-      exact: size.exact,
-      measuredFrom: size.from,
+      bytes: doc.bytes,
+      exact: doc.exact,
+      measuredFrom: doc.measuredFrom,
       limitBytes: limit.decimal,
       limitBytesBinary: limit.binary,
-      share,
+      share: doc.share,
+      assets: assets.map(({ url, kind, outcome, bytes, share }) => ({ url, kind, outcome, bytes, share })),
+      assetsUnchecked: assetUrls.length - assets.length,
     };
-    const named = `Googlebot's ${limit.label} ${pdf ? 'PDF' : 'per-file'} limit`;
 
-    if (size.bytes > limit.binary) {
-      const amount = size.exact ? bytesText(size.bytes) : `At least ${bytesText(size.bytes)} (the crawler stopped reading there)`;
+    switch (worst.outcome) {
+      case 'fail': return fail(summary, data);
+      case 'error': return errored(summary, data);
+      case 'warn': return warn(summary, data);
+      default: return pass(summary, data);
+    }
+  },
+};
+
+/**
+ * A response marked `Cache-Control: public` that also sets or varies by a
+ * cookie: v5.0 1.7 asks that "private responses are not shared across
+ * users", and `public` is the one directive that tells a shared cache
+ * (a CDN, a reverse proxy) it may store a response for everyone who asks.
+ *
+ * `Set-Cookie` on such a response is the sharper defect: a cache that stores
+ * it can replay one visitor's cookie — a session id, a cart — to the next.
+ * `Vary: Cookie` is subtler: it says the response differs per cookie, which
+ * contradicts a directive meant for content that is the same for everyone,
+ * and only works if every cache in front of the origin honours the variant
+ * key. Either reads as a defect a machine can name outright, so both fail
+ * rather than warn.
+ */
+export const privateResponseCaching: PageProbe = {
+  id: 'private-response-caching',
+  scope: 'page',
+  title: 'A publicly cacheable response is not personalised',
+  run({ page }) {
+    const headers = page.fetch.headers;
+    const cacheControl = headers['cache-control'] ?? '';
+    const directives = cacheControl.toLowerCase().split(',').map((d) => d.trim());
+    if (!directives.includes('public')) {
+      return notApplicable('Response does not declare itself publicly cacheable (no "public" Cache-Control directive).');
+    }
+
+    if (headers['set-cookie'] !== undefined) {
       return fail(
-        `${amount} uncompressed, past ${named}: Search indexes the first ${limit.label} and nothing after it.`,
-        data,
+        'Sets a cookie while declaring itself publicly cacheable ("Cache-Control: public"): a shared cache may store this response and replay its cookie to other visitors.',
+        { cacheControl, setsCookie: true },
       );
     }
-    if (!size.exact) {
-      return errored(
-        `The crawler stopped reading at ${bytesText(size.bytes)}, inside the ${limit.label} limit, and no Content-Length says how large the file is.`,
-        data,
+
+    const vary = (headers['vary'] ?? '').toLowerCase().split(',').map((v) => v.trim());
+    if (vary.includes('cookie')) {
+      return fail(
+        'Varies by Cookie while declaring itself publicly cacheable ("Cache-Control: public"): content differs per visitor, which a directive meant for identical content only works around if every cache in front of the origin keys on the variant.',
+        { cacheControl, vary: headers['vary'] },
       );
     }
-    if (size.bytes > limit.decimal) {
-      return warn(
-        `${bytesText(size.bytes)} uncompressed: past ${named} if Google counts ${bytesText(limit.decimal)}, inside it at ${bytesText(limit.binary)}. Google does not say which, and either way there is no margin left.`,
-        data,
+
+    return pass('Publicly cacheable, with no cookie set and no per-cookie variation.', { cacheControl });
+  },
+};
+
+/** Google fetches a page's rendering resources under its main crawler token. */
+const RESOURCE_AGENT = 'Googlebot';
+
+/**
+ * v5.0 4.2 asks that "essential rendering resources" are not blocked, among a
+ * matrix of cache, auth and directive checks a raw crawl cannot see. A
+ * same-site stylesheet or script robots.txt turns Googlebot away from is the
+ * one part of that matrix a crawl can name outright: the resource is linked,
+ * the rule is on record, and the two disagree.
+ */
+export const indexabilityMatrixReconciliation: PageProbe = {
+  id: 'indexability-matrix-reconciliation',
+  scope: 'page',
+  htmlOnly: true,
+  title: "CSS and JavaScript the page needs to render are not blocked by robots.txt",
+  run({ page, site }) {
+    const extracted = page.extracted;
+    if (extracted === null) return notApplicable('No HTML to read linked resources from.');
+
+    const urls = [...new Set([...extracted.stylesheets, ...extracted.scripts])];
+    if (urls.length === 0) {
+      return notApplicable('The page links no stylesheet or script.');
+    }
+
+    const sameSite = urls.filter((url) => isSameSite(url, site.origin));
+    if (sameSite.length === 0) {
+      return pass(
+        "Every linked stylesheet and script is hosted off-site; this site's robots.txt has nothing to say about them.",
+        { urls },
       );
     }
-    if (size.bytes >= limit.decimal * FETCH_LIMIT_MARGIN) {
-      return warn(
-        `${bytesText(size.bytes)} uncompressed, ${share}% of ${named}, inside the ${Math.round((1 - FETCH_LIMIT_MARGIN) * 100)}% margin 1.5 asks to keep.`,
-        data,
+
+    const blocked = sameSite.filter((url) => !isAllowed(site.crawl.robots, RESOURCE_AGENT, url));
+    if (blocked.length > 0) {
+      return fail(
+        `robots.txt blocks Googlebot from ${blocked.length} resource${blocked.length === 1 ? '' : 's'} this page needs to render: ${blocked.join(', ')}.`,
+        { blocked },
       );
     }
-    return pass(`${bytesText(size.bytes)} uncompressed, ${share}% of ${named}.`, data);
+    return pass('Every same-site stylesheet and script the page links is crawlable.', { checked: sameSite.length });
   },
 };
 
@@ -323,5 +545,8 @@ export const deliveryProbes = [
   securityHeaders,
   compressionCache,
   httpVersion,
+  domainExpiryRdap,
   crawlerFetchLimit,
+  privateResponseCaching,
+  indexabilityMatrixReconciliation,
 ];

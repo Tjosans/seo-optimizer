@@ -4,10 +4,14 @@
  * timing, rendered dimensions — belongs to a rendering probe, not these.
  */
 
+import { isAllowed, isSameSite, resolveUrl } from '@seo/crawler';
 import type { PageProbe } from '../types.js';
 import { fail, notApplicable, pass, warn } from '../types.js';
 
 const NO_HTML = 'No HTML was parsed for this response.';
+
+/** The agent Google fetches images with; falls back to `*` like every other. */
+const IMAGE_AGENT = 'Googlebot-Image';
 
 /** Filenames masquerading as alt text: "IMG_2043.jpg", "hero-banner-2.png". */
 const FILENAME_ALT = /^[\w\-. ]+\.(jpe?g|png|gif|webp|avif|svg)$/i;
@@ -160,10 +164,49 @@ export const mediaAlternatives: PageProbe = {
   },
 };
 
+/**
+ * 2.3 asks that a site's important images be crawlable and discoverable, with
+ * a representative image on selected pages. Google's own size and aspect
+ * recommendations are recorded decisions, not a universal requirement the
+ * corpus's own wording asks a probe to enforce — the one defect this can name
+ * outright is a representative image robots.txt turns a crawler away from.
+ */
+export const imageDiscoverability: PageProbe = {
+  id: 'image-discoverability',
+  scope: 'page',
+  htmlOnly: true,
+  title: "A page's representative image is crawlable",
+  run({ page, site }) {
+    const extracted = page.extracted;
+    if (extracted === null) return notApplicable(NO_HTML);
+
+    const declared = extracted.openGraph['og:image'] ?? extracted.twitter['twitter:image'];
+    if (declared === undefined) {
+      return notApplicable('The page declares no og:image or twitter:image.');
+    }
+    const resolved = resolveUrl(declared, page.url);
+    if (resolved === null) {
+      return notApplicable('The declared representative image URL could not be resolved.');
+    }
+    if (!isSameSite(resolved, site.origin)) {
+      return pass('The representative image is hosted off-site; this site\'s robots.txt has nothing to say about it.', {
+        image: resolved,
+      });
+    }
+    if (!isAllowed(site.crawl.robots, IMAGE_AGENT, resolved)) {
+      return fail("robots.txt keeps Googlebot-Image from the page's representative image.", {
+        image: resolved,
+      });
+    }
+    return pass('The representative image is crawlable.', { image: resolved });
+  },
+};
+
 export const mediaProbes = [
   imageAltQuality,
   imageDimensions,
   responsiveMedia,
   lcpNotLazy,
   mediaAlternatives,
+  imageDiscoverability,
 ];

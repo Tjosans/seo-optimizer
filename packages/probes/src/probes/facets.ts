@@ -426,7 +426,21 @@ export const facetedNavControl: SiteProbe = {
       .filter(([, count]) => count > 0)
       .map(([treatment, count]) => `${count} ${TREATMENT_WORDING[treatment]}`);
     if (blocked.length > 0) spread.push(`${blocked.length} closed to crawling by robots.txt`);
-    return pass(`Every filtered URL found has a decision behind it: ${spread.join(', ')}.`, counts);
+    const decided = `Every filtered URL found has a decision behind it: ${spread.join(', ')}.`;
+
+    // A robots.txt disallow is a decision the crawl can see, but not one it can
+    // trust the way a fetched noindex is. The URL was discoverable — that is
+    // why it is here at all — and Google documents indexing a disallowed URL
+    // it finds linked, with no snippet, exactly because disallow keeps the
+    // crawler from ever reaching the noindex tag that would have said no more
+    // plainly. Nothing here shows whether one is there to read.
+    if (blocked.length > 0) {
+      return warn(
+        `${decided} But robots.txt disallow only stops crawling, not indexing: a crawler blocked from ${blocked.length} of them can never read a noindex tag one might carry, and a URL blocked and still linked can be indexed by address alone.`,
+        counts,
+      );
+    }
+    return pass(decided, counts);
   },
 };
 

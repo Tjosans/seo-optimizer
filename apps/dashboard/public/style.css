@@ -110,3 +110,17 @@ tbody tr:hover { background: color-mix(in srgb, currentColor 6%, transparent); }
   border-radius: 6px;
   margin-bottom: 1rem;
 }
+
+.success-banner {
+  background: color-mix(in srgb, var(--pass) 15%, transparent);
+  color: var(--pass);
+  padding: 0.6rem 0.8rem;
+  border-radius: 6px;
+}
+
+#attest-panel { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+#attest-form { display: flex; flex-direction: column; gap: 0.6rem; max-width: 420px; }
+#attest-form label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.85rem; color: var(--muted); }
+#attest-form input, #attest-form select, #attest-form textarea { font: inherit; padding: 0.4rem 0.5rem; }
+#attest-form button { align-self: flex-start; font: inherit; padding: 0.4rem 0.9rem; cursor: pointer; }
+#attest-message:empty { display: none; }

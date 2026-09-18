@@ -47,6 +47,42 @@
         <ul id="evidence-list"></ul>
       </div>
 
+      <div id="attest-panel" class="hidden">
+        <h3>Attest — <span id="attest-check-id"></span></h3>
+        <form id="attest-form">
+          <label>Attested by
+            <input id="attest-by" type="text" required />
+          </label>
+          <label>Status
+            <select id="attest-status" required>
+              <option value="passed">passed</option>
+              <option value="failed">failed</option>
+              <option value="in-progress">in-progress</option>
+              <option value="skipped">skipped</option>
+              <option value="not-started">not-started</option>
+            </select>
+          </label>
+          <label>Applicability
+            <select id="attest-applicability">
+              <option value="yes">yes</option>
+              <option value="no">no</option>
+              <option value="review">review</option>
+            </select>
+          </label>
+          <label id="attest-rationale-label" class="hidden">Rationale (required when not applicable)
+            <input id="attest-rationale" type="text" />
+          </label>
+          <label>Statement
+            <textarea id="attest-statement" rows="3" required></textarea>
+          </label>
+          <label>Expires
+            <input id="attest-expires" type="date" required />
+          </label>
+          <button id="attest-submit" type="submit">Record attestation</button>
+        </form>
+        <p id="attest-message"></p>
+      </div>
+
       <div id="compare-panel">
         <h3>Compare with&hellip;</h3>
         <div class="compare-controls">

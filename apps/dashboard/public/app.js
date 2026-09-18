@@ -17,6 +17,17 @@ const checksTableBody = document.querySelector('#checks-table tbody');
 const evidencePanel = document.getElementById('evidence-panel');
 const evidenceCheckIdEl = document.getElementById('evidence-check-id');
 const evidenceListEl = document.getElementById('evidence-list');
+const attestPanel = document.getElementById('attest-panel');
+const attestCheckIdEl = document.getElementById('attest-check-id');
+const attestForm = document.getElementById('attest-form');
+const attestByEl = document.getElementById('attest-by');
+const attestStatusEl = document.getElementById('attest-status');
+const attestApplicabilityEl = document.getElementById('attest-applicability');
+const attestRationaleLabel = document.getElementById('attest-rationale-label');
+const attestRationaleEl = document.getElementById('attest-rationale');
+const attestStatementEl = document.getElementById('attest-statement');
+const attestExpiresEl = document.getElementById('attest-expires');
+const attestMessageEl = document.getElementById('attest-message');
 const compareSiteSelect = document.getElementById('compare-site-select');
 const compareAuditSelect = document.getElementById('compare-audit-select');
 const compareButton = document.getElementById('compare-button');
@@ -26,6 +37,7 @@ let allSites = [];
 let selectedSiteId = null;
 let selectedAuditId = null;
 let selectedAuditData = null; // last GET /audits/:id/result payload for the selected audit
+let selectedCheckId = null;
 
 async function api(path) {
   const res = await fetch(`/api${path}`);
@@ -34,6 +46,22 @@ async function api(path) {
     throw new Error(body.error ?? `${res.status} ${res.statusText}`);
   }
   return res.json();
+}
+
+async function postJson(path, body) {
+  const res = await fetch(`/api${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message = Array.isArray(data.problems)
+      ? `${data.error ?? 'invalid request'}: ${data.problems.join('; ')}`
+      : (data.error ?? `${res.status} ${res.statusText}`);
+    throw new Error(message);
+  }
+  return data;
 }
 
 function badge(text, cls) {
@@ -184,8 +212,10 @@ async function selectSite(site) {
 async function selectAudit(auditId) {
   selectedAuditId = auditId;
   selectedAuditData = null;
+  selectedCheckId = null;
   resultPanel.classList.remove('hidden');
   evidencePanel.classList.add('hidden');
+  attestPanel.classList.add('hidden');
   resultAuditIdEl.textContent = auditId;
   checksTableBody.innerHTML = '<tr><td colspan="5">Loading&hellip;</td></tr>';
   compareResultEl.innerHTML = '';
@@ -200,14 +230,17 @@ async function selectAudit(auditId) {
 
   selectedAuditData = data;
   populateCompareControls();
+  renderChecksTable(data.checks);
+}
 
+function renderChecksTable(checks) {
   checksTableBody.innerHTML = '';
-  if (data.checks.length === 0) {
+  if (checks.length === 0) {
     checksTableBody.innerHTML = '<tr><td colspan="5">No checks graded yet.</td></tr>';
     return;
   }
 
-  for (const check of data.checks) {
+  for (const check of checks) {
     const tr = document.createElement('tr');
     tr.dataset.checkId = check.checkId;
     const id = document.createElement('td');
@@ -230,14 +263,17 @@ async function selectAudit(auditId) {
     evidence.textContent = check.evidence ?? '—';
     tr.append(evidence);
 
-    tr.addEventListener('click', () => selectCheck(check.checkId));
+    tr.addEventListener('click', () => selectCheck(check.checkId, check));
     checksTableBody.append(tr);
   }
 }
 
-/** Drill down from a graded check to the probe evidence behind it. */
-async function selectCheck(checkId) {
+/** Drill down from a graded check to the probe evidence behind it, and open the attestation form for it. */
+async function selectCheck(checkId, checkData) {
+  selectedCheckId = checkId;
   for (const tr of checksTableBody.children) tr.classList.toggle('selected', tr.dataset.checkId === checkId);
+
+  openAttestForm(checkId, checkData);
 
   evidencePanel.classList.remove('hidden');
   evidenceCheckIdEl.textContent = checkId;
@@ -296,6 +332,87 @@ async function selectCheck(checkId) {
 
     evidenceListEl.append(li);
   }
+}
+
+/** Open the attestation form for one check, prefilled from its current graded state when known. */
+function openAttestForm(checkId, checkData) {
+  attestPanel.classList.remove('hidden');
+  attestCheckIdEl.textContent = checkId;
+  attestMessageEl.textContent = '';
+  attestMessageEl.className = '';
+
+  attestByEl.value = '';
+  attestStatementEl.value = '';
+  attestStatusEl.value = checkData?.status ?? 'passed';
+  attestApplicabilityEl.value = checkData?.applicability ?? 'yes';
+  attestRationaleEl.value = checkData?.applicabilityRationale ?? '';
+  attestRationaleLabel.classList.toggle('hidden', attestApplicabilityEl.value !== 'no');
+
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  attestExpiresEl.min = tomorrow.toISOString().slice(0, 10);
+  attestExpiresEl.value = '';
+}
+
+attestApplicabilityEl.addEventListener('change', () => {
+  attestRationaleLabel.classList.toggle('hidden', attestApplicabilityEl.value !== 'no');
+});
+
+attestForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!selectedAuditId || !selectedCheckId) return;
+
+  attestMessageEl.className = '';
+  attestMessageEl.textContent = 'Recording…';
+
+  const body = {
+    checkId: selectedCheckId,
+    attestedBy: attestByEl.value.trim(),
+    statement: attestStatementEl.value.trim(),
+    expiresAt: new Date(attestExpiresEl.value).toISOString(),
+    status: attestStatusEl.value,
+    applicability: attestApplicabilityEl.value,
+  };
+  if (body.applicability === 'no') {
+    body.applicabilityRationale = attestRationaleEl.value.trim();
+  }
+
+  try {
+    await postJson(`/audits/${selectedAuditId}/attestations`, body);
+  } catch (error) {
+    attestMessageEl.className = 'error-banner';
+    attestMessageEl.textContent = `Could not record attestation: ${error.message}`;
+    return;
+  }
+
+  const checkId = selectedCheckId;
+  await reloadCheckResult(checkId);
+});
+
+/** Re-fetches the current audit's result after a write, then reopens the given check with its new state. */
+async function reloadCheckResult(checkId) {
+  const auditId = selectedAuditId;
+  if (!auditId) return;
+
+  let data;
+  try {
+    data = await api(`/audits/${auditId}/result`);
+  } catch (error) {
+    attestMessageEl.className = 'error-banner';
+    attestMessageEl.textContent = `Attestation recorded, but could not refresh results: ${error.message}`;
+    return;
+  }
+
+  selectedAuditData = data;
+  populateCompareControls();
+  renderChecksTable(data.checks);
+
+  const updated = data.checks.find((c) => c.checkId === checkId);
+  selectedCheckId = checkId;
+  for (const tr of checksTableBody.children) tr.classList.toggle('selected', tr.dataset.checkId === checkId);
+  openAttestForm(checkId, updated);
+  attestMessageEl.className = 'success-banner';
+  attestMessageEl.textContent = 'Attestation recorded.';
 }
 
 /** Fill the compare-site dropdown from the sites already loaded, defaulting to the current one. */

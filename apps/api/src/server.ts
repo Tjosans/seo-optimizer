@@ -14,12 +14,14 @@
  * same `AuditScheduler` a caller building this server already constructed —
  * this endpoint carries no scheduling policy of its own, only request
  * validation (`audits.ts`, `parseAuditRequest`). `GET /audits/:id` reads the
- * durable row back, and `GET /audits/:id/result` adds the checks graded
- * against it. `POST /audits/:id/attestations` records a human decision on
- * one check, through `recordAttestation` (@seo/grader) the way `/releases`
- * runs through `importReleaseFile` — the corpus an id is checked against is
- * the one the audit is itself pinned to. A standalone readiness endpoint is
- * its own roadmap line.
+ * durable row back, `GET /audits/:id/readiness` reads its frozen readiness
+ * alone — the launch decision, per-phase progress (including the percent-
+ * complete score `computeProgress` gives each phase), and cutover, with no
+ * checks join — and `GET /audits/:id/result` adds the checks graded against
+ * it for a caller that wants the full trail. `POST /audits/:id/attestations`
+ * records a human decision on one check, through `recordAttestation`
+ * (@seo/grader) the way `/releases` runs through `importReleaseFile` — the
+ * corpus an id is checked against is the one the audit is itself pinned to.
  */
 
 import { createServer as createHttpServer } from 'node:http';
@@ -107,6 +109,11 @@ async function handle(req: IncomingMessage, res: ServerResponse, options: ApiSer
   const auditResultMatch = /^\/audits\/([^/]+)\/result$/.exec(path);
   if (auditResultMatch && req.method === 'GET') {
     await getAuditResult(res, options, decodeURIComponent(auditResultMatch[1]!));
+    return;
+  }
+  const auditReadinessMatch = /^\/audits\/([^/]+)\/readiness$/.exec(path);
+  if (auditReadinessMatch && req.method === 'GET') {
+    await getAuditReadiness(res, options, decodeURIComponent(auditReadinessMatch[1]!));
     return;
   }
   const auditMatch = /^\/audits\/([^/]+)$/.exec(path);
@@ -336,6 +343,35 @@ async function getAuditResult(res: ServerResponse, options: ApiServerOptions, id
     status: row.status,
     readiness: row.readiness,
     checks,
+  });
+}
+
+/**
+ * Readiness alone: the launch decision, per-phase progress and its score
+ * (`percentComplete`), and cutover, with no `checkStates` join. For a caller
+ * polling "is it ready" that has no use for the full evidence trail
+ * `/result` also pays for.
+ */
+async function getAuditReadiness(res: ServerResponse, options: ApiServerOptions, id: string): Promise<void> {
+  let row;
+  try {
+    [row] = await options.db.select().from(audits).where(eq(audits.id, id));
+  } catch (error) {
+    if (isInvalidId(error)) {
+      send(res, 400, { error: `invalid audit id: ${id}` });
+      return;
+    }
+    throw error;
+  }
+  if (row === undefined) {
+    send(res, 404, { error: `no audit ${id}` });
+    return;
+  }
+
+  send(res, 200, {
+    auditId: row.id,
+    status: row.status,
+    readiness: row.readiness,
   });
 }
 

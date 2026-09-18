@@ -96,6 +96,10 @@ describe.skipIf(!url)('audit lifecycle', () => {
     expect(status).toMatchObject({ id: body.auditId, status: 'pending', corpusVersion: '4.4' });
     expect(status.queue).toMatchObject({ state: 'queued', attempt: 0 });
 
+    const readinessRes = await req(`/audits/${body.auditId}/readiness`);
+    expect(readinessRes.status).toBe(200);
+    expect(await readinessRes.json()).toEqual({ auditId: body.auditId, status: 'pending', readiness: null });
+
     // The scheduler stays paused for every test but the last; leaving this
     // job queued would have it compete with that one once resumed.
     await scheduler.cancel(body.auditId);
@@ -127,10 +131,11 @@ describe.skipIf(!url)('audit lifecycle', () => {
     expect(res.status).toBe(404);
   });
 
-  it('404s status and result for an unknown audit id', async () => {
+  it('404s status, result and readiness for an unknown audit id', async () => {
     const missing = '00000000-0000-0000-0000-000000000000';
     expect((await req(`/audits/${missing}`)).status).toBe(404);
     expect((await req(`/audits/${missing}/result`)).status).toBe(404);
+    expect((await req(`/audits/${missing}/readiness`)).status).toBe(404);
   });
 
   it('400s on a body that is not JSON', async () => {
@@ -162,6 +167,17 @@ describe.skipIf(!url)('audit lifecycle', () => {
     expect(result.status).toBe('complete');
     expect(result.readiness).toMatchObject({ corpusVersion: '4.4' });
     expect(result.checks.length).toBeGreaterThan(0);
+
+    const readinessRes = await req(`/audits/${auditId}/readiness`);
+    expect(readinessRes.status).toBe(200);
+    const readiness = await readinessRes.json();
+    expect(readiness).toEqual({ auditId, status: 'complete', readiness: result.readiness });
+    expect(readiness).not.toHaveProperty('checks');
+    expect(readiness.readiness.progress.length).toBeGreaterThan(0);
+    expect(readiness.readiness.progress[0]).toMatchObject({
+      phase: expect.any(Number),
+      percentComplete: expect.any(Number),
+    });
 
     const statusRes = await req(`/audits/${auditId}`);
     const status = await statusRes.json();

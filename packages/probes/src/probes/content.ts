@@ -750,6 +750,69 @@ export const cannibalization: SiteProbe = {
   },
 };
 
+// --- launch-content-completeness ---------------------------------------
+
+/** Reading matter shorter than this is too thin for a person to call finished. */
+const MIN_LAUNCH_WORDS = 50;
+
+/**
+ * Filler still on the page at launch: boilerplate copy, an open task marker,
+ * or a bracketed instruction left for whoever was meant to replace it.
+ * "Coming soon" and "lorem ipsum" are phrases, so they are matched without
+ * word boundaries; "TODO", "TBD" and "xxx" are single tokens easily hidden
+ * inside an unrelated word (a SKU, a name), so those are bounded.
+ */
+const PLACEHOLDER_TEXT = /lorem ipsum|coming soon|\[insert|\btodo\b|\btbd\b|\bxxx\b/i;
+
+/**
+ * 3.7 asks that every URL the launch inventory marks critical have "complete,
+ * approved copy, media, metadata, links and conversion path" — which URLs are
+ * launch-critical is the inventory's (0.3) call, and "approved" is a person's
+ * word, so the check stays `assisted` and scope stays the whole crawl. What a
+ * crawl can name outright, on any indexable page, is copy that plainly was
+ * never finished: placeholder text still sitting on the page, or so little
+ * reading matter that nothing was written at all. A page thin but placeholder-
+ * free only holds for a person's judgement, since 50 words is not a floor 3.7
+ * states — it is the point below which a machine cannot tell empty from terse.
+ */
+export const launchContentCompleteness: PageProbe = {
+  id: 'launch-content-completeness',
+  scope: 'page',
+  htmlOnly: true,
+  title: 'Reading matter carries no placeholder text, and is not empty or too thin',
+  run({ page }) {
+    const extracted = page.extracted;
+    if (extracted === null) return notApplicable(NO_HTML);
+    if (page.fetch.status !== 200) return notApplicable('Response was not a 200.');
+    if (isNoindex(page)) return notApplicable('Page is marked noindex.');
+    if (page.fetch.truncated) {
+      return errored('The body was cut at the size limit, so its reading matter was not read in full.');
+    }
+
+    const { sections, text } = extracted.content;
+    const words = sections.reduce((sum, section) => sum + section.words, 0);
+
+    if (words === 0) {
+      return fail('The page has no reading matter at all.', { words });
+    }
+    const placeholder = PLACEHOLDER_TEXT.exec(text);
+    if (placeholder !== null) {
+      return fail(`Placeholder text is still on the page: "${placeholder[0]}".`, { words, placeholder: placeholder[0] });
+    }
+    if (words < MIN_LAUNCH_WORDS) {
+      return warn(
+        `Only ${words} word(s) of reading matter — too little for a machine to tell empty from terse.`,
+        { words },
+      );
+    }
+    return pass(
+      `${words} words of reading matter, none of it placeholder text. ` +
+        'Whether this is the approved, launch-ready copy for this URL is for a person.',
+      { words },
+    );
+  },
+};
+
 export const contentProbes = [
   answerFirstStructure,
   authorDateSignals,
@@ -757,4 +820,5 @@ export const contentProbes = [
   outboundLinkQualification,
   batchPageQuality,
   cannibalization,
+  launchContentCompleteness,
 ];

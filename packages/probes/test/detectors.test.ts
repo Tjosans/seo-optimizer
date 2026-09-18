@@ -3238,3 +3238,64 @@ describe('cannibalization', () => {
     expect(observation.outcome).toBe('pass');
   });
 });
+
+// --- 3.7 launch-content-completeness -----------------------------------
+
+const launchPage = (body: string, opts: { noindex?: boolean; truncated?: boolean } = {}): CrawledPage => {
+  const built = page({
+    path: '/page',
+    html: `<html><head><title>Page</title>${opts.noindex ? '<meta name="robots" content="noindex">' : ''}</head><body>${body}</body></html>`,
+  });
+  return { ...built, fetch: { ...built.fetch, truncated: opts.truncated ?? false } };
+};
+
+const runLaunchContent = (target: CrawledPage): Observation =>
+  runPage('launch-content-completeness', target, [target]);
+
+describe('launch-content-completeness', () => {
+  it('passes reading matter with no placeholder text and enough words', () => {
+    const observation = runLaunchContent(launchPage(`<main><h1>Guide</h1><p>${words(80)}</p></main>`));
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data).toMatchObject({ words: 80 });
+  });
+
+  it('fails a page with no reading matter at all', () => {
+    const observation = runLaunchContent(launchPage('<main></main>'));
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('no reading matter at all');
+  });
+
+  it('fails placeholder text still on the page', () => {
+    const observation = runLaunchContent(
+      launchPage(`<main><h1>Guide</h1><p>Lorem ipsum dolor sit amet, ${words(60)}</p></main>`),
+    );
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('Placeholder text');
+  });
+
+  it('fails a TODO marker, bounded so an unrelated word is left alone', () => {
+    const todo = runLaunchContent(launchPage(`<main><h1>Guide</h1><p>TODO write this section. ${words(60)}</p></main>`));
+    expect(todo.outcome).toBe('fail');
+
+    const clean = runLaunchContent(launchPage(`<main><h1>Guide</h1><p>Mastodon instructions. ${words(60)}</p></main>`));
+    expect(clean.outcome).toBe('pass');
+  });
+
+  it('warns on thin, placeholder-free reading matter', () => {
+    const observation = runLaunchContent(launchPage(`<main><h1>Guide</h1><p>${words(20)}</p></main>`));
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toContain('20 word(s)');
+  });
+
+  it('is not applicable to a noindexed page', () => {
+    expect(runLaunchContent(launchPage(`<main><h1>Guide</h1><p>${words(80)}</p></main>`, { noindex: true })).outcome).toBe(
+      'not-applicable',
+    );
+  });
+
+  it('reports a body cut at the size limit as unobservable', () => {
+    expect(
+      runLaunchContent(launchPage(`<main><h1>Guide</h1><p>${words(80)}</p></main>`, { truncated: true })).outcome,
+    ).toBe('error');
+  });
+});

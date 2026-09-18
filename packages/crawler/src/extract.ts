@@ -165,6 +165,8 @@ export interface ExtractedContent {
   readonly sections: readonly ExtractedSection[];
   /** Absolute URLs of the links inside the reading matter, in document order. */
   readonly links: readonly string[];
+  /** The reading matter's own text, cleaned and joined — headings included, chrome excluded. */
+  readonly text: string;
 }
 
 /**
@@ -523,11 +525,17 @@ export function extract(html: string, pageUrl: string): Extracted {
 
   const sections: { heading: ExtractedHeading | null; words: number }[] = [{ heading: null, words: 0 }];
   const contentLinks: string[] = [];
+  // Joined with spaces, like the byline below: cheerio's own `.text()` runs
+  // adjacent elements' text together with nothing between them, which would
+  // fuse a heading and the paragraph after it into one word.
+  const textParts: string[] = [];
   const walk = (nodes: readonly WalkNode[]): void => {
     for (const node of nodes) {
       if (node.type === 'text') {
         const current = sections[sections.length - 1];
         if (current !== undefined) current.words += countWords(node.data ?? '');
+        const said = clean(node.data ?? '');
+        if (said !== '') textParts.push(said);
         continue;
       }
       if (node.type !== 'tag') continue;
@@ -535,6 +543,7 @@ export function extract(html: string, pageUrl: string): Extracted {
       if (/^h[1-6]$/.test(name)) {
         const heading = { level: Number(name.slice(1)), text: clean($(node as unknown as AnyNode).text()) };
         sections.push({ heading, words: 0 });
+        if (heading.text !== '') textParts.push(heading.text);
         continue;
       }
       if (name === 'a' && node.attribs?.['href'] !== undefined) {
@@ -590,7 +599,7 @@ export function extract(html: string, pageUrl: string): Extracted {
     tables,
     fragmentPageLinks,
     landmarks: LANDMARKS.filter((tag) => $(tag).length > 0),
-    content: { root: rootKind, sections, links: contentLinks },
+    content: { root: rootKind, sections, links: contentLinks, text: clean(textParts.join(' ')) },
     authorship: {
       metaAuthor: meta('meta[name="author"]'),
       byline,

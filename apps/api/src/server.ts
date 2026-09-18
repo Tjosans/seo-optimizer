@@ -15,8 +15,11 @@
  * this endpoint carries no scheduling policy of its own, only request
  * validation (`audits.ts`, `parseAuditRequest`). `GET /audits/:id` reads the
  * durable row back, and `GET /audits/:id/result` adds the checks graded
- * against it. Attestation and a standalone readiness endpoint are their own
- * roadmap lines.
+ * against it. `POST /audits/:id/attestations` records a human decision on
+ * one check, through `recordAttestation` (@seo/grader) the way `/releases`
+ * runs through `importReleaseFile` — the corpus an id is checked against is
+ * the one the audit is itself pinned to. A standalone readiness endpoint is
+ * its own roadmap line.
  */
 
 import { createServer as createHttpServer } from 'node:http';
@@ -26,15 +29,19 @@ import type { Corpus } from '@seo/core';
 import type { Database } from '@seo/db';
 import { audits, checkStates, sites } from '@seo/db';
 import {
+  InvalidAttestationError,
   ReleaseFileError,
   ReviewRunConflictError,
+  UnknownCheckError,
   UnknownReleaseError,
   UnknownSiteOriginError,
   importReleaseFile,
   parseReleaseFile,
+  recordAttestation,
 } from '@seo/grader';
 import type { AuditScheduler } from '@seo/scheduler';
 import { UnknownSiteError } from '@seo/scheduler';
+import { AttestationInputError, parseAttestationInput } from './attestations.js';
 import { AuditInputError, parseAuditRequest } from './audits.js';
 import { SiteInputError, parseSiteInput } from './sites.js';
 
@@ -90,6 +97,11 @@ async function handle(req: IncomingMessage, res: ServerResponse, options: ApiSer
   }
   if (req.method === 'POST' && path === '/audits') {
     await postAudit(req, res, options);
+    return;
+  }
+  const attestationMatch = /^\/audits\/([^/]+)\/attestations$/.exec(path);
+  if (attestationMatch && req.method === 'POST') {
+    await postAttestation(req, res, options, decodeURIComponent(attestationMatch[1]!));
     return;
   }
   const auditResultMatch = /^\/audits\/([^/]+)\/result$/.exec(path);
@@ -325,6 +337,61 @@ async function getAuditResult(res: ServerResponse, options: ApiServerOptions, id
     readiness: row.readiness,
     checks,
   });
+}
+
+async function postAttestation(
+  req: IncomingMessage,
+  res: ServerResponse,
+  options: ApiServerOptions,
+  auditId: string,
+): Promise<void> {
+  let body: unknown;
+  try {
+    body = await readJsonBody(req);
+  } catch (error) {
+    send(res, 400, { error: error instanceof Error ? error.message : 'invalid JSON body' });
+    return;
+  }
+
+  let input;
+  try {
+    input = parseAttestationInput(body);
+  } catch (error) {
+    if (error instanceof AttestationInputError) {
+      send(res, 400, { error: 'invalid attestation', problems: error.problems });
+      return;
+    }
+    throw error;
+  }
+
+  let audit;
+  try {
+    [audit] = await options.db.select().from(audits).where(eq(audits.id, auditId));
+  } catch (error) {
+    if (isInvalidId(error)) {
+      send(res, 400, { error: `invalid audit id: ${auditId}` });
+      return;
+    }
+    throw error;
+  }
+  if (audit === undefined) {
+    send(res, 404, { error: `no audit ${auditId}` });
+    return;
+  }
+
+  const corpus = options.loadCorpus(audit.corpusVersion);
+  try {
+    const result = await recordAttestation(options.db, { auditId, corpus, input });
+    send(res, 201, result);
+  } catch (error) {
+    if (error instanceof InvalidAttestationError) {
+      send(res, 400, { error: 'invalid attestation', problems: error.problems });
+    } else if (error instanceof UnknownCheckError) {
+      send(res, 400, { error: error.message });
+    } else {
+      throw error;
+    }
+  }
 }
 
 /** Postgres' error code, unwrapped from drizzle's own `DrizzleQueryError` wrapper. */

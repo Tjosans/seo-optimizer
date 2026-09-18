@@ -43,6 +43,14 @@ class FakeBlobStore implements BlobStore {
   async get(key: string): Promise<Uint8Array | null> {
     return this.written.get(key) ?? null;
   }
+
+  async putMany(bodies: readonly Uint8Array[]): Promise<string[]> {
+    return Promise.all(bodies.map((bytes) => this.put(bytes)));
+  }
+
+  async deleteMany(keys: readonly string[]): Promise<void> {
+    for (const key of keys) this.written.delete(key);
+  }
 }
 
 let site: FixtureSite;

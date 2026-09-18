@@ -1,11 +1,15 @@
 import { createHash } from 'node:crypto';
 import {
+  DeleteObjectsCommand,
   GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
 import type { BlobStore } from './blob-store.js';
+
+/** S3's own cap on keys in one `DeleteObjects` call; a bigger purge is chunked to it. */
+const DELETE_BATCH_SIZE = 1000;
 
 export interface S3BlobStoreOptions {
   readonly client: S3Client;
@@ -37,13 +41,7 @@ export class S3BlobStore implements BlobStore {
 
   async put(bytes: Uint8Array): Promise<string> {
     const key = this.keyFor(bytes);
-    // Content-addressed, so an object already at this key is these same
-    // bytes. Skipping the write on a hit is what makes re-crawling an
-    // unchanged page cost a HEAD, not a PUT of a body that has not moved.
-    if (await this.exists(key)) return key;
-    await this.client.send(
-      new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: bytes }),
-    );
+    await this.putAt(key, bytes);
     return key;
   }
 
@@ -58,6 +56,43 @@ export class S3BlobStore implements BlobStore {
       if (isNotFound(cause)) return null;
       throw cause;
     }
+  }
+
+  async putMany(bodies: readonly Uint8Array[]): Promise<string[]> {
+    const keys = bodies.map((bytes) => this.keyFor(bytes));
+    // Two bodies in the batch can hash to the same key (a repeat within one
+    // crawl); write each distinct key once rather than racing two HEAD+PUTs
+    // for the same object.
+    const uniqueWrites = new Map<string, Promise<void>>();
+    for (const [index, key] of keys.entries()) {
+      if (!uniqueWrites.has(key)) uniqueWrites.set(key, this.putAt(key, bodies[index]!));
+    }
+    await Promise.all(uniqueWrites.values());
+    return keys;
+  }
+
+  async deleteMany(keys: readonly string[]): Promise<void> {
+    for (let offset = 0; offset < keys.length; offset += DELETE_BATCH_SIZE) {
+      const batch = keys.slice(offset, offset + DELETE_BATCH_SIZE);
+      if (batch.length === 0) continue;
+      await this.client.send(
+        new DeleteObjectsCommand({
+          Bucket: this.bucket,
+          Delete: { Objects: batch.map((Key) => ({ Key })) },
+        }),
+      );
+    }
+  }
+
+  /** Write once at an already-computed key, skipping the write on a HEAD hit. */
+  private async putAt(key: string, bytes: Uint8Array): Promise<void> {
+    // Content-addressed, so an object already at this key is these same
+    // bytes. Skipping the write on a hit is what makes re-crawling an
+    // unchanged page cost a HEAD, not a PUT of a body that has not moved.
+    if (await this.exists(key)) return;
+    await this.client.send(
+      new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: bytes }),
+    );
   }
 
   private async exists(key: string): Promise<boolean> {

@@ -73,4 +73,32 @@ describe.skipIf(!endpoint)('S3BlobStore', () => {
     const read = await store.get('sha256/00/does-not-exist');
     expect(read).toBeNull();
   });
+
+  it('writes a batch and returns one key per input, in order', async () => {
+    const bodies = [
+      new TextEncoder().encode(`batch-a — ${crypto.randomUUID()}`),
+      new TextEncoder().encode(`batch-b — ${crypto.randomUUID()}`),
+    ];
+    const [keyA, keyB] = await store.putMany(bodies);
+    expect(await store.get(keyA!)).not.toBeNull();
+    expect(await store.get(keyB!)).not.toBeNull();
+    expect(keyA).not.toBe(keyB);
+  });
+
+  it('writes a body repeated in the same batch once, under one key', async () => {
+    const bytes = new TextEncoder().encode(`repeated — ${crypto.randomUUID()}`);
+    const [first, second] = await store.putMany([bytes, bytes]);
+    expect(first).toBe(second);
+    expect(await store.get(first!)).not.toBeNull();
+  });
+
+  it('purges the objects at the given keys', async () => {
+    const key = await store.put(new TextEncoder().encode(`to purge — ${crypto.randomUUID()}`));
+    await store.deleteMany([key]);
+    expect(await store.get(key)).toBeNull();
+  });
+
+  it('purging a key nothing is stored under is not an error', async () => {
+    await expect(store.deleteMany(['sha256/00/never-written'])).resolves.toBeUndefined();
+  });
 });

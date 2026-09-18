@@ -26,6 +26,7 @@ import { crawlToDatabase, persistProbeRuns } from '@seo/persistence';
 import { runProbes } from '@seo/probes';
 import type { SiteContext } from '@seo/probes';
 import { JobCancelledError, JobLeaseLostError } from '@seo/queue';
+import type { BlobStore } from '@seo/storage';
 import { StaleSiteProfileError, UnknownSiteFlagsError } from './types.js';
 import type { AuditJob, AuditOutcome, CorpusSource } from './types.js';
 
@@ -53,12 +54,21 @@ import type { AuditJob, AuditOutcome, CorpusSource } from './types.js';
  * then says nothing at all about the row, because everything this function
  * could write about the audit would be a claim about work someone else is
  * still doing.
+ *
+ * `blobStore`, when given, is handed straight to `crawlToDatabase` so each
+ * page's raw body is uploaded and `renders.bodyKey` carries the result.
+ * Without one — the default, today, for every caller — bodies stay
+ * external only in the schema's sense: nothing is ever written for them.
+ * It is not part of `AuditJob`: a `BlobStore` wraps a live client, and the
+ * job is what a `JobStore` round-trips through `jsonb`, which a client
+ * cannot survive.
  */
 export async function runAudit(
   db: Database,
   job: AuditJob,
   corpusSource: CorpusSource,
   signal?: AbortSignal,
+  blobStore?: BlobStore,
 ): Promise<AuditOutcome> {
   const stopIfCancelled = (): void => {
     if (signal?.aborted !== true) return;
@@ -118,6 +128,7 @@ export async function runAudit(
           : { userAgentTests: simulatableAgents(job.aiPolicy) }),
         ...(signal === undefined ? {} : { signal }),
       },
+      ...(blobStore === undefined ? {} : { blobStore }),
     });
     stopIfCancelled();
 

@@ -22,14 +22,19 @@
  * records a human decision on one check, through `recordAttestation`
  * (@seo/grader) the way `/releases` runs through `importReleaseFile` — the
  * corpus an id is checked against is the one the audit is itself pinned to.
+ * `GET /audits/:id/checks/:checkId/evidence` is the drill-down beneath that
+ * trail: `checkStates.evidence` is one report-ready line, and this walks
+ * `check_evidence` to the `probe_results` rows behind it — probe, outcome,
+ * the structured observation, and the page it was read from — the way
+ * `recordGrade` (@seo/grader) wrote them.
  */
 
 import { createServer as createHttpServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
-import { asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq } from 'drizzle-orm';
 import type { Corpus } from '@seo/core';
 import type { Database } from '@seo/db';
-import { audits, checkStates, sites } from '@seo/db';
+import { audits, checkEvidence, checkStates, pages, probeResults, sites } from '@seo/db';
 import {
   InvalidAttestationError,
   ReleaseFileError,
@@ -114,6 +119,16 @@ async function handle(req: IncomingMessage, res: ServerResponse, options: ApiSer
   const auditResultMatch = /^\/audits\/([^/]+)\/result$/.exec(path);
   if (auditResultMatch && req.method === 'GET') {
     await getAuditResult(res, options, decodeURIComponent(auditResultMatch[1]!));
+    return;
+  }
+  const checkEvidenceMatch = /^\/audits\/([^/]+)\/checks\/([^/]+)\/evidence$/.exec(path);
+  if (checkEvidenceMatch && req.method === 'GET') {
+    await getCheckEvidence(
+      res,
+      options,
+      decodeURIComponent(checkEvidenceMatch[1]!),
+      decodeURIComponent(checkEvidenceMatch[2]!),
+    );
     return;
   }
   const auditReadinessMatch = /^\/audits\/([^/]+)\/readiness$/.exec(path);
@@ -381,6 +396,70 @@ async function getAuditResult(res: ServerResponse, options: ApiServerOptions, id
     status: row.status,
     readiness: row.readiness,
     checks,
+  });
+}
+
+/**
+ * The probe evidence behind one graded check: `check_evidence` joined to
+ * `probe_results`, left-joined to `pages` for the URL a page-scoped
+ * observation names. 404s when the check was never graded for this audit
+ * (no `checkStates` row), the same as a check id `/result` never lists.
+ */
+async function getCheckEvidence(
+  res: ServerResponse,
+  options: ApiServerOptions,
+  auditId: string,
+  checkId: string,
+): Promise<void> {
+  let state;
+  try {
+    [state] = await options.db
+      .select({ auditId: checkStates.auditId })
+      .from(checkStates)
+      .where(and(eq(checkStates.auditId, auditId), eq(checkStates.checkId, checkId)));
+  } catch (error) {
+    if (isInvalidId(error)) {
+      send(res, 400, { error: `invalid audit id: ${auditId}` });
+      return;
+    }
+    throw error;
+  }
+  if (state === undefined) {
+    send(res, 404, { error: `no check ${checkId} graded for audit ${auditId}` });
+    return;
+  }
+
+  const rows = await options.db
+    .select({
+      probeResultId: probeResults.id,
+      probeId: probeResults.probeId,
+      scope: probeResults.scope,
+      outcome: probeResults.outcome,
+      summary: probeResults.summary,
+      data: probeResults.data,
+      observedAt: probeResults.observedAt,
+      pageId: pages.id,
+      pageUrl: pages.url,
+    })
+    .from(checkEvidence)
+    .innerJoin(probeResults, eq(checkEvidence.probeResultId, probeResults.id))
+    .leftJoin(pages, eq(probeResults.pageId, pages.id))
+    .where(and(eq(checkEvidence.auditId, auditId), eq(checkEvidence.checkId, checkId)))
+    .orderBy(asc(probeResults.probeId), asc(probeResults.observedAt));
+
+  send(res, 200, {
+    auditId,
+    checkId,
+    evidence: rows.map((row) => ({
+      probeResultId: row.probeResultId,
+      probeId: row.probeId,
+      scope: row.scope,
+      outcome: row.outcome,
+      summary: row.summary,
+      data: row.data,
+      observedAt: row.observedAt,
+      page: row.pageId === null ? null : { id: row.pageId, url: row.pageUrl },
+    })),
   });
 }
 

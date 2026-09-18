@@ -12,8 +12,12 @@ const auditTableBody = document.querySelector('#audit-table tbody');
 const resultPanel = document.getElementById('result-panel');
 const resultAuditIdEl = document.getElementById('result-audit-id');
 const checksTableBody = document.querySelector('#checks-table tbody');
+const evidencePanel = document.getElementById('evidence-panel');
+const evidenceCheckIdEl = document.getElementById('evidence-check-id');
+const evidenceListEl = document.getElementById('evidence-list');
 
 let selectedSiteId = null;
+let selectedAuditId = null;
 
 async function api(path) {
   const res = await fetch(`/api${path}`);
@@ -177,7 +181,9 @@ async function selectSite(site) {
 }
 
 async function selectAudit(auditId) {
+  selectedAuditId = auditId;
   resultPanel.classList.remove('hidden');
+  evidencePanel.classList.add('hidden');
   resultAuditIdEl.textContent = auditId;
   checksTableBody.innerHTML = '<tr><td colspan="5">Loading&hellip;</td></tr>';
 
@@ -197,6 +203,7 @@ async function selectAudit(auditId) {
 
   for (const check of data.checks) {
     const tr = document.createElement('tr');
+    tr.dataset.checkId = check.checkId;
     const id = document.createElement('td');
     id.textContent = check.checkId;
     tr.append(id);
@@ -217,7 +224,71 @@ async function selectAudit(auditId) {
     evidence.textContent = check.evidence ?? '—';
     tr.append(evidence);
 
+    tr.addEventListener('click', () => selectCheck(check.checkId));
     checksTableBody.append(tr);
+  }
+}
+
+/** Drill down from a graded check to the probe evidence behind it. */
+async function selectCheck(checkId) {
+  for (const tr of checksTableBody.children) tr.classList.toggle('selected', tr.dataset.checkId === checkId);
+
+  evidencePanel.classList.remove('hidden');
+  evidenceCheckIdEl.textContent = checkId;
+  evidenceListEl.innerHTML = '<li class="empty">Loading&hellip;</li>';
+
+  let data;
+  try {
+    data = await api(`/audits/${selectedAuditId}/checks/${encodeURIComponent(checkId)}/evidence`);
+  } catch (error) {
+    evidenceListEl.innerHTML = '';
+    const li = document.createElement('li');
+    li.className = 'empty';
+    li.textContent = `Could not load evidence: ${error.message}`;
+    evidenceListEl.append(li);
+    return;
+  }
+
+  evidenceListEl.innerHTML = '';
+  if (data.evidence.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'empty';
+    li.textContent = 'No probe evidence recorded for this check.';
+    evidenceListEl.append(li);
+    return;
+  }
+
+  for (const item of data.evidence) {
+    const li = document.createElement('li');
+
+    const head = document.createElement('div');
+    head.className = 'evidence-head';
+    const probe = document.createElement('span');
+    probe.className = 'evidence-probe';
+    probe.textContent = item.probeId;
+    head.append(probe);
+    head.append(badge(item.outcome, item.outcome));
+    if (item.page) {
+      const page = document.createElement('span');
+      page.className = 'evidence-page';
+      page.textContent = item.page.url;
+      head.append(page);
+    }
+    li.append(head);
+
+    const summary = document.createElement('p');
+    summary.className = 'evidence-summary';
+    summary.textContent = item.summary;
+    li.append(summary);
+
+    if (item.data !== null && item.data !== undefined) {
+      const pre = document.createElement('pre');
+      pre.className = 'evidence-data';
+      pre.textContent = JSON.stringify(item.data, null, 2);
+      li.append(pre);
+    }
+
+    evidenceListEl.append(li);
   }
 }
 

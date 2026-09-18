@@ -20,6 +20,7 @@
     "analyze": "tsc --build packages/crawler packages/corpus packages/probes packages/grader && node scripts/analyze.ts",
     "compare": "node scripts/compare.ts",
     "release": "tsc --build packages/corpus packages/grader && node scripts/record-release.ts",
+    "serve": "tsc --build apps/api && node apps/api/dist/main.js",
     "db:generate": "npm run db:generate -w @seo/db",
     "db:migrate": "npm run db:migrate -w @seo/db",
     "db:studio": "npm run db:studio -w @seo/db",

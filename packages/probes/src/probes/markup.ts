@@ -8,7 +8,8 @@
  */
 
 import { isSameSite } from '@seo/crawler';
-import type { PageProbe } from '../types.js';
+import type { CrawledPage } from '@seo/crawler';
+import type { PageProbe, SiteProbe } from '../types.js';
 import { fail, notApplicable, pass, warn } from '../types.js';
 
 const NO_HTML = 'No HTML was parsed for this response.';
@@ -157,6 +158,124 @@ export const soft404: PageProbe = {
   },
 };
 
+// --- 2.5 analytics-implementation ---------------------------------------
+
+/** A static `<script src>` loading gtag.js (`/gtag/js?id=`) or gtm.js (`/gtm.js?id=`). */
+const GTAG_OR_GTM_SRC = /\/gtag\/js\?|\/gtm\.js\?/i;
+
+/** A GA4 measurement id or GTM container id, exactly as Google mints them. */
+const LITERAL_ID = /\b(?:G|GT|GTM)-[A-Za-z0-9]+\b/g;
+
+const idFromScriptSrc = (src: string): string | null => {
+  try {
+    return new URL(src).searchParams.get('id');
+  } catch {
+    return null;
+  }
+};
+
+interface PageAnalyticsIds {
+  readonly url: string;
+  /** Every id this page's markup names, from either signal. */
+  readonly ids: ReadonlySet<string>;
+  /** An id whose own `gtag/js`/`gtm.js` script tag appears more than once. */
+  readonly duplicated: readonly string[];
+}
+
+/**
+ * What a page's markup says it loads, from two signals: a static
+ * `gtag/js?id=`/`gtm.js?id=` script tag, and a `G-`/`GT-`/`GTM-` literal
+ * inside an inline script (the classic GTM snippet builds its own script tag
+ * in JavaScript, so its container id never appears in a static `src`).
+ *
+ * Only a repeated *tag* counts as loading an id twice: the standard GA4
+ * install cites its id once in the script `src` and once more in an inline
+ * `gtag('config', …)` call, and counting that ordinary pair as a duplicate
+ * would fail every properly configured site. Two script tags for the same id
+ * is the actual mistake this catches — the tag pasted in twice, most often by
+ * a plugin and a template both installing it.
+ */
+const readPageAnalyticsIds = (page: CrawledPage): PageAnalyticsIds => {
+  const extracted = page.extracted;
+  const tagCounts = new Map<string, number>();
+  if (extracted !== null) {
+    for (const src of extracted.scripts) {
+      if (!GTAG_OR_GTM_SRC.test(src)) continue;
+      const id = idFromScriptSrc(src);
+      if (id === null) continue;
+      tagCounts.set(id, (tagCounts.get(id) ?? 0) + 1);
+    }
+  }
+
+  const ids = new Set(tagCounts.keys());
+  if (extracted !== null) {
+    for (const script of extracted.inlineScripts) {
+      for (const match of script.matchAll(LITERAL_ID)) ids.add(match[0]);
+    }
+  }
+
+  return {
+    url: page.normalizedUrl,
+    ids,
+    duplicated: [...tagCounts.entries()].filter(([, count]) => count > 1).map(([id]) => id),
+  };
+};
+
+const idSetKey = (ids: ReadonlySet<string>): string => [...ids].sort().join(',');
+
+/**
+ * 2.5 asks for the approved 0.4 instrumentation, correctly configured and
+ * free of duplicate triggers — a live-payload and ownership review this
+ * engine has no input for, which is why the check stays `assisted`. What raw
+ * HTML does show is which GA4/GTM ids a page's markup actually cites: a tag
+ * pasted in twice on one page, or pages naming different ids for what should
+ * be one property, are both defects visible without reading a single event.
+ * Retention, redaction, cross-domain wiring and deduplicated transaction ids
+ * are the person's half.
+ */
+export const analyticsImplementation: SiteProbe = {
+  id: 'analytics-implementation',
+  scope: 'site',
+  title: 'Pages agree on which GA4/GTM ids they load, and load each once',
+  run({ crawl }) {
+    const pages = crawl.pages
+      .filter((page) => page.extracted !== null && page.fetch.status === 200)
+      .map(readPageAnalyticsIds);
+
+    const withDuplicates = pages.filter((page) => page.duplicated.length > 0);
+    if (withDuplicates.length > 0) {
+      return fail(
+        `${withDuplicates.length} page(s) load the same analytics id more than once via a duplicate script tag.`,
+        {
+          pages: withDuplicates.map((page) => ({ url: page.url, ids: page.duplicated })),
+        },
+      );
+    }
+
+    const tagged = pages.filter((page) => page.ids.size > 0);
+    if (tagged.length === 0) {
+      return warn('No GA4 or GTM id was found on any page.', { pagesRead: pages.length });
+    }
+
+    const distinct = new Map<string, string>();
+    for (const page of tagged) distinct.set(idSetKey(page.ids), page.url);
+    if (distinct.size > 1) {
+      return fail(
+        `Pages disagree on which analytics id(s) they load: ${distinct.size} different combinations across ${tagged.length} page(s).`,
+        {
+          samples: [...distinct.entries()].slice(0, 5).map(([key, url]) => ({ url, ids: key.split(',') })),
+        },
+      );
+    }
+
+    const ids = [...(tagged[0]?.ids ?? [])];
+    return pass(`${tagged.length} page(s) agree on the same analytics id(s): ${ids.join(', ')}.`, {
+      pagesRead: tagged.length,
+      ids,
+    });
+  },
+};
+
 export const markupProbes = [
   semanticHtml,
   headingOutline,
@@ -164,4 +283,5 @@ export const markupProbes = [
   crawlableLinks,
   langAttribute,
   soft404,
+  analyticsImplementation,
 ];

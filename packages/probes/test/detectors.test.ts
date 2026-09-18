@@ -3299,3 +3299,64 @@ describe('launch-content-completeness', () => {
     ).toBe('error');
   });
 });
+
+// --- 2.5 analytics-implementation ---------------------------------------
+
+const gtagSnippet = (id: string): string =>
+  `<script async src="https://www.googletagmanager.com/gtag/js?id=${id}"></script>` +
+  `<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}` +
+  `gtag('js',new Date());gtag('config','${id}');</script>`;
+
+const gtmSnippet = (id: string): string =>
+  `<script>(function(w,d,s,l,i){w[l]=w[l]||[];var f=d.getElementsByTagName(s)[0],j=d.createElement(s);` +
+  `j.src='https://www.googletagmanager.com/gtm.js?id='+i;f.parentNode.insertBefore(j,f);` +
+  `})(window,document,'script','dataLayer','${id}');</script>`;
+
+const analyticsPage = (path: string, head: string): CrawledPage =>
+  page({ path, html: `<html><head>${head}</head><body><p>content</p></body></html>` });
+
+const runAnalytics = (pages: readonly CrawledPage[]): Observation => runSite('analytics-implementation', pages);
+
+describe('analytics-implementation', () => {
+  it('warns when no page carries a GA4 or GTM id', () => {
+    expect(runAnalytics([analyticsPage('/a', ''), analyticsPage('/b', '')]).outcome).toBe('warn');
+  });
+
+  it('passes pages that all load the same GA4 id', () => {
+    const observation = runAnalytics([
+      analyticsPage('/a', gtagSnippet('G-ABC123')),
+      analyticsPage('/b', gtagSnippet('G-ABC123')),
+    ]);
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data).toMatchObject({ ids: ['G-ABC123'] });
+  });
+
+  it('passes a page naming its GTM container id only in an inline script', () => {
+    expect(runAnalytics([analyticsPage('/a', gtmSnippet('GTM-XYZ789'))]).outcome).toBe('pass');
+  });
+
+  it('fails a page whose gtag script tag is pasted in twice', () => {
+    const observation = runAnalytics([analyticsPage('/a', gtagSnippet('G-ABC123') + gtagSnippet('G-ABC123'))]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('more than once');
+  });
+
+  it('does not flag the ordinary src-plus-inline-config pair as a duplicate', () => {
+    expect(runAnalytics([analyticsPage('/a', gtagSnippet('G-ABC123'))]).outcome).toBe('pass');
+  });
+
+  it('fails when pages disagree on which id they load', () => {
+    const observation = runAnalytics([
+      analyticsPage('/a', gtagSnippet('G-ABC123')),
+      analyticsPage('/b', gtagSnippet('G-DIFFERENT')),
+    ]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('disagree');
+  });
+
+  it('leaves an untagged page out of the agreement comparison', () => {
+    expect(runAnalytics([analyticsPage('/a', gtagSnippet('G-ABC123')), analyticsPage('/b', '')]).outcome).toBe(
+      'pass',
+    );
+  });
+});

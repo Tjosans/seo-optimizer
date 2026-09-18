@@ -3360,3 +3360,40 @@ describe('analytics-implementation', () => {
     );
   });
 });
+
+// --- 2.6 consent-mode-config ---------------------------------------------
+
+const GTAG_TAG = '<script async src="https://www.googletagmanager.com/gtag/js?id=G-ABC123"></script>';
+const DEFAULT_CALL =
+  "<script>gtag('consent','default',{ad_storage:'denied',analytics_storage:'denied'});</script>";
+const CMP_SCRIPT = '<script src="https://consent.cookiebot.com/uc.js" data-cbid="abc"></script>';
+
+const consentPage = (head: string): CrawledPage => page({ path: '/', html: `<html><head>${head}</head><body><p>content</p></body></html>` });
+
+const runConsent = (target: CrawledPage): Observation => runPage('consent-mode-config', target, [target]);
+
+describe('consent-mode-config', () => {
+  it('is not-applicable when no page loads a Google tag', () => {
+    expect(runConsent(consentPage('')).outcome).toBe('not-applicable');
+  });
+
+  it('passes a consent default set before the Google tag loads', () => {
+    expect(runConsent(consentPage(DEFAULT_CALL + GTAG_TAG)).outcome).toBe('pass');
+  });
+
+  it('fails a consent default set only after the Google tag has already loaded', () => {
+    const observation = runConsent(consentPage(GTAG_TAG + DEFAULT_CALL));
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('already loaded');
+  });
+
+  it('fails a declared consent banner with no consent default anywhere', () => {
+    const observation = runConsent(consentPage(CMP_SCRIPT + GTAG_TAG));
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('consent banner');
+  });
+
+  it('warns when no consent default and no known consent banner is present', () => {
+    expect(runConsent(consentPage(GTAG_TAG)).outcome).toBe('warn');
+  });
+});

@@ -139,6 +139,20 @@ export interface ExtractedHeading {
 }
 
 /**
+ * One `<script>` element, external or inline, in document order — every
+ * `<script>` interleaved as authored, unlike `scripts`/`inlineScripts`, which
+ * split the two apart and so lose which came first. The consent-mode-config
+ * detector needs that ordering to tell a default set before a Google tag
+ * loads from one set after.
+ */
+export interface ExtractedScriptTag {
+  /** Resolved absolute URL, or null for an inline script. */
+  readonly src: string | null;
+  /** The element's own text; empty for an external script. */
+  readonly text: string;
+}
+
+/**
  * One stretch of a page's reading matter, from a heading to the next heading
  * of any level.
  */
@@ -229,6 +243,8 @@ export interface Extracted {
   readonly scripts: readonly string[];
   /** Text of `<script>` elements with no `src`, in document order, for the analytics-implementation detector. */
   readonly inlineScripts: readonly string[];
+  /** Every `<script>`, external and inline, interleaved in document order. */
+  readonly scriptTags: readonly ExtractedScriptTag[];
   /** Absolute URLs of `<link rel="stylesheet">` sheets, in document order. */
   readonly stylesheets: readonly string[];
   /** Declared favicons and touch icons, for the favicon-site-name detector. */
@@ -509,6 +525,13 @@ export function extract(html: string, pageUrl: string): Extracted {
     if (text.trim() !== '') inlineScripts.push(text);
   });
 
+  const scriptTags: ExtractedScriptTag[] = [];
+  $('script').each((_, element) => {
+    const srcAttr = $(element).attr('src');
+    const src = srcAttr === undefined ? null : resolveUrl(srcAttr, base);
+    scriptTags.push({ src, text: src === null ? $(element).text() : '' });
+  });
+
   const stylesheets: string[] = [];
   $('link[rel="stylesheet"][href]').each((_, element) => {
     const url = resolveUrl($(element).attr('href') ?? '', base);
@@ -600,6 +623,7 @@ export function extract(html: string, pageUrl: string): Extracted {
     twitter,
     scripts,
     inlineScripts,
+    scriptTags,
     stylesheets,
     icons,
     media,

@@ -276,6 +276,86 @@ export const analyticsImplementation: SiteProbe = {
   },
 };
 
+// --- 2.6 consent-mode-config ---------------------------------------------
+
+/** A `<script>` served from a known consent management platform. */
+const CMP_HOSTS = [
+  'cookiebot.com',
+  'cdn.cookielaw.org',
+  'cookielaw.org',
+  'consent.trustarc.com',
+  'trustarc.com',
+  'cmp.quantcast.com',
+  'quantcast.mgr.consensu.org',
+  'fundingchoicesmessages.google.com',
+  'consent.didomi.io',
+  'sdk.privacy-center.org',
+  'usercentrics.eu',
+  'cmp.osano.com',
+  'cdn.iubenda.com',
+  'cdn-cookieyes.com',
+  'app.termly.io',
+  'sourcepoint.mgr.consensu.org',
+  'sp-prod.net',
+  'cc.cdn.civiccomputing.com',
+];
+
+const isCmpScript = (src: string): boolean => CMP_HOSTS.some((host) => src.includes(host));
+
+/** An inline `gtag('consent', 'default', …)` call, however it is quoted or spaced. */
+const CONSENT_DEFAULT_RE = /gtag\s*\(\s*['"]consent['"]\s*,\s*['"]default['"]/i;
+
+/**
+ * 2.6 asks that Consent Mode defaults apply in every state a visitor can
+ * reach — first visit, accept, reject, partial, withdrawal, return — which is
+ * runtime behaviour a raw crawl cannot exercise; that is why the check stays
+ * `assisted`. What the markup does show, in document order, is the one thing
+ * Google's own timing guidance calls out as a prerequisite for everything
+ * else: a `gtag('consent', 'default', …)` call has to run before the gtag.js
+ * or gtm.js script tag, or every event that script fires before the call
+ * lands with no consent state attached to it at all. `Extracted.scriptTags`
+ * exists for exactly this: `scripts`/`inlineScripts` split external from
+ * inline and so lose which came first.
+ */
+export const consentModeConfig: PageProbe = {
+  id: 'consent-mode-config',
+  scope: 'page',
+  htmlOnly: true,
+  title: 'Consent defaults are set before a Google tag loads',
+  run({ page }) {
+    const extracted = page.extracted;
+    if (extracted === null) return notApplicable(NO_HTML);
+
+    const tagIndex = extracted.scriptTags.findIndex(
+      (tag) => tag.src !== null && GTAG_OR_GTM_SRC.test(tag.src),
+    );
+    if (tagIndex === -1) {
+      return notApplicable('No gtag.js/gtm.js script tag loads on this page.');
+    }
+
+    const before = extracted.scriptTags.slice(0, tagIndex);
+    const after = extracted.scriptTags.slice(tagIndex);
+
+    if (before.some((tag) => CONSENT_DEFAULT_RE.test(tag.text))) {
+      return pass('Sets a consent default before the Google tag loads.');
+    }
+    if (after.some((tag) => CONSENT_DEFAULT_RE.test(tag.text))) {
+      return fail('Sets a consent default only after the Google tag has already loaded.');
+    }
+
+    const cmp = extracted.scriptTags.find((tag) => tag.src !== null && isCmpScript(tag.src));
+    if (cmp !== undefined) {
+      return fail('Loads a consent banner but sets no gtag consent default anywhere on the page.', {
+        cmpScript: cmp.src,
+      });
+    }
+
+    return warn(
+      'Loads a Google tag with no consent default and no known consent-banner script; confirm consent is out of scope for this page.',
+    );
+  },
+};
+
 export const markupProbes = [
   semanticHtml,
   headingOutline,
@@ -284,4 +364,5 @@ export const markupProbes = [
   langAttribute,
   soft404,
   analyticsImplementation,
+  consentModeConfig,
 ];

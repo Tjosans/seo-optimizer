@@ -1,0 +1,89 @@
+:root {
+  color-scheme: light dark;
+  --pass: #2e7d32;
+  --fail: #c62828;
+  --warn: #b8860b;
+  --muted: #6b6b6b;
+  --border: color-mix(in srgb, currentColor 15%, transparent);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  margin: 0;
+  padding: 0 1.5rem 3rem;
+}
+
+header {
+  padding: 1.5rem 0 1rem;
+}
+
+header h1 { margin: 0; font-size: 1.4rem; }
+.sub { color: var(--muted); margin: 0.2rem 0 0; font-size: 0.9rem; }
+
+main {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 2rem;
+  align-items: start;
+}
+
+@media (max-width: 720px) {
+  main { grid-template-columns: 1fr; }
+}
+
+h2, h3 { margin: 1.2rem 0 0.5rem; }
+h2:first-child, h3:first-child { margin-top: 0; }
+
+.site-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.site-list li {
+  padding: 0.6rem 0.8rem;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+.site-list li:last-child { border-bottom: none; }
+.site-list li:hover { background: color-mix(in srgb, currentColor 6%, transparent); }
+.site-list li.selected { background: color-mix(in srgb, currentColor 12%, transparent); font-weight: 600; }
+.site-list li.empty { cursor: default; color: var(--muted); }
+.site-list .origin { display: block; font-size: 0.8rem; color: var(--muted); font-weight: normal; }
+
+.hidden { display: none; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+th, td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: color-mix(in srgb, currentColor 6%, transparent); }
+#checks-table tbody tr { cursor: default; }
+
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.badge.go, .badge.passed, .badge.pass { background: color-mix(in srgb, var(--pass) 20%, transparent); color: var(--pass); }
+.badge.hold, .badge.failed, .badge.fail { background: color-mix(in srgb, var(--fail) 20%, transparent); color: var(--fail); }
+.badge.warn, .badge.review, .badge.in-progress { background: color-mix(in srgb, var(--warn) 20%, transparent); color: var(--warn); }
+.badge.muted { background: color-mix(in srgb, var(--muted) 20%, transparent); color: var(--muted); }
+
+#trend-chart { min-height: 120px; }
+#trend-chart svg { width: 100%; height: 120px; display: block; }
+#trend-chart .empty { color: var(--muted); font-size: 0.9rem; }
+
+.error-banner {
+  background: color-mix(in srgb, var(--fail) 15%, transparent);
+  color: var(--fail);
+  padding: 0.6rem 0.8rem;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+}

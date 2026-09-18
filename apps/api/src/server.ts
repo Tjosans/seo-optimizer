@@ -26,7 +26,7 @@
 
 import { createServer as createHttpServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
-import { asc, eq } from 'drizzle-orm';
+import { asc, desc, eq } from 'drizzle-orm';
 import type { Corpus } from '@seo/core';
 import type { Database } from '@seo/db';
 import { audits, checkStates, sites } from '@seo/db';
@@ -84,6 +84,11 @@ async function handle(req: IncomingMessage, res: ServerResponse, options: ApiSer
       await listSites(res, options);
       return;
     }
+  }
+  const siteAuditsMatch = /^\/sites\/([^/]+)\/audits$/.exec(path);
+  if (siteAuditsMatch && req.method === 'GET') {
+    await listSiteAudits(res, options, decodeURIComponent(siteAuditsMatch[1]!));
+    return;
   }
   const siteMatch = /^\/sites\/([^/]+)$/.exec(path);
   if (siteMatch) {
@@ -171,6 +176,39 @@ async function postSite(req: IncomingMessage, res: ServerResponse, options: ApiS
 async function listSites(res: ServerResponse, options: ApiServerOptions): Promise<void> {
   const rows = await options.db.select().from(sites).orderBy(sites.createdAt);
   send(res, 200, { sites: rows });
+}
+
+/**
+ * A site's audit history, newest first — the trend a dashboard walks back
+ * through. No `checkStates` join, the same reasoning `/audits/:id/readiness`
+ * already gives over `/result`: a caller charting readiness over time reads
+ * many rows at once and has no use for each one's full evidence trail.
+ */
+async function listSiteAudits(res: ServerResponse, options: ApiServerOptions, siteId: string): Promise<void> {
+  try {
+    const rows = await options.db
+      .select({
+        id: audits.id,
+        releaseId: audits.releaseId,
+        corpusVersion: audits.corpusVersion,
+        status: audits.status,
+        startedAt: audits.startedAt,
+        finishedAt: audits.finishedAt,
+        readiness: audits.readiness,
+        error: audits.error,
+        createdAt: audits.createdAt,
+      })
+      .from(audits)
+      .where(eq(audits.siteId, siteId))
+      .orderBy(desc(audits.createdAt));
+    send(res, 200, { audits: rows });
+  } catch (error) {
+    if (isInvalidId(error)) {
+      send(res, 400, { error: `invalid site id: ${siteId}` });
+      return;
+    }
+    throw error;
+  }
 }
 
 async function patchSite(

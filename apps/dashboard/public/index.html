@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>seo-optimizer dashboard</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<header>
+  <h1>seo-optimizer</h1>
+  <p class="sub">audit results &amp; historical trend</p>
+</header>
+
+<main>
+  <section id="sites-panel">
+    <h2>Sites</h2>
+    <ul id="site-list" class="site-list"><li class="empty">Loading&hellip;</li></ul>
+  </section>
+
+  <section id="detail-panel" class="hidden">
+    <h2 id="site-name"></h2>
+    <p id="site-origin" class="sub"></p>
+
+    <h3>Readiness trend</h3>
+    <div id="trend-chart"></div>
+
+    <h3>Audit history</h3>
+    <table id="audit-table">
+      <thead>
+        <tr><th>Date</th><th>Corpus</th><th>Status</th><th>Decision</th><th>Overall</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <div id="result-panel" class="hidden">
+      <h3>Check results — <span id="result-audit-id"></span></h3>
+      <table id="checks-table">
+        <thead>
+          <tr><th>Check</th><th>Applicability</th><th>Status</th><th>Coverage</th><th>Evidence</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>

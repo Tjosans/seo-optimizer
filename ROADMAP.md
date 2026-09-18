@@ -113,7 +113,7 @@ Last updated: 2026-09-18 (detectors implemented: 77/134)
 - [x] Add batch operations for uploading and purging stored content (@seo/storage `blob-store.ts`: `BlobStore.putMany`/`deleteMany`; `S3BlobStore.putMany` dedupes a body repeated within one batch to one write, `deleteMany` chunks to S3's 1000-key `DeleteObjects` limit)
 
 ## Phase 7 — Audit API
-- [ ] Create HTTP server entry point (currently library-only, no apps/ yet)
+- [x] Create HTTP server entry point (`apps/api`: @seo/api `main.ts`/`server.ts`, `npm run serve`, listening on `PORT`) — landed alongside `POST /releases` (Phase 4) but left unchecked here until now
 - [ ] Build site management endpoints (create, list, update, delete)
 - [ ] Implement audit lifecycle endpoints (create, status, result retrieval)
 - [ ] Add check attestation endpoint for recording human decisions

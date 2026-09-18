@@ -48,9 +48,11 @@ afterEach(async () => {
   server = null;
 });
 
+// Shutting Chromium down overruns the 10 s default hook timeout when the
+// full suite has every core busy, though it takes a moment on its own.
 afterAll(async () => {
   await closeBrowser();
-});
+}, 60_000);
 
 describe('renderPage', () => {
   it('returns the DOM after client-side script has run, not the server-sent bytes', async () => {

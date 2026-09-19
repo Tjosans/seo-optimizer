@@ -195,3 +195,13 @@ searchConsole:
       count: 12
   owner: Jane Doe
   recordedAt: 2026-09-01T09:00:00Z
+
+# contentDecisions (7.2): what was decided for each URL whose clicks fell, one
+# row per url (an http(s) address). decision is free text (refresh, merge,
+# redirect, retire, keep); decidedAt is when it was made.
+contentDecisions:
+  - url: https://example.com/guides/old-guide
+    decision: refresh
+    decidedAt: 2026-09-05T09:00:00Z
+    owner: Jane Doe
+    recordedAt: 2026-09-05T09:00:00Z

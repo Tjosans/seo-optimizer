@@ -335,6 +335,17 @@ export interface SearchConsoleRecord extends InputRecord {
   readonly links?: readonly SearchConsoleLink[];
 }
 
+/**
+ * What a person decided for a URL whose search traffic is declining (7.2):
+ * `refresh`, `merge`, `redirect`, `retire`, `keep`… in their words. `url` is an
+ * http(s) address, `decidedAt` an ISO 8601 instant.
+ */
+export interface ContentDecision extends InputRecord {
+  readonly url: string;
+  readonly decision: string;
+  readonly decidedAt: string;
+}
+
 /** Every section an audit can be given. */
 export interface AuditInputs {
   /** Search Console exports: property, sitemaps, manual actions, security issues. */
@@ -355,10 +366,12 @@ export interface AuditInputs {
   readonly experiments?: readonly ExperimentRecord[];
   /** Staging and preview origins the site keeps (1.8). */
   readonly environments?: EnvironmentsRecord;
+  /** What was decided for each declining URL (7.2). */
+  readonly contentDecisions?: readonly ContentDecision[];
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -930,6 +943,53 @@ function parseDomainHistory(value: unknown, problem: (path: string, text: string
   return ok ? { ...record, checks, blockingIssues } : null;
 }
 
+const CONTENT_DECISION_KEYS = ['url', 'decision', 'decidedAt'];
+
+function parseContentDecisions(value: unknown, problem: (path: string, text: string) => void): ContentDecision[] | null {
+  if (!Array.isArray(value)) {
+    problem('contentDecisions', 'expected a list');
+    return null;
+  }
+  const out: ContentDecision[] = [];
+  let ok = true;
+  const seen = new Set<string>();
+  value.forEach((node, index) => {
+    const path = `contentDecisions[${index}]`;
+    const record = parseInputRecord(path, node, problem, CONTENT_DECISION_KEYS);
+    if (record === null || !isNode(node)) {
+      ok = false;
+      return;
+    }
+    const text = (key: string): string | null => {
+      const raw = node[key];
+      if (typeof raw === 'string' && raw.trim() !== '') return raw.trim();
+      problem(`${path}.${key}`, raw === undefined || raw === null || raw === '' ? 'required' : `expected text, got ${typeof raw} (quote it)`);
+      ok = false;
+      return null;
+    };
+    const url = text('url');
+    if (url !== null && !isHttpUrl(url)) {
+      problem(`${path}.url`, `expected an http(s) URL: ${url}`);
+      ok = false;
+    } else if (url !== null) {
+      if (seen.has(url)) {
+        problem(`${path}.url`, `duplicate decision: ${url}`);
+        ok = false;
+      }
+      seen.add(url);
+    }
+    const decision = text('decision');
+    const decidedRaw = text('decidedAt');
+    const ms = decidedRaw === null ? null : instant(decidedRaw);
+    if (decidedRaw !== null && ms === null) {
+      problem(`${path}.decidedAt`, `not a date and time: ${decidedRaw}`);
+      ok = false;
+    }
+    if (url !== null && decision !== null && ms !== null) out.push({ ...record, url, decision, decidedAt: new Date(ms).toISOString() });
+  });
+  return ok ? out : null;
+}
+
 const SEARCH_CONSOLE_KEYS = ['property', 'sitemaps', 'manualActions', 'securityIssues', 'pageIndexing', 'urlInspection', 'performance', 'links'];
 
 function parseSearchConsole(value: unknown, problem: (path: string, text: string) => void): SearchConsoleRecord | null {
@@ -1197,7 +1257,12 @@ export function parseInputs(value: unknown): AuditInputs {
     redirectMap?: RedirectMapRecord;
     domainHistory?: DomainHistoryRecord;
     searchConsole?: SearchConsoleRecord;
+    contentDecisions?: readonly ContentDecision[];
   } = {};
+  if (value['contentDecisions'] !== undefined && value['contentDecisions'] !== null) {
+    const contentDecisions = parseContentDecisions(value['contentDecisions'], problem);
+    if (contentDecisions !== null) inputs.contentDecisions = contentDecisions;
+  }
   if (value['searchConsole'] !== undefined && value['searchConsole'] !== null) {
     const searchConsole = parseSearchConsole(value['searchConsole'], problem);
     if (searchConsole !== null) inputs.searchConsole = searchConsole;

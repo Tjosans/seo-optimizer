@@ -365,3 +365,13 @@ describe('scripts/inputs.example.yaml', () => {
     expect(inputs.searchConsole?.links?.[0]?.count).toBe(12);
   });
 });
+
+describe('contentDecisions', () => {
+  const row = { url: 'https://example.com/a', decision: 'refresh', decidedAt: '2026-09-05T09:00:00Z', owner: 'Jane', recordedAt: '2026-09-05T09:00:00Z' };
+
+  it('reads a decision and refuses a bad one', () => {
+    expect(parseInputs({ contentDecisions: [row] }).contentDecisions?.[0]).toMatchObject({ url: row.url, decision: 'refresh' });
+    expect(() => parseInputs({ contentDecisions: [{ ...row, decidedAt: 'soon' }, row, row] })).toThrow(/decidedAt[\s\S]*duplicate decision/);
+    expect(() => parseInputs({ contentDecisions: [{ ...row, url: '/a' }] })).toThrow(/http\(s\) URL/);
+  });
+});

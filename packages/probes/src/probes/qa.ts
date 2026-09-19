@@ -20,6 +20,7 @@ import { isSameSite, normalizeUrl } from '@seo/crawler';
 import type { CrawledPage, CrawlResult, FetchResult } from '@seo/crawler';
 import type { SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
+import { previousPage } from '../previous.js';
 import { matrixMatcher, NOINDEX_DIRECTIVE } from './site.js';
 
 /** How many examples of each finding an observation carries. */
@@ -1082,6 +1083,124 @@ export const migrationRedirectsLive: SiteProbe = {
   },
 };
 
+/**
+ * `post-migration-monitor` (6.6): the redirect map and its destinations, watched
+ * after cutover against `SiteContext.previous`. `not-applicable` without a map
+ * (or with no entries) or without a previous audit.
+ *
+ * Fails a mapped old URL that was right before and is wrong now, and a
+ * destination that was indexable before and is now noindex, disallowed by
+ * robots.txt, or a 4xx or 5xx. "Right before" is per URL where the earlier crawl
+ * holds the old URL (it ended where the map says, or answered the retired
+ * status), else the map as a whole when the earlier audit passed 4.8 or 5.2. An
+ * entry that is wrong now with no evidence it was ever right is not a
+ * regression, so it holds the check with a `warn` and is left to 4.8 and 5.2, as
+ * is a destination or old URL the crawl did not reach.
+ */
+export const postMigrationMonitor: SiteProbe = {
+  id: 'post-migration-monitor',
+  scope: 'site',
+  title: 'Mapped old URLs still resolve as they did, and their destinations are still indexable',
+  run({ crawl, inputs, origin, previous }) {
+    const map = inputs?.redirectMap;
+    if (map === undefined) return notApplicable('No redirect map was supplied.');
+    if (map.entries.length === 0) return notApplicable('The redirect map has no entries to monitor.');
+    if (previous === undefined || previous === null) {
+      return notApplicable('No previous audit was supplied to compare the migration against.');
+    }
+
+    const { failures: wrongNow, unrequested, unanswered } = testRedirectMap(map, crawl, origin);
+    const mapWasCorrect = previous.probes.some(
+      (probe) =>
+        (probe.probeId === 'migration-redirect-test' || probe.probeId === 'migration-redirects-live') &&
+        probe.pageUrl === null &&
+        probe.outcome === 'pass',
+    );
+    const blockedBefore = new Set((previous.blockedByRobots ?? []).map((url) => normalizeUrl(url) ?? url));
+    const blockedNow = new Set(crawl.blockedByRobots.map((url) => normalizeUrl(url) ?? url));
+    const now = new Map<string, CrawledPage>();
+    for (const page of crawl.pages) now.set(page.normalizedUrl, page);
+    const noindexed = (metaRobots: string | null, header: string | null): boolean =>
+      NOINDEX_DIRECTIVE.test(metaRobots ?? '') || NOINDEX_DIRECTIVE.test(header ?? '');
+
+    const regressions: string[] = [];
+    const lost: string[] = [];
+    const unproven: string[] = [];
+    const unreached: string[] = [];
+    let watched = 0;
+    for (const entry of map.entries) {
+      let from: string;
+      try {
+        from = new URL(entry.from, map.oldOrigin ?? previous.origin).toString();
+      } catch {
+        continue;
+      }
+      watched += 1;
+
+      const problems = wrongNow.filter((problem) => problem.startsWith(`${from} `));
+      if (problems.length > 0) {
+        const before = previousPage(previous, from);
+        const to = entry.to === undefined ? null : mapTarget(entry.to, origin);
+        const wasRight = before === undefined
+          ? mapWasCorrect
+          : entry.expect === 404 || entry.expect === 410
+            ? before.status === entry.expect
+            : to !== null && before.status !== null && before.status < 400 &&
+              (normalizeUrl(before.finalUrl ?? '') ?? before.finalUrl) === to;
+        if (wasRight) regressions.push(problems[0]!);
+        else unproven.push(problems[0]!);
+      }
+
+      if (entry.to === undefined || (entry.expect !== 301 && entry.expect !== 308)) continue;
+      const destination = mapTarget(entry.to, origin);
+      if (destination === null) continue;
+      const before = previousPage(previous, destination);
+      if (
+        before === undefined || before.status !== 200 || noindexed(before.metaRobots, before.xRobotsTag) ||
+        blockedBefore.has(before.url)
+      ) {
+        continue; // Not indexable before, so nothing was lost.
+      }
+      const current = now.get(destination);
+      if (blockedNow.has(destination)) {
+        lost.push(`${destination} was indexable and is now disallowed by robots.txt`);
+      } else if (current === undefined || current.fetch.status === null) {
+        unreached.push(destination);
+      } else if (current.fetch.status >= 400) {
+        lost.push(`${destination} was indexable and now answers ${current.fetch.status}`);
+      } else if (noindexed(current.extracted?.metaRobots ?? null, current.fetch.headers['x-robots-tag'] ?? null)) {
+        lost.push(`${destination} was indexable and is now noindex`);
+      }
+    }
+
+    const problems = [...regressions, ...lost];
+    const data = {
+      previousTakenAt: previous.takenAt,
+      watched,
+      regressions: regressions.slice(0, SAMPLES),
+      regressionCount: regressions.length,
+      lostIndexability: lost.slice(0, SAMPLES),
+      lostIndexabilityCount: lost.length,
+      unproven: unproven.slice(0, SAMPLES),
+      unprovenCount: unproven.length,
+      unreached: unreached.slice(0, SAMPLES),
+      unreachedCount: unreached.length,
+      unrequestedCount: unrequested.length,
+      unansweredCount: unanswered.length,
+    };
+    if (problems.length > 0) {
+      return fail(`${problems.length} post-migration regression(s): ${problems.slice(0, 3).join('; ')}.`, data);
+    }
+    const holds: string[] = [];
+    if (unproven.length > 0) holds.push(`${unproven.length} mapped URL(s) are wrong now with no evidence they were right before`);
+    if (unreached.length > 0) holds.push(`${unreached.length} destination(s) indexable before were not reached`);
+    if (unrequested.length > 0) holds.push(`${unrequested.length} entr${unrequested.length === 1 ? 'y was' : 'ies were'} past the request cap`);
+    if (unanswered.length > 0) holds.push(`${unanswered.length} old URL(s) got no answer`);
+    if (holds.length > 0) return warn(`${holds.join('; ')}.`, data);
+    return pass(`${watched} mapped URL(s) resolve as before and their destinations are still indexable.`, data);
+  },
+};
+
 /** A map target as the crawl spells it: resolved against the audited origin. */
 function mapTarget(value: string, origin: string): string | null {
   try {
@@ -1094,6 +1213,7 @@ function mapTarget(value: string, origin: string): string | null {
 export const qaProbes = [
   migrationRedirectTest,
   migrationRedirectsLive,
+  postMigrationMonitor,
   brokenLinks,
   metadataCompleteness,
   rawRenderedCrawlDiff,

@@ -27,6 +27,7 @@ import { runProbes } from '@seo/probes';
 import type { SiteContext } from '@seo/probes';
 import { JobCancelledError, JobLeaseLostError } from '@seo/queue';
 import type { BlobStore } from '@seo/storage';
+import { loadPreviousAudit } from './previous.js';
 import { StaleSiteProfileError, UnknownSiteFlagsError } from './types.js';
 import type { AuditJob, AuditOutcome, CorpusSource } from './types.js';
 

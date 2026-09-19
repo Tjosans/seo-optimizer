@@ -41,7 +41,7 @@ export const typesOf = (node: Record<string, unknown>): string[] =>
   [node['@type']].flat().filter((type): type is string => typeof type === 'string');
 
 /** Collect @type values from a JSON-LD block, graph nodes included. */
-function jsonLdTypes(blocks: readonly unknown[]): string[] {
+export function jsonLdTypes(blocks: readonly unknown[]): string[] {
   return jsonLdNodes(blocks).flatMap(typesOf);
 }
 

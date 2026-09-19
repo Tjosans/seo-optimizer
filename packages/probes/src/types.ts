@@ -9,6 +9,7 @@
 
 import type { AiCrawlerPolicy } from '@seo/core';
 import type { CrawlResult, CrawledPage } from '@seo/crawler';
+import type { PreviousAudit } from './previous.js';
 
 export type ProbeScope = 'site' | 'page';
 
@@ -35,6 +36,11 @@ export interface SiteContext {
    * recorded. An input a person supplied, not something the crawl observed.
    */
   readonly aiPolicy?: AiCrawlerPolicy | null;
+  /**
+   * An earlier audit of this site to compare against, or null/absent when there
+   * is none. An input, like `aiPolicy`: a probe reads it and never fetches.
+   */
+  readonly previous?: PreviousAudit | null;
 }
 
 export interface PageContext {

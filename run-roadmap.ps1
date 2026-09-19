@@ -21,10 +21,9 @@ Purpose:
                                          and a NOTE naming the stash is committed
     - runner interrupted (Ctrl+C)     -> the attempt is stashed
 
-Usage:
-  .\run-roadmap.ps1
-  .\run-roadmap.ps1 -Model opus -Effort high -TestCommand "npm test"
-  .\run-roadmap.ps1 -MaxTurns 100 -WrapUpTurns 25 -MaxBudgetUsd 5
+Usage (Windows PowerShell 5.1 or PowerShell 7):
+  powershell -ExecutionPolicy Bypass -File .\run-roadmap.ps1 -TestCommand "npm test" -MaxIterations 100
+  powershell -ExecutionPolicy Bypass -File .\run-roadmap.ps1 -TestCommand "npm test" -MaxIterations 100 -Model opus
 =============================================================================
 #>
 
@@ -43,6 +42,15 @@ param(
     [int]   $MaxTaskLength = 600,          # chars; a longer line is a batch, not a task
     [switch]$NoTestVerify                  # skip the runner's own test run before committing
 )
+
+# UTF-8 both ways. The prompt is piped to claude on stdin (see
+# Invoke-ClaudeSession), and Windows PowerShell 5.1 would otherwise encode it
+# as ASCII, turning every em dash and curly quote into '?', and decode the
+# JSON it gets back in the console's OEM code page.
+$Utf8 = New-Object System.Text.UTF8Encoding $false
+$OutputEncoding           = $Utf8
+[Console]::OutputEncoding = $Utf8
+[Console]::InputEncoding  = $Utf8
 
 $RunStamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $LogDir   = Join-Path "logs" $RunStamp
@@ -80,14 +88,28 @@ if (git status --porcelain) {
 
 function Test-TreeDirty { [bool](git status --porcelain) }
 
+# The roadmap is UTF-8 without a byte-order mark. Windows PowerShell 5.1's
+# Get-Content and Set-Content assume the ANSI code page for such a file, which
+# garbles every em dash in the task handed to a session and cannot write a
+# curly closing quote back at all, so the file is read and written as bytes.
+$RoadmapFile = (Resolve-Path -LiteralPath $RoadmapFile).Path
+function Read-Roadmap { [System.IO.File]::ReadAllText($RoadmapFile, $Utf8) }
+function Write-Roadmap([string]$Text) { [System.IO.File]::WriteAllText($RoadmapFile, $Text, $Utf8) }
+
 function Get-Short([string]$Text) {
     if ($Text.Length -gt 60) { $Text.Substring(0, 60) + "..." } else { $Text }
 }
 
 # One headless Claude session. Returns the parsed JSON result (or $null) and
 # the exit code; the raw JSON is kept in $LogFile either way.
+#
+# The prompt goes on stdin, never on the command line. Windows PowerShell 5.1
+# does not escape double quotes inside a native command's argument, so a
+# prompt holding "..." is split into several arguments and claude receives
+# only the text up to the first quote. That fed every session a task cut off
+# after its first word on 2026-09-19.
 function Invoke-ClaudeSession([string]$Prompt, [string]$LogFile, [int]$Turns, [string]$ResumeId) {
-    $CliArgs = @('-p', $Prompt,
+    $CliArgs = @('-p',
               '--permission-mode', 'auto',
               '--model', $Model,
               '--effort', $Effort,
@@ -95,7 +117,7 @@ function Invoke-ClaudeSession([string]$Prompt, [string]$LogFile, [int]$Turns, [s
               '--output-format', 'json')
     if ($ResumeId)         { $CliArgs += @('--resume', $ResumeId) }
     if ($MaxBudgetUsd -gt 0) { $CliArgs += @('--max-budget-usd', $MaxBudgetUsd) }
-    claude @CliArgs | Set-Content -Path $LogFile -Encoding utf8
+    $Prompt | claude @CliArgs | Set-Content -Path $LogFile -Encoding utf8
     $Code   = $LASTEXITCODE
     $Parsed = $null
     try { $Parsed = Get-Content $LogFile -Raw | ConvertFrom-Json } catch { }
@@ -111,18 +133,18 @@ function Test-Suite([string]$LogFile) {
 }
 
 function Test-TaskTicked([string]$Task) {
-    (Get-Content $RoadmapFile -Raw).Contains("- [x] $Task")
+    (Read-Roadmap).Contains("- [x] $Task")
 }
 
 # Put one indented NOTE line directly under the task's checkbox line.
 function Add-TaskNote([string]$Task, [string]$Note) {
-    $Content = Get-Content $RoadmapFile -Raw
+    $Content = Read-Roadmap
     $Line    = "- [ ] $Task"
     $At      = $Content.IndexOf($Line)
     if ($At -lt 0) { return }
     $End     = $At + $Line.Length
     $Content = $Content.Substring(0, $End) + "`n  - NOTE: $Note" + $Content.Substring($End)
-    Set-Content -Path $RoadmapFile -Value $Content -NoNewline
+    Write-Roadmap $Content
 }
 
 # Leave the tree clean, keeping whatever is worth keeping. Returns a word for
@@ -138,7 +160,7 @@ function Complete-Iteration([string]$Task, [int]$Iteration, [string]$Why) {
             return 'committed'
         }
         # Partial but green: keep it, so the next attempt continues from it.
-        $Content = Get-Content $RoadmapFile -Raw
+        $Content = Read-Roadmap
         $Pos     = $Content.IndexOf("- [ ] $Task")
         $HasNote = $Pos -ge 0 -and $Content.Substring($Pos + $Task.Length + 6).TrimStart("`r", "`n").StartsWith("  - NOTE:")
         if (-not $HasNote) {
@@ -172,8 +194,7 @@ $BlockedRow  = 0
 # the next iteration picks the task after it. Several in a row means the
 # problem is not the task (a broken build, an expired login), so stop.
 function Block-Task([string]$Task, [string]$Reason, [string]$Subject) {
-    $Content = (Get-Content $RoadmapFile -Raw).Replace("- [ ] $Task", "- [!] $Task  <!-- $Reason -->")
-    Set-Content -Path $RoadmapFile -Value $Content -NoNewline
+    Write-Roadmap ((Read-Roadmap).Replace("- [ ] $Task", "- [!] $Task  <!-- $Reason -->"))
     git add -- $RoadmapFile
     git commit -m $Subject -m $Task | Out-Null
     $script:BlockedRow++
@@ -186,7 +207,7 @@ try {
         $Iteration++
 
         # ---- Pick the first unchecked task --------------------------------
-        $Content = Get-Content $RoadmapFile -Raw
+        $Content = Read-Roadmap
         $Match   = [regex]::Match($Content, $Pattern, 'Multiline')
         if (-not $Match.Success) {
             Write-Host "All roadmap tasks are complete!" -ForegroundColor Green
@@ -220,8 +241,12 @@ try {
 You are an automated software engineer working in a fresh session with no memory of earlier runs.
 Read CLAUDE.md first for conventions and architecture, then ROADMAP.md.
 
-Your ONE task for this session (copied from $RoadmapFile):
-"$Task"
+Your ONE task for this session is the first line in $RoadmapFile that starts with '- [ ] '.
+Its text, copied here for convenience:
+$Task
+
+Nobody can answer questions: this session runs unattended. If the text above looks cut off,
+use that first '- [ ] ' line in $RoadmapFile, which is the same task.
 
 Rules:
 1. Implement ONLY this task, cleanly and modularly. Do not start any other roadmap item.

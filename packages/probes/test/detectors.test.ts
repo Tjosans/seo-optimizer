@@ -3695,6 +3695,112 @@ const withRender = (target: CrawledPage, renderedHtml: string | null, error: str
   };
 };
 
+describe('axe-accessibility', () => {
+  const withAxe = (
+    accessibility: { violations: { id: string; impact: string | null; nodes: number }[]; error: string | null } | undefined,
+  ): CrawledPage => {
+    const target = withRender(page({ path: '/' }), '<html><body><p>Hi</p></body></html>');
+    if (target.rendered === undefined || target.rendered === null || accessibility === undefined) return target;
+    return { ...target, rendered: { ...target.rendered, render: { ...target.rendered.render, accessibility } } };
+  };
+  const run = (target: CrawledPage) => runPage('axe-accessibility', target, [target]);
+
+  it('is not applicable without a render or without axe having run', () => {
+    expect(run(page({ path: '/' })).outcome).toBe('not-applicable');
+    expect(run(withAxe(undefined)).outcome).toBe('not-applicable');
+  });
+
+  it('errors when axe failed', () => {
+    expect(run(withAxe({ violations: [], error: 'boom' })).outcome).toBe('error');
+  });
+
+  it('fails on a critical or serious violation', () => {
+    const observation = run(
+      withAxe({ violations: [{ id: 'color-contrast', impact: 'serious', nodes: 3 }], error: null }),
+    );
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/color-contrast/);
+  });
+
+  it('warns on moderate or minor violations only', () => {
+    const observation = run(withAxe({ violations: [{ id: 'region', impact: 'moderate', nodes: 1 }], error: null }));
+    expect(observation.outcome).toBe('warn');
+  });
+
+  it('passes a clean run without claiming conformance', () => {
+    const observation = run(withAxe({ violations: [], error: null }));
+    expect(observation.outcome).toBe('pass');
+    expect(observation.summary).toMatch(/not a conformance claim/);
+  });
+});
+
+describe('mobile-journey-qa', () => {
+  const desktopHtml =
+    '<html><head><title>Home</title><meta name="viewport" content="width=device-width">' +
+    '<link rel="canonical" href="https://example.com/"></head>' +
+    '<body><h1>Welcome</h1><p>' + 'word '.repeat(40) + '</p><a href="/a">A</a><a href="/b">B</a></body></html>';
+  const withMobile = (mobileHtml: string | null, error: string | null = null): CrawledPage => {
+    const target = page({ path: '/', html: desktopHtml });
+    const extracted = error === null && mobileHtml !== null ? extract(mobileHtml, target.url) : null;
+    return {
+      ...target,
+      renderedMobile: {
+        render: {
+          requestedUrl: target.url,
+          finalUrl: target.url,
+          status: error === null ? 200 : null,
+          html: mobileHtml ?? '',
+          totalMs: 10,
+          error,
+        },
+        extracted,
+        comparison: null,
+      },
+    };
+  };
+  const run = (target: CrawledPage) => runPage('mobile-journey-qa', target, [target]);
+
+  it('is not applicable without a mobile render', () => {
+    expect(run(page({ path: '/', html: desktopHtml })).outcome).toBe('not-applicable');
+  });
+
+  it('errors when the mobile render failed', () => {
+    expect(run(withMobile(null, 'timeout')).outcome).toBe('error');
+  });
+
+  it('fails when the phone drops the title, h1 or canonical', () => {
+    const observation = run(
+      withMobile('<html><head><meta name="viewport" content="x"></head><body><p>' + 'word '.repeat(40) + '</p></body></html>'),
+    );
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/title/);
+    expect(observation.summary).toMatch(/h1/);
+    expect(observation.summary).toMatch(/canonical/);
+  });
+
+  it('fails when the phone adds a noindex', () => {
+    const observation = run(withMobile(desktopHtml.replace('<head>', '<head><meta name="robots" content="noindex">')));
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/noindex/);
+  });
+
+  it('warns on no viewport meta and on halved words', () => {
+    const observation = run(
+      withMobile(
+        '<html><head><title>Home</title><link rel="canonical" href="https://example.com/"></head>' +
+          '<body><h1>Welcome</h1><p>few words</p><a href="/a">A</a><a href="/b">B</a></body></html>',
+      ),
+    );
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toMatch(/viewport/);
+    expect(observation.summary).toMatch(/words/);
+  });
+
+  it('passes an equivalent phone render', () => {
+    expect(run(withMobile(desktopHtml)).outcome).toBe('pass');
+  });
+});
+
 describe('rendering-strategy-classifier', () => {
   it('is not applicable when no render was captured for the crawl', () => {
     const target = page({ path: '/' });

@@ -17,7 +17,40 @@
  */
 
 import { chromium } from 'playwright';
-import type { Browser } from 'playwright';
+import type { Browser, Page, Request } from 'playwright';
+import { AxeBuilder } from '@axe-core/playwright';
+
+export interface AxeViolation {
+  readonly id: string;
+  /** axe's own grading: minor, moderate, serious or critical. Null when axe gave none. */
+  readonly impact: string | null;
+  /** How many elements the rule flagged. */
+  readonly nodes: number;
+}
+
+/**
+ * What axe-core found on the settled DOM. `error` is set when axe itself could
+ * not run; `violations` is then empty, which says nothing about the page.
+ */
+export interface AccessibilityResult {
+  readonly violations: readonly AxeViolation[];
+  readonly error: string | null;
+}
+
+/** One request the browser made while building a page, the document itself included. */
+export interface RenderedRequest {
+  readonly url: string;
+  readonly method: string;
+  /** Playwright's resource type: `document`, `script`, `image`, `fetch`, … */
+  readonly resourceType: string;
+  /** Null when no response arrived, which is what `failed` says why. */
+  readonly status: number | null;
+  /** True when the request errored before a response (blocked, refused, aborted). */
+  readonly failed: boolean;
+}
+
+/** A page's requests are recorded up to this many; the rest are counted out, not kept. */
+export const MAX_RENDERED_REQUESTS = 500;
 
 export interface RenderResult {
   readonly requestedUrl: string;
@@ -29,14 +62,34 @@ export interface RenderResult {
   readonly totalMs: number | null;
   /** Set when no render was obtained at all. Never a verdict about the site. */
   readonly error: string | null;
+  /** Every request the page made up to `MAX_RENDERED_REQUESTS`. Present whenever a render was obtained. */
+  readonly requests?: readonly RenderedRequest[];
+  /** True when the page made more requests than `requests` holds. */
+  readonly requestsTruncated?: boolean;
+  /** Present only when `RenderOptions.accessibility` asked for axe and a render was obtained. */
+  readonly accessibility?: AccessibilityResult;
 }
+
+/** The phone viewport a mobile render uses. */
+export const MOBILE_VIEWPORT = { width: 390, height: 844 } as const;
+
+/** A mobile Chromium user agent, so a site that serves by device sees a phone. */
+export const MOBILE_USER_AGENT =
+  'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36';
 
 export interface RenderOptions {
   readonly userAgent: string;
+  /**
+   * Render as a phone: a `MOBILE_VIEWPORT` touch device under `MOBILE_USER_AGENT`,
+   * followed by `userAgent` so the site can still see who is asking.
+   */
+  readonly mobile?: boolean;
   /** Ceiling on navigation itself. Default 20s: a browser is slower to fail than a socket. */
   readonly timeoutMs?: number;
   /** How long to wait after the load event for post-load scripts to settle. Default 500ms. */
   readonly settleMs?: number;
+  /** Run axe-core on the settled page and put the result on `RenderResult.accessibility`. */
+  readonly accessibility?: boolean;
   readonly signal?: AbortSignal;
 }
 
@@ -65,6 +118,18 @@ export async function closeBrowser(): Promise<void> {
   await (await instance).close().catch(() => {});
 }
 
+async function runAxe(page: Page): Promise<AccessibilityResult> {
+  try {
+    const { violations } = await new AxeBuilder({ page }).analyze();
+    return {
+      violations: violations.map((v) => ({ id: v.id, impact: v.impact ?? null, nodes: v.nodes.length })),
+      error: null,
+    };
+  } catch (cause) {
+    return { violations: [], error: cause instanceof Error ? cause.message : String(cause) };
+  }
+}
+
 export async function renderPage(url: string, options: RenderOptions): Promise<RenderResult> {
   const timeoutMs = options.timeoutMs ?? DEFAULTS.timeoutMs;
   const settleMs = options.settleMs ?? DEFAULTS.settleMs;
@@ -90,18 +155,54 @@ export async function renderPage(url: string, options: RenderOptions): Promise<R
     return failure(cause instanceof Error ? cause.message : String(cause));
   }
 
-  const context = await instance.newContext({ userAgent: options.userAgent });
+  const context = await instance.newContext(
+    options.mobile === true
+      ? {
+        userAgent: `${MOBILE_USER_AGENT} ${options.userAgent}`,
+        viewport: MOBILE_VIEWPORT,
+        isMobile: true,
+        hasTouch: true,
+      }
+      : { userAgent: options.userAgent },
+  );
   try {
     const page = await context.newPage();
     const onAbort = (): void => {
       page.close().catch(() => {});
     };
     signal?.addEventListener('abort', onAbort, { once: true });
+    const requests: { -readonly [K in keyof RenderedRequest]: RenderedRequest[K] }[] = [];
+    const byRequest = new Map<Request, (typeof requests)[number]>();
+    let requestsTruncated = false;
+    page.on('request', (request) => {
+      if (requests.length >= MAX_RENDERED_REQUESTS) {
+        requestsTruncated = true;
+        return;
+      }
+      const entry = {
+        url: request.url(),
+        method: request.method(),
+        resourceType: request.resourceType(),
+        status: null,
+        failed: false,
+      };
+      requests.push(entry);
+      byRequest.set(request, entry);
+    });
+    page.on('response', (response) => {
+      const entry = byRequest.get(response.request());
+      if (entry !== undefined) entry.status = response.status();
+    });
+    page.on('requestfailed', (request) => {
+      const entry = byRequest.get(request);
+      if (entry !== undefined) entry.failed = true;
+    });
     try {
       const response = await page.goto(url, { waitUntil: 'load', timeout: timeoutMs });
       if (aborted()) return failure('cancelled');
       await page.waitForTimeout(settleMs);
       const html = await page.content();
+      const accessibility = options.accessibility === true ? await runAxe(page) : undefined;
       return {
         requestedUrl: url,
         finalUrl: page.url(),
@@ -109,6 +210,9 @@ export async function renderPage(url: string, options: RenderOptions): Promise<R
         html,
         totalMs: Math.round(performance.now() - started),
         error: null,
+        requests: requests.map((r) => ({ ...r })),
+        requestsTruncated,
+        ...(accessibility === undefined ? {} : { accessibility }),
       };
     } catch (cause) {
       return failure(cause instanceof Error ? cause.message : String(cause));

@@ -162,6 +162,8 @@ export interface CrawlOptions {
   /** Passed through to every render this crawl makes. */
   readonly renderTimeoutMs?: number;
   readonly renderSettleMs?: number;
+  /** Run axe-core on every render and record its violations on `RenderResult.accessibility`. */
+  readonly renderAccessibility?: boolean;
   /** Called as each page completes, so a long crawl can stream to storage. */
   readonly onPage?: (page: CrawledPage) => void | Promise<void>;
 }
@@ -637,6 +639,7 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
           userAgent: options.userAgent,
           ...(options.renderTimeoutMs === undefined ? {} : { timeoutMs: options.renderTimeoutMs }),
           ...(options.renderSettleMs === undefined ? {} : { settleMs: options.renderSettleMs }),
+          ...(options.renderAccessibility === true ? { accessibility: true } : {}),
           ...(options.signal === undefined ? {} : { signal: options.signal }),
         });
         const renderedExtracted = render.error === null && render.html !== ''

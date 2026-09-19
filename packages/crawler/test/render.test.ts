@@ -22,6 +22,11 @@ async function startServer(): Promise<string> {
       response.end();
       return;
     }
+    if (path === '/axe') {
+      response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      response.end('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Axe</title></head><body><main><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw="></main></body></html>');
+      return;
+    }
     if (path === '/slow') {
       // Never responds within renderPage's timeout.
       return;
@@ -99,4 +104,19 @@ describe('renderPage', () => {
     });
     expect(result.error).toBe('cancelled');
   });
+
+  it('records axe-core violations only when asked', async () => {
+    const origin = await startServer();
+    const plain = await renderPage(`${origin}/axe`, { userAgent: 'seo-optimizer/0.1 (+test)' });
+    expect(plain.accessibility).toBeUndefined();
+
+    const audited = await renderPage(`${origin}/axe`, {
+      userAgent: 'seo-optimizer/0.1 (+test)',
+      accessibility: true,
+    });
+    expect(audited.error).toBeNull();
+    expect(audited.accessibility?.error).toBeNull();
+    const imageAlt = audited.accessibility?.violations.find((v) => v.id === 'image-alt');
+    expect(imageAlt).toMatchObject({ impact: 'critical', nodes: 1 });
+  }, 60_000);
 });

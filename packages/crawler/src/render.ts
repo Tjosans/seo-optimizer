@@ -17,7 +17,25 @@
  */
 
 import { chromium } from 'playwright';
-import type { Browser } from 'playwright';
+import type { Browser, Page } from 'playwright';
+import { AxeBuilder } from '@axe-core/playwright';
+
+export interface AxeViolation {
+  readonly id: string;
+  /** axe's own grading: minor, moderate, serious or critical. Null when axe gave none. */
+  readonly impact: string | null;
+  /** How many elements the rule flagged. */
+  readonly nodes: number;
+}
+
+/**
+ * What axe-core found on the settled DOM. `error` is set when axe itself could
+ * not run; `violations` is then empty, which says nothing about the page.
+ */
+export interface AccessibilityResult {
+  readonly violations: readonly AxeViolation[];
+  readonly error: string | null;
+}
 
 export interface RenderResult {
   readonly requestedUrl: string;
@@ -29,6 +47,8 @@ export interface RenderResult {
   readonly totalMs: number | null;
   /** Set when no render was obtained at all. Never a verdict about the site. */
   readonly error: string | null;
+  /** Present only when `RenderOptions.accessibility` asked for axe and a render was obtained. */
+  readonly accessibility?: AccessibilityResult;
 }
 
 export interface RenderOptions {
@@ -37,6 +57,8 @@ export interface RenderOptions {
   readonly timeoutMs?: number;
   /** How long to wait after the load event for post-load scripts to settle. Default 500ms. */
   readonly settleMs?: number;
+  /** Run axe-core on the settled page and put the result on `RenderResult.accessibility`. */
+  readonly accessibility?: boolean;
   readonly signal?: AbortSignal;
 }
 
@@ -63,6 +85,18 @@ export async function closeBrowser(): Promise<void> {
   const instance = sharedBrowser;
   sharedBrowser = null;
   await (await instance).close().catch(() => {});
+}
+
+async function runAxe(page: Page): Promise<AccessibilityResult> {
+  try {
+    const { violations } = await new AxeBuilder({ page }).analyze();
+    return {
+      violations: violations.map((v) => ({ id: v.id, impact: v.impact ?? null, nodes: v.nodes.length })),
+      error: null,
+    };
+  } catch (cause) {
+    return { violations: [], error: cause instanceof Error ? cause.message : String(cause) };
+  }
 }
 
 export async function renderPage(url: string, options: RenderOptions): Promise<RenderResult> {
@@ -102,6 +136,7 @@ export async function renderPage(url: string, options: RenderOptions): Promise<R
       if (aborted()) return failure('cancelled');
       await page.waitForTimeout(settleMs);
       const html = await page.content();
+      const accessibility = options.accessibility === true ? await runAxe(page) : undefined;
       return {
         requestedUrl: url,
         finalUrl: page.url(),
@@ -109,6 +144,7 @@ export async function renderPage(url: string, options: RenderOptions): Promise<R
         html,
         totalMs: Math.round(performance.now() - started),
         error: null,
+        ...(accessibility === undefined ? {} : { accessibility }),
       };
     } catch (cause) {
       return failure(cause instanceof Error ? cause.message : String(cause));

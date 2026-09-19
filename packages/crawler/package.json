@@ -9,6 +9,7 @@
     ".": "./dist/index.js"
   },
   "dependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@seo/core": "*",
     "cheerio": "^1.0.0",
     "htmlparser2": "^10.1.0",

@@ -380,8 +380,21 @@ export interface ReportingRecord extends InputRecord {
   readonly anomalies: readonly ReportingAnomaly[];
 }
 
+/**
+ * The site's disavow file (6.8). `submitted` is whether one was sent to Google;
+ * `reasons` says why each entry is there and `removalAttempts` what was tried
+ * to have the link taken down first, both as free text lines.
+ */
+export interface DisavowRecord extends InputRecord {
+  readonly submitted: boolean;
+  readonly reasons: readonly string[];
+  readonly removalAttempts: readonly string[];
+}
+
 /** Every section an audit can be given. */
 export interface AuditInputs {
+  /** The disavow submission, its reasons and removal attempts (6.8). */
+  readonly disavow?: DisavowRecord;
   /** The reporting rhythm, alert thresholds and anomaly log (6.3). */
   readonly reporting?: ReportingRecord;
   /** Search Console exports: property, sitemaps, manual actions, security issues. */
@@ -407,7 +420,7 @@ export interface AuditInputs {
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -1026,6 +1039,37 @@ function parseContentDecisions(value: unknown, problem: (path: string, text: str
   return ok ? out : null;
 }
 
+const DISAVOW_KEYS = ['submitted', 'reasons', 'removalAttempts'];
+
+function parseDisavow(value: unknown, problem: (path: string, text: string) => void): DisavowRecord | null {
+  const record = parseInputRecord('disavow', value, problem, DISAVOW_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`disavow${path}`, text);
+    ok = false;
+  };
+  const submitted = value['submitted'];
+  if (typeof submitted !== 'boolean') fail('.submitted', submitted === undefined || submitted === null ? 'required' : 'expected true or false');
+  const lines = (key: string): string[] => {
+    const raw = value[key];
+    if (raw === undefined || raw === null) return [];
+    if (!Array.isArray(raw)) {
+      fail(`.${key}`, 'expected a list');
+      return [];
+    }
+    const out: string[] = [];
+    raw.forEach((item, index) => {
+      if (typeof item !== 'string') fail(`.${key}[${index}]`, `expected text, got ${typeof item} (quote it)`);
+      else if (item.trim() !== '') out.push(item.trim());
+    });
+    return out;
+  };
+  const reasons = lines('reasons');
+  const removalAttempts = lines('removalAttempts');
+  return ok && typeof submitted === 'boolean' ? { ...record, submitted, reasons, removalAttempts } : null;
+}
+
 const REPORTING_KEYS = ['rhythm', 'thresholds', 'anomalies'];
 
 function parseReporting(value: unknown, problem: (path: string, text: string) => void): ReportingRecord | null {
@@ -1360,7 +1404,12 @@ export function parseInputs(value: unknown): AuditInputs {
     searchConsole?: SearchConsoleRecord;
     contentDecisions?: readonly ContentDecision[];
     reporting?: ReportingRecord;
+    disavow?: DisavowRecord;
   } = {};
+  if (value['disavow'] !== undefined && value['disavow'] !== null) {
+    const disavow = parseDisavow(value['disavow'], problem);
+    if (disavow !== null) inputs.disavow = disavow;
+  }
   if (value['reporting'] !== undefined && value['reporting'] !== null) {
     const reporting = parseReporting(value['reporting'], problem);
     if (reporting !== null) inputs.reporting = reporting;

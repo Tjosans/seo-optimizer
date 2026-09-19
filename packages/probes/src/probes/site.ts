@@ -1739,7 +1739,30 @@ export const reportingAnomalyThresholds: SiteProbe = {
   },
 };
 
+export const backlinkMonitor: SiteProbe = {
+  id: 'backlink-monitor',
+  scope: 'site',
+  title: 'A disavow submission states its reasons and the removal attempts made first',
+  run({ crawl, inputs }) {
+    const record = inputs?.disavow;
+    if (record === undefined) return notApplicable('No disavow record was supplied.');
+
+    const data = { submitted: record.submitted, reasons: record.reasons.length, removalAttempts: record.removalAttempts.length };
+    // With no submission there is nothing to justify.
+    if (!record.submitted) return pass('No disavow file was submitted, so no reasons or removal attempts are owed.', data);
+
+    const missing = [record.reasons.length === 0 ? 'reasons' : null, record.removalAttempts.length === 0 ? 'removal attempts' : null].filter((x) => x !== null);
+    if (missing.length > 0) return fail(`A disavow file was submitted with no ${missing.join(' and no ')} on record.`, data);
+
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) return warn(`The disavow record is held for review (${problem}).`, data);
+    return pass(`The disavow submission records ${record.reasons.length} reason(s) and ${record.removalAttempts.length} removal attempt(s).`, data);
+  },
+};
+
 export const siteProbes = [
+  backlinkMonitor,
   reportingAnomalyThresholds,
   urlInventoryBuilder,
   gscPropertyOwnership,

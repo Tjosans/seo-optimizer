@@ -19,7 +19,7 @@ import { eq } from 'drizzle-orm';
 import { audits } from '@seo/db';
 import type { Database } from '@seo/db';
 import { CorpusVersionMismatchError, gradeAudit, recordGrade, toEvidence } from '@seo/grader';
-import { environmentOrigins, simulatableAgents } from '@seo/core';
+import { environmentOrigins, redirectMapUrls, simulatableAgents } from '@seo/core';
 import { unknownFlags } from '@seo/corpus';
 import { CrawlCancelledError } from '@seo/crawler';
 import { crawlToDatabase, persistProbeRuns } from '@seo/persistence';
@@ -137,6 +137,9 @@ export async function runAudit(
                 url: `${origin}/`,
               })),
             }),
+        ...(redirectMapUrls(job.inputs?.redirectMap).length === 0
+          ? {}
+          : { redirectMapUrls: redirectMapUrls(job.inputs?.redirectMap) }),
         ...(signal === undefined ? {} : { signal }),
       },
       ...(blobStore === undefined ? {} : { blobStore }),

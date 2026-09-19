@@ -156,6 +156,25 @@ export interface RedirectMapRecord extends InputRecord {
   readonly entries: readonly RedirectMapEntry[];
 }
 
+/**
+ * The absolute old URLs a redirect map names, in entry order and without
+ * repeats. A path is resolved against `oldOrigin`; one that cannot be (no
+ * `oldOrigin`, or not a URL at all) is left out rather than guessed at.
+ */
+export function redirectMapUrls(record: RedirectMapRecord | undefined): string[] {
+  if (record === undefined) return [];
+  const urls = new Set<string>();
+  for (const entry of record.entries) {
+    try {
+      const url = new URL(entry.from, record.oldOrigin);
+      if (url.protocol === 'http:' || url.protocol === 'https:') urls.add(url.toString());
+    } catch {
+      // Not resolvable to an address; nothing to request.
+    }
+  }
+  return [...urls];
+}
+
 /** Every section an audit can be given. */
 export interface AuditInputs {
   /** The migration's redirect map (0.8). */

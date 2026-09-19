@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { InputsError, inputRecordProblem, parseInputRecord, parseInputs } from '../src/inputs.js';
+import { InputsError, inputRecordProblem, parseInputRecord, parseInputs, redirectMapUrls } from '../src/inputs.js';
 
 describe('parseInputs', () => {
   it('reads nothing as no inputs', () => {
@@ -242,5 +242,26 @@ describe('parseInputs redirectMap', () => {
 
   it('refuses a duplicate from', () => {
     expect(problemsOf({ ...base, entries: [{ from: '/a', expect: 410 }, { from: '/a', expect: 404 }] })).toEqual([expect.stringContaining('duplicate entry')]);
+  });
+});
+
+describe('redirectMapUrls', () => {
+  const record = { owner: 'a', recordedAt: '2026-09-01', kind: 'move' as const, oldOrigin: 'https://old.example.com', entries: [] };
+
+  it('resolves paths against the old origin, keeps absolute URLs, drops repeats', () => {
+    const urls = redirectMapUrls({
+      ...record,
+      entries: [
+        { from: '/a', expect: 410 },
+        { from: 'https://other.example.com/b', expect: 404 },
+        { from: '/a', expect: 404 },
+      ],
+    });
+    expect(urls).toEqual(['https://old.example.com/a', 'https://other.example.com/b']);
+  });
+
+  it('leaves out a path it cannot resolve, and reads no map as none', () => {
+    expect(redirectMapUrls({ ...record, oldOrigin: undefined, entries: [{ from: '/a', expect: 410 }] })).toEqual([]);
+    expect(redirectMapUrls(undefined)).toEqual([]);
   });
 });

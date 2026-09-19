@@ -155,6 +155,13 @@ export interface CrawlOptions {
    * the URL is, for the report; the list comes from the `environments` input.
    */
   readonly environments?: readonly { readonly name: string; readonly url: string }[];
+  /**
+   * The old URLs of a migration's redirect map, each requested once so the
+   * chain it answers with is on record. Absolute URLs; the list comes from the
+   * `redirectMap` input. Off the walk, paced like every other auxiliary
+   * request, at most `MAX_REDIRECT_MAP_FETCHES` of them.
+   */
+  readonly redirectMapUrls?: readonly string[];
   /** Injection seam for tests and for replaying a stored crawl. */
   readonly fetchImpl?: typeof fetchPage;
   /** Injection seam for the TLS handshake, like `fetchImpl` for requests. */
@@ -219,8 +226,12 @@ export interface AuxiliaryFetch {
    * `environment` — the root of a staging or preview environment the site
    *   named, requested without credentials; `staging-protection` (corpus 1.8)
    *   is the reader. `environment` carries which one.
+   * `redirect-map` — an old URL the migration's redirect map names, requested
+   *   as a visitor holding the old link would be. `fetch.redirectChain` holds
+   *   every hop, in order, and `fetch.finalUrl` where it ended. No probe reads
+   *   it yet.
    */
-  readonly reason: 'host-variant' | 'icon' | 'user-agent-test' | 'external-link' | 'asset' | 'environment';
+  readonly reason: 'host-variant' | 'icon' | 'user-agent-test' | 'external-link' | 'asset' | 'environment' | 'redirect-map';
   readonly url: string;
   /** Which environment (`staging`, `preview`) an `environment` fetch was of. */
   readonly environment?: string;
@@ -778,6 +789,14 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
       externalFetched += 1;
     }
 
+    // The old addresses a migration promised to carry over. `fetchPage`
+    // follows redirects one hop at a time and records each, so one request per
+    // URL leaves the whole chain on the record.
+    for (const url of [...new Set(options.redirectMapUrls ?? [])].slice(0, MAX_REDIRECT_MAP_FETCHES)) {
+      stopIfCancelled(options.signal);
+      await aside('redirect-map', url);
+    }
+
     // Googlebot fetches a page's CSS and JavaScript separately, each under its
     // own limit, but the walk only ever reads the document — `crawler-fetch-limit`
     // (1.5) cannot weigh what it never saw. Fetched once per URL, deduplicated
@@ -870,6 +889,9 @@ const MAX_UA_TESTS = 12;
 
 /** Staging and preview: the two an `environments` input can name. */
 const MAX_ENVIRONMENTS = 2;
+
+/** How many redirect-map URLs one crawl will request. */
+const MAX_REDIRECT_MAP_FETCHES = 500;
 
 /** How many external link targets one crawl will fetch, across every host. */
 const MAX_EXTERNAL_LINK_FETCHES = 30;

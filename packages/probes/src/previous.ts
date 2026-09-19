@@ -31,6 +31,10 @@ export interface PreviousPage {
   readonly xRobotsTag: string | null;
   readonly canonical: string | null;
   readonly title: string | null;
+  /** The first `<h1>`. Absent from snapshots taken before it was recorded. */
+  readonly h1?: string | null;
+  /** Words of reading matter. Absent from snapshots taken before it was recorded. */
+  readonly words?: number | null;
   /** schema.org `@type` values found in JSON-LD, sorted and unique. */
   readonly jsonLdTypes: readonly string[];
   readonly hreflang: readonly { readonly hreflang: string; readonly url: string }[];
@@ -63,10 +67,10 @@ export interface PageFacts {
   readonly finalUrl: string | null;
   readonly status: number | null;
   readonly headers: Readonly<Record<string, string>> | null;
-  readonly extracted: Pick<
-    Extracted,
-    'metaRobots' | 'canonical' | 'title' | 'jsonLd' | 'hreflang'
-  > | null;
+  readonly extracted:
+    | (Pick<Extracted, 'metaRobots' | 'canonical' | 'title' | 'jsonLd' | 'hreflang'> &
+        Partial<Pick<Extracted, 'headings' | 'content'>>)
+    | null;
 }
 
 export function snapshotPage(facts: PageFacts): PreviousPage {
@@ -79,6 +83,12 @@ export function snapshotPage(facts: PageFacts): PreviousPage {
     xRobotsTag: facts.headers?.['x-robots-tag'] ?? null,
     canonical: extracted?.canonical ?? null,
     title: extracted?.title ?? null,
+    ...(extracted?.headings === undefined
+      ? {}
+      : { h1: extracted.headings.find((heading) => heading.level === 1)?.text ?? null }),
+    ...(extracted?.content?.sections === undefined
+      ? {}
+      : { words: extracted.content.sections.reduce((sum, section) => sum + section.words, 0) }),
     jsonLdTypes: [...new Set(jsonLdTypes(extracted?.jsonLd ?? []))].sort(),
     hreflang: (extracted?.hreflang ?? []).map(({ hreflang, url }) => ({ hreflang, url })),
   };
@@ -156,6 +166,12 @@ export function parsePrevious(value: unknown): PreviousAudit {
     const page = record(raw, path);
     const status = page['status'];
     if (status !== null && typeof status !== 'number') throw new Error(`${path}.status: expected a number`);
+    const h1 = page['h1'];
+    const words = page['words'];
+    if (h1 !== undefined) text(h1, `${path}.h1`, true);
+    if (words !== undefined && words !== null && typeof words !== 'number') {
+      throw new Error(`${path}.words: expected a number`);
+    }
     return {
       url: text(page['url'], `${path}.url`, false) ?? '',
       status,
@@ -164,6 +180,8 @@ export function parsePrevious(value: unknown): PreviousAudit {
       xRobotsTag: text(page['xRobotsTag'], `${path}.xRobotsTag`, true),
       canonical: text(page['canonical'], `${path}.canonical`, true),
       title: text(page['title'], `${path}.title`, true),
+      ...(h1 === undefined ? {} : { h1: h1 as string | null }),
+      ...(words === undefined ? {} : { words: words as number | null }),
       jsonLdTypes: list(page['jsonLdTypes'], `${path}.jsonLdTypes`).map(
         (type, j) => text(type, `${path}.jsonLdTypes[${j}]`, false) ?? '',
       ),

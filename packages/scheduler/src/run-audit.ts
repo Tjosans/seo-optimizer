@@ -19,7 +19,7 @@ import { eq } from 'drizzle-orm';
 import { audits } from '@seo/db';
 import type { Database } from '@seo/db';
 import { CorpusVersionMismatchError, gradeAudit, recordGrade, toEvidence } from '@seo/grader';
-import { environmentOrigins, redirectMapUrls, simulatableAgents } from '@seo/core';
+import { environmentOrigins, redirectMapRootUrl, redirectMapUrls, simulatableAgents } from '@seo/core';
 import { unknownFlags } from '@seo/corpus';
 import { CrawlCancelledError } from '@seo/crawler';
 import { crawlToDatabase, persistProbeRuns } from '@seo/persistence';
@@ -114,6 +114,12 @@ export async function runAudit(
     }
     stopIfCancelled();
 
+    // The old origin's root goes first so the request cap never drops it: 5.2
+    // asks whether the old domain still redirects.
+    const rootUrl = redirectMapRootUrl(job.inputs?.redirectMap);
+    const mapUrls = redirectMapUrls(job.inputs?.redirectMap);
+    if (rootUrl !== undefined) mapUrls.unshift(...(mapUrls.includes(rootUrl) ? [] : [rootUrl]));
+
     const crawled = await crawlToDatabase(db, {
       auditId: job.auditId,
       // The crawl's own stopping point. Without this the signal would only be
@@ -137,9 +143,7 @@ export async function runAudit(
                 url: `${origin}/`,
               })),
             }),
-        ...(redirectMapUrls(job.inputs?.redirectMap).length === 0
-          ? {}
-          : { redirectMapUrls: redirectMapUrls(job.inputs?.redirectMap) }),
+        ...(mapUrls.length === 0 ? {} : { redirectMapUrls: mapUrls }),
         ...(signal === undefined ? {} : { signal }),
       },
       ...(blobStore === undefined ? {} : { blobStore }),

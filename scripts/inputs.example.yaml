@@ -101,10 +101,15 @@ canary:
 # entry per old URL) or history-only (nothing to carry over; entries may be
 # left out). from is an absolute URL or a path from the old origin. expect is
 # 301, 308, 404 or 410; a 301 or 308 needs to (a URL or path), a 404 or 410
-# takes none. A repeated from is refused.
+# takes none. A repeated from is refused. changeOfAddress (5.2) is the Search
+# Console move of oldOrigin: status pending or accepted, submittedAt a date and
+# time; a pending one holds migration-redirects-live.
 redirectMap:
   kind: move
   oldOrigin: https://old.example.com
+  changeOfAddress:
+    status: pending
+    submittedAt: "2026-09-10T09:00:00Z"
   entries:
     - from: /products/blue-widget
       expect: 301

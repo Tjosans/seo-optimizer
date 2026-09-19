@@ -144,6 +144,16 @@ export const REDIRECT_MAP_EXPECT = [301, 308, 404, 410] as const;
 /** The kinds of migration a `redirectMap` can describe. */
 export const REDIRECT_MAP_KINDS = ['move', 'history-only'] as const;
 
+/** The statuses a `ChangeOfAddress` can be in. */
+export const CHANGE_OF_ADDRESS_STATUSES = ['pending', 'accepted'] as const;
+
+/** Where the Search Console change of address stands, and when it was submitted. */
+export interface ChangeOfAddress {
+  readonly status: (typeof CHANGE_OF_ADDRESS_STATUSES)[number];
+  /** ISO 8601 instant. */
+  readonly submittedAt: string;
+}
+
 /**
  * The redirect map of a migration (0.8). `move` is a site changing address or
  * structure: `oldOrigin` names where the old URLs lived and every one needs an
@@ -153,6 +163,8 @@ export const REDIRECT_MAP_KINDS = ['move', 'history-only'] as const;
 export interface RedirectMapRecord extends InputRecord {
   readonly kind: (typeof REDIRECT_MAP_KINDS)[number];
   readonly oldOrigin?: string;
+  /** The Search Console change of address for `oldOrigin` (5.2), when the move is to a new domain. */
+  readonly changeOfAddress?: ChangeOfAddress;
   readonly entries: readonly RedirectMapEntry[];
 }
 
@@ -173,6 +185,19 @@ export function redirectMapUrls(record: RedirectMapRecord | undefined): string[]
     }
   }
   return [...urls];
+}
+
+/**
+ * The old origin's root document, which 5.2 requires to keep redirecting. Absent
+ * when the map names no `oldOrigin`.
+ */
+export function redirectMapRootUrl(record: RedirectMapRecord | undefined): string | undefined {
+  if (record?.oldOrigin === undefined) return undefined;
+  try {
+    return new URL('/', record.oldOrigin).toString();
+  } catch {
+    return undefined;
+  }
 }
 
 /** Every section an audit can be given. */
@@ -594,7 +619,7 @@ function parseCanary(value: unknown, problem: (path: string, text: string) => vo
   };
 }
 
-const REDIRECT_MAP_KEYS = ['kind', 'oldOrigin', 'entries'];
+const REDIRECT_MAP_KEYS = ['kind', 'oldOrigin', 'entries', 'changeOfAddress'];
 const REDIRECT_ENTRY_KEYS = ['from', 'expect', 'to'];
 
 function parseRedirectMap(value: unknown, problem: (path: string, text: string) => void): RedirectMapRecord | null {
@@ -674,11 +699,30 @@ function parseRedirectMap(value: unknown, problem: (path: string, text: string) 
       }
     });
   }
+  const changeRaw = value['changeOfAddress'];
+  let changeOfAddress: ChangeOfAddress | undefined;
+  if (!missing(changeRaw)) {
+    if (!isNode(changeRaw)) {
+      fail('.changeOfAddress', 'expected a mapping');
+    } else {
+      for (const key of Object.keys(changeRaw)) {
+        if (key !== 'status' && key !== 'submittedAt') fail(`.changeOfAddress.${key}`, 'unknown field');
+      }
+      const status = changeRaw['status'];
+      const statusOk = typeof status === 'string' && (CHANGE_OF_ADDRESS_STATUSES as readonly string[]).includes(status);
+      if (!statusOk) fail('.changeOfAddress.status', missing(status) ? 'required' : `expected pending or accepted: ${String(status)}`);
+      const at = changeRaw['submittedAt'];
+      const ms = typeof at === 'string' ? instant(at) : null;
+      if (ms === null) fail('.changeOfAddress.submittedAt', missing(at) ? 'required' : typeof at === 'string' ? `not a date and time: ${at}` : `expected text, got ${typeof at} (quote it)`);
+      else if (statusOk) changeOfAddress = { status: status as ChangeOfAddress['status'], submittedAt: new Date(ms).toISOString() };
+    }
+  }
   if (!ok || typeof kind !== 'string') return null;
   return {
     ...record,
     kind: kind as RedirectMapRecord['kind'],
     ...(oldOrigin !== undefined ? { oldOrigin } : {}),
+    ...(changeOfAddress !== undefined ? { changeOfAddress } : {}),
     entries,
   };
 }

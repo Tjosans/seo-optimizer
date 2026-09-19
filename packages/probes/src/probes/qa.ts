@@ -14,7 +14,8 @@
  * the site disagreeing, and neither page shows it on its own.
  */
 
-import { CI_GUARD_DEFECTS, CI_RULE_MAX_FALSE_POSITIVE_RATE, environmentOrigins, inputRecordProblem } from '@seo/core';
+import { CI_GUARD_DEFECTS, redirectMapRootUrl, CI_RULE_MAX_FALSE_POSITIVE_RATE, environmentOrigins, inputRecordProblem } from '@seo/core';
+import type { RedirectMapRecord } from '@seo/core';
 import { isSameSite, normalizeUrl } from '@seo/crawler';
 import type { CrawledPage, CrawlResult, FetchResult } from '@seo/crawler';
 import type { SiteProbe } from '../types.js';
@@ -920,61 +921,7 @@ export const migrationRedirectTest: SiteProbe = {
     if (map === undefined) return notApplicable('No redirect map was supplied.');
     if (map.entries.length === 0) return notApplicable('The redirect map has no entries to test.');
 
-    const requested = new Map<string, FetchResult>();
-    for (const aside of crawl.auxiliary) {
-      if (aside.reason === 'redirect-map') requested.set(aside.url, aside.fetch);
-    }
-
-    const failures: string[] = [];
-    const unrequested: string[] = [];
-    const unanswered: string[] = [];
-    let tested = 0;
-    for (const entry of map.entries) {
-      let from: string;
-      try {
-        from = new URL(entry.from, map.oldOrigin).toString();
-      } catch {
-        continue; // `migration-map-builder` reports an unresolvable entry.
-      }
-      const result = requested.get(from);
-      if (result === undefined) {
-        unrequested.push(from);
-        continue;
-      }
-      const chain = result.redirectChain;
-      const urls = chain.map((hop) => hop.url);
-      const looped = new Set(urls).size < urls.length || (result.error !== null && /loop|too many redirects/i.test(result.error));
-      if (looped) {
-        tested += 1;
-        failures.push(`${from} loops`);
-        continue;
-      }
-      if (result.status === null) {
-        unanswered.push(from);
-        continue;
-      }
-      tested += 1;
-
-      if (entry.expect === 404 || entry.expect === 410) {
-        if (chain.length > 0) failures.push(`${from} redirects but the map expects ${entry.expect}`);
-        else if (result.status !== entry.expect) failures.push(`${from} answers ${result.status}, the map expects ${entry.expect}`);
-        continue;
-      }
-
-      if (chain.length === 0) {
-        failures.push(`${from} answers ${result.status}, the map expects a ${entry.expect} redirect`);
-        continue;
-      }
-      if (chain.length > 1) failures.push(`${from} takes ${chain.length} hops`);
-      const first = chain[0]!.status;
-      if (first !== entry.expect) failures.push(`${from} redirects with ${first}, the map expects ${entry.expect}`);
-      if (entry.to !== undefined) {
-        const want = mapTarget(entry.to, origin);
-        const got = normalizeUrl(result.finalUrl) ?? result.finalUrl;
-        if (want !== null && want !== got) failures.push(`${from} ends at ${got}, the map names ${want}`);
-      }
-      if (result.status >= 400) failures.push(`${from} ends in a ${result.status}`);
-    }
+    const { failures, unrequested, unanswered, tested } = testRedirectMap(map, crawl, origin);
 
     const data = {
       entries: map.entries.length,
@@ -1000,6 +947,141 @@ export const migrationRedirectTest: SiteProbe = {
   },
 };
 
+/** What the `redirect-map` pass saw for each entry, against what the map promised. */
+function testRedirectMap(
+  map: RedirectMapRecord,
+  crawl: CrawlResult,
+  origin: string,
+): { failures: string[]; unrequested: string[]; unanswered: string[]; tested: number } {
+  const requested = new Map<string, FetchResult>();
+  for (const aside of crawl.auxiliary) {
+    if (aside.reason === 'redirect-map') requested.set(aside.url, aside.fetch);
+  }
+
+  const failures: string[] = [];
+  const unrequested: string[] = [];
+  const unanswered: string[] = [];
+  let tested = 0;
+  for (const entry of map.entries) {
+    let from: string;
+    try {
+      from = new URL(entry.from, map.oldOrigin).toString();
+    } catch {
+      continue; // `migration-map-builder` reports an unresolvable entry.
+    }
+    const result = requested.get(from);
+    if (result === undefined) {
+      unrequested.push(from);
+      continue;
+    }
+    const chain = result.redirectChain;
+    const urls = chain.map((hop) => hop.url);
+    const looped = new Set(urls).size < urls.length || (result.error !== null && /loop|too many redirects/i.test(result.error));
+    if (looped) {
+      tested += 1;
+      failures.push(`${from} loops`);
+      continue;
+    }
+    if (result.status === null) {
+      unanswered.push(from);
+      continue;
+    }
+    tested += 1;
+
+    if (entry.expect === 404 || entry.expect === 410) {
+      if (chain.length > 0) failures.push(`${from} redirects but the map expects ${entry.expect}`);
+      else if (result.status !== entry.expect) failures.push(`${from} answers ${result.status}, the map expects ${entry.expect}`);
+      continue;
+    }
+
+    if (chain.length === 0) {
+      failures.push(`${from} answers ${result.status}, the map expects a ${entry.expect} redirect`);
+      continue;
+    }
+    if (chain.length > 1) failures.push(`${from} takes ${chain.length} hops`);
+    const first = chain[0]!.status;
+    if (first !== entry.expect) failures.push(`${from} redirects with ${first}, the map expects ${entry.expect}`);
+    if (entry.to !== undefined) {
+      const want = mapTarget(entry.to, origin);
+      const got = normalizeUrl(result.finalUrl) ?? result.finalUrl;
+      if (want !== null && want !== got) failures.push(`${from} ends at ${got}, the map names ${want}`);
+    }
+    if (result.status >= 400) failures.push(`${from} ends in a ${result.status}`);
+  }
+  return { failures, unrequested, unanswered, tested };
+}
+
+/**
+ * `migration-redirects-live` (5.2, a launch gate): the 4.8 redirect test run
+ * against production. Applies to a `move` map whose `oldOrigin` is another site
+ * than the audited one, on an origin the `environments` input does not list as
+ * staging or preview. Entries are judged as in `migration-redirect-test`, and the
+ * old origin's root must still redirect: a root that answers itself, or an error,
+ * means the domain the map promised to keep is no longer controlled. A change of
+ * address still `pending` in Search Console holds the check with a `warn`.
+ */
+export const migrationRedirectsLive: SiteProbe = {
+  id: 'migration-redirects-live',
+  scope: 'site',
+  title: 'On production, mapped old URLs and the old origin root still redirect as the map says',
+  run({ crawl, inputs, origin }) {
+    const map = inputs?.redirectMap;
+    if (map === undefined) return notApplicable('No redirect map was supplied.');
+    if (map.kind !== 'move' || map.oldOrigin === undefined) {
+      return notApplicable('The redirect map names no old origin to keep redirecting.');
+    }
+    if (isSameSite(origin, map.oldOrigin)) {
+      return notApplicable('The site did not change domain, so there is no old origin to keep redirecting.');
+    }
+    const elsewhere = environmentOrigins(inputs?.environments).find((entry) => isSameSite(origin, entry.origin));
+    if (elsewhere !== undefined) {
+      return notApplicable(`The audit origin is the ${elsewhere.name} environment, not production.`);
+    }
+
+    const { failures, unrequested, unanswered, tested } = testRedirectMap(map, crawl, origin);
+
+    const rootUrl = redirectMapRootUrl(map);
+    let rootState: 'redirects' | 'unverified' | 'broken' = 'unverified';
+    if (rootUrl !== undefined) {
+      const root = crawl.auxiliary.find((aside) => aside.reason === 'redirect-map' && aside.url === rootUrl)?.fetch;
+      if (root !== undefined && root.status !== null) {
+        if (root.redirectChain.length === 0) {
+          rootState = 'broken';
+          failures.push(`the old origin ${rootUrl} answers ${root.status} instead of redirecting`);
+        } else if (root.status >= 400) {
+          rootState = 'broken';
+          failures.push(`the old origin ${rootUrl} redirects to an error (${root.status})`);
+        } else {
+          rootState = 'redirects';
+        }
+      }
+    }
+
+    const change = map.changeOfAddress;
+    const data = {
+      entries: map.entries.length,
+      tested,
+      failures: failures.slice(0, SAMPLES),
+      failureCount: failures.length,
+      unrequestedCount: unrequested.length,
+      unansweredCount: unanswered.length,
+      oldOrigin: map.oldOrigin,
+      rootState,
+      changeOfAddress: change ?? null,
+    };
+    if (failures.length > 0) {
+      return fail(`${failures.length} live redirect problem(s): ${failures.slice(0, 3).join('; ')}.`, data);
+    }
+    const holds: string[] = [];
+    if (unrequested.length > 0) holds.push(`${unrequested.length} entr${unrequested.length === 1 ? 'y was' : 'ies were'} past the request cap`);
+    if (unanswered.length > 0) holds.push(`${unanswered.length} old URL(s) got no answer`);
+    if (rootState === 'unverified') holds.push('the old origin root was not answered');
+    if (change?.status === 'pending') holds.push(`the change of address submitted ${change.submittedAt} is still pending`);
+    if (holds.length > 0) return warn(`${holds.join('; ')}.`, data);
+    return pass(`The old origin root and all ${tested} mapped old URL(s) still redirect as the map says.`, data);
+  },
+};
+
 /** A map target as the crawl spells it: resolved against the audited origin. */
 function mapTarget(value: string, origin: string): string | null {
   try {
@@ -1011,6 +1093,7 @@ function mapTarget(value: string, origin: string): string | null {
 
 export const qaProbes = [
   migrationRedirectTest,
+  migrationRedirectsLive,
   brokenLinks,
   metadataCompleteness,
   rawRenderedCrawlDiff,

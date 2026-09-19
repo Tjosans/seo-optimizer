@@ -102,3 +102,58 @@ describe('migration-redirect-test', () => {
     expect(check(map, [moved('/a', '/b')]).outcome).toBe('warn');
   });
 });
+
+describe('migration-redirects-live', () => {
+  const live = (map: unknown, auxiliary: AuxiliaryFetch[], origin = ORIGIN, environments?: unknown): Observation =>
+    (probeById('migration-redirects-live') as SiteProbe).run({
+      origin,
+      flags: [],
+      crawl: {
+        crawledAt: '2026-09-19T12:00:00.000Z',
+        seeds: [`${origin}/`],
+        pages: [],
+        robots: { groups: [], sitemaps: [], absent: true },
+        robotsTxt: null,
+        sitemapUrls: [],
+        sitemaps: [],
+        sitemapVideos: [],
+        sitemapNews: [],
+        blockedByRobots: [],
+        notReached: [],
+        auxiliary,
+      } satisfies CrawlResult,
+      inputs: { redirectMap: map, ...(environments === undefined ? {} : { environments }) } as never,
+    });
+  const root = moved('/', '/');
+  const map = (extra: object = {}) => ({ ...record([entry('/a', '/b')]), ...extra });
+
+  it('is not applicable without a move map, on the old domain, or on a listed environment', () => {
+    expect(live(undefined, []).outcome).toBe('not-applicable');
+    expect(live({ ...map(), kind: 'history-only' }, []).outcome).toBe('not-applicable');
+    expect(live(map(), [], OLD).outcome).toBe('not-applicable');
+    expect(
+      live(map(), [], ORIGIN, {
+        owner: 'Jane',
+        recordedAt: '2026-09-01T00:00:00.000Z',
+        staging: ORIGIN,
+      }).outcome,
+    ).toBe('not-applicable');
+  });
+
+  it('passes when the entries and the old root redirect', () => {
+    expect(live(map(), [root, moved('/a', '/b')]).outcome).toBe('pass');
+  });
+
+  it('fails a root that no longer redirects, and entries that drift', () => {
+    expect(live(map(), [seen('/', { status: 200 }), moved('/a', '/b')]).outcome).toBe('fail');
+    expect(live(map(), [root, moved('/a', '/other')]).outcome).toBe('fail');
+  });
+
+  it('warns on an unrequested root and on a pending change of address', () => {
+    expect(live(map(), [moved('/a', '/b')]).outcome).toBe('warn');
+    const pending = { changeOfAddress: { status: 'pending', submittedAt: '2026-09-10T00:00:00Z' } };
+    expect(live(map(pending), [root, moved('/a', '/b')]).outcome).toBe('warn');
+    const done = { changeOfAddress: { status: 'accepted', submittedAt: '2026-09-10T00:00:00Z' } };
+    expect(live(map(done), [root, moved('/a', '/b')]).outcome).toBe('pass');
+  });
+});

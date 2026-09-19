@@ -6,7 +6,7 @@
  * crawl budget. Everything else the engine already knows or can default.
  */
 
-import type { AiCrawlerPolicy, Corpus } from '@seo/core';
+import type { AiCrawlerPolicy, AuditInputs, Corpus } from '@seo/core';
 import type { CrawlOptions } from '@seo/crawler';
 import type { FrozenReadiness } from '@seo/grader';
 
@@ -49,6 +49,12 @@ export interface AuditRequest {
    * has no release under is refused before the audit row is written.
    */
   readonly release?: string;
+  /**
+   * Evidence a person supplies (@seo/core `AuditInputs`), validated with
+   * `parseInputs` before the audit row is written. Absent, the detectors that
+   * read a section are `not-applicable`.
+   */
+  readonly inputs?: unknown;
 }
 
 /** The payload the queue carries. Everything needed to run without re-reading. */
@@ -69,6 +75,11 @@ export interface AuditJob {
    * reports on the site as it was described when it was submitted.
    */
   readonly aiPolicy: AiCrawlerPolicy | null;
+  /**
+   * The supplied evidence, as parsed at submit time. Optional because a job
+   * written to the store before this field existed has none.
+   */
+  readonly inputs?: AuditInputs | null;
   /** Pinned at submit time; the version the grader must be handed. */
   readonly corpusVersion: string;
   readonly options: CrawlOptions;

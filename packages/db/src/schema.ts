@@ -217,6 +217,11 @@ export const audits = pgTable(
      * engine's scoring later does.
      */
     readiness: jsonb('readiness'),
+    /**
+     * The `AuditInputs` a person supplied when submitting (@seo/core), as
+     * `parseInputs` returned them. Null when none were given.
+     */
+    inputs: jsonb('inputs'),
     error: text('error'),
     createdAt: createdAt(),
   },

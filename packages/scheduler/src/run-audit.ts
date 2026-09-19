@@ -138,6 +138,7 @@ export async function runAudit(
       crawl: crawled.result,
       flags: job.flags,
       aiPolicy: job.aiPolicy,
+      inputs: job.inputs ?? null,
     };
     const runs = runProbes(context);
 

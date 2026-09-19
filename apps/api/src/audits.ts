@@ -8,6 +8,7 @@
  * the fields a caller may safely override from outside.
  */
 
+import { InputsError, parseInputs } from '@seo/core';
 import type { AuditRequest } from '@seo/scheduler';
 
 /** A create body that is not a valid audit request. Every problem is listed, by field. */
@@ -23,7 +24,7 @@ type Record_ = Record<string, unknown>;
 const isRecord = (value: unknown): value is Record_ =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-const ALLOWED = ['siteId', 'corpusVersion', 'seeds', 'crawl', 'release'] as const;
+const ALLOWED = ['siteId', 'corpusVersion', 'seeds', 'crawl', 'release', 'inputs'] as const;
 
 const CRAWL_ALLOWED = [
   'maxPages',
@@ -87,6 +88,16 @@ export function parseAuditRequest(value: unknown): AuditRequest {
     const raw = value['release'];
     if (typeof raw !== 'string' || raw.trim() === '') problem('release', 'expected non-empty text');
     else release = raw;
+  }
+
+  let inputs: unknown;
+  if ('inputs' in value) {
+    try {
+      inputs = parseInputs(value['inputs']);
+    } catch (error) {
+      if (!(error instanceof InputsError)) throw error;
+      for (const text of error.problems) problems.push(`inputs.${text}`);
+    }
   }
 
   let crawl: AuditRequest['crawl'] | undefined;
@@ -168,5 +179,6 @@ export function parseAuditRequest(value: unknown): AuditRequest {
     ...(seeds !== undefined ? { seeds } : {}),
     ...(crawl !== undefined ? { crawl } : {}),
     ...(release !== undefined ? { release } : {}),
+    ...(inputs !== undefined ? { inputs } : {}),
   };
 }

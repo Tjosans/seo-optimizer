@@ -682,7 +682,88 @@ export const indexabilityCanary: SiteProbe = {
   },
 };
 
+/** The inspection tool's word for a URL Google has no record of; nothing to compare, so no verdict. */
+const UNKNOWN_TO_GOOGLE = /unknown to google|not on google/i;
+
+/**
+ * 5.4: does what Google reports for an inspected URL agree with what the crawl
+ * calls indexable. Reads `searchConsole.urlInspection`; never fetches.
+ *
+ * Fails: an inspected URL the crawl calls indexable (200, no noindex, not
+ * disallowed) that Google reports as blocked by robots, noindexed, or
+ * canonicalised onto another URL than the declared one (the page's own address
+ * when it declares none). "URL is unknown to Google" is skipped as unavailable,
+ * not failed: a page can be new. Warns: an inspected URL the crawl did not
+ * reach, and a record with no owner or past its review.
+ */
+export const urlInspection: SiteProbe = {
+  id: 'url-inspection',
+  scope: 'site',
+  title: 'Google URL Inspection agrees with the crawl about robots, noindex and canonical',
+  run({ crawl, inputs }) {
+    const record = inputs?.searchConsole;
+    if (record === undefined) return notApplicable('No Search Console export was supplied.');
+    const inspections = record.urlInspection;
+    if (inspections === undefined) return notApplicable('The Search Console export holds no URL Inspection results.');
+
+    const byUrl = new Map<string, CrawledPage>();
+    for (const page of crawl.pages) byUrl.set(page.normalizedUrl, page);
+    const blocked = new Set(crawl.blockedByRobots.map((url) => normalizeUrl(url) ?? url));
+
+    const failures: string[] = [];
+    const unknown: string[] = [];
+    const unreached: string[] = [];
+    let compared = 0;
+    for (const row of inspections) {
+      if (UNKNOWN_TO_GOOGLE.test(row.coverage) || UNKNOWN_TO_GOOGLE.test(row.verdict)) {
+        unknown.push(row.url);
+        continue;
+      }
+      const url = normalizeUrl(row.url) ?? row.url;
+      const page = byUrl.get(url);
+      if (page === undefined || page.fetch.status === null) {
+        // A URL the crawl saw robots.txt disallow is not something the crawl calls indexable.
+        if (!blocked.has(url)) unreached.push(row.url);
+        continue;
+      }
+      const extracted = page.extracted;
+      if (page.fetch.status !== 200 || page.fetch.redirectChain.length > 0 || extracted === null) continue;
+      const noindex = NOINDEX_DIRECTIVE.test(extracted.metaRobots ?? '') ||
+        NOINDEX_DIRECTIVE.test(page.fetch.headers['x-robots-tag'] ?? '');
+      if (noindex) continue;
+
+      compared++;
+      const problems: string[] = [];
+      if (/blocked|disallowed/i.test(row.robots)) problems.push('robots.txt blocks it');
+      if (/noindex/i.test(row.indexing)) problems.push('it carries noindex');
+      if (row.googleCanonical !== undefined) {
+        const declared = extracted.canonical === null ? url : (normalizeUrl(extracted.canonical) ?? extracted.canonical);
+        const google = normalizeUrl(row.googleCanonical) ?? row.googleCanonical;
+        if (google !== declared) problems.push(`its Google canonical is ${row.googleCanonical}, the declared one is ${declared}`);
+      }
+      if (problems.length > 0) failures.push(`${row.url}: Google reports ${problems.join('; ')}, while the crawl calls it indexable`);
+    }
+
+    const held: string[] = [];
+    if (unreached.length > 0) held.push(`${unreached.length} inspected URL(s) were not reached by the crawl: ${unreached.slice(0, 3).join(', ')}`);
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'the Search Console record has no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) held.push(problem);
+
+    const data = { inspected: inspections.length, compared, unknown: unknown.slice(0, 10), unreached: unreached.slice(0, 10), failures: failures.slice(0, 10) };
+    if (failures.length > 0) {
+      return fail(`${failures.length} inspected URL(s) disagree with the crawl: ${failures.slice(0, 3).join(' | ')}.`, data);
+    }
+    if (inspections.length > 0 && inspections.length === unknown.length) {
+      return notApplicable('Every inspected URL is unknown to Google, so there is nothing to compare.');
+    }
+    if (held.length > 0) return warn(`URL Inspection is held: ${held.slice(0, 3).join('; ')}.`, data);
+    return pass(`${compared} inspected URL(s) agree with the crawl on robots, noindex and canonical.`, data);
+  },
+};
+
 export const indexabilityProbes = [
+  urlInspection,
   experimentCloakingDivergence,
   stagingProtection,
   internalSearchIndexability,

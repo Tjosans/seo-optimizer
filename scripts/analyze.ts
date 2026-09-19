@@ -20,8 +20,8 @@ import type { Corpus } from '@seo/core';
 import { CURRENT_CORPUS_VERSION, loadCorpus } from '@seo/corpus';
 import { crawl } from '@seo/crawler';
 import type { CrawlResult } from '@seo/crawler';
-import { PROBES, runProbes } from '@seo/probes';
-import type { ProbeRun } from '@seo/probes';
+import { PROBES, parsePrevious, runProbes, snapshotAudit } from '@seo/probes';
+import type { PreviousAudit, ProbeRun } from '@seo/probes';
 import { gradeAudit } from '@seo/grader';
 import type { GradeResult } from '@seo/grader';
 
@@ -107,6 +107,11 @@ export interface SiteReport {
   readonly readiness: GradeResult['readiness'] | null;
   readonly verdicts: readonly Verdict[];
   readonly probeFailures: readonly ProbeFailure[];
+  /**
+   * What a later audit of this site can compare itself against (`--baseline`).
+   * Absent from snapshots taken before it existed, and when the crawl failed.
+   */
+  readonly previous?: PreviousAudit;
 }
 
 export interface Snapshot {
@@ -126,6 +131,8 @@ interface Args {
   readonly label: string;
   readonly save: boolean;
   readonly out: string | null;
+  /** Snapshot whose per-site `previous` blocks probes compare against. */
+  readonly baseline: Snapshot | null;
 }
 
 function parseArgs(argv: readonly string[]): Args {
@@ -138,6 +145,7 @@ function parseArgs(argv: readonly string[]): Args {
   let label = 'run';
   let save = true;
   let out: string | null = null;
+  let baseline: Snapshot | null = null;
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i] ?? '';
@@ -156,6 +164,7 @@ function parseArgs(argv: readonly string[]): Args {
       case '--label': label = next(); break;
       case '--out': out = next(); break;
       case '--no-save': save = false; break;
+      case '--baseline': baseline = JSON.parse(readFileSync(next(), 'utf8')) as Snapshot; break;
       case '--file': {
         const text = readFileSync(next(), 'utf8');
         for (const line of text.split(/\r?\n/)) {
@@ -173,7 +182,8 @@ function parseArgs(argv: readonly string[]): Args {
   if (urls.length === 0) {
     throw new Error(
       'usage: npm run analyze -- <url...> [--file urls.txt] [--pages N] [--depth N]\n' +
-        '       [--delay ms] [--timeout ms] [--flags a,b] [--label name] [--no-save]',
+        '       [--delay ms] [--timeout ms] [--flags a,b] [--label name] [--no-save]\n' +
+        '       [--baseline snapshot.json]',
     );
   }
   return {
@@ -182,6 +192,7 @@ function parseArgs(argv: readonly string[]): Args {
     label,
     save,
     out,
+    baseline,
   };
 }
 
@@ -272,7 +283,12 @@ function summarizeChecks(graded: GradeResult): CheckSummary {
   };
 }
 
-async function analyze(url: string, settings: Settings, corpus: Corpus): Promise<SiteReport> {
+async function analyze(
+  url: string,
+  settings: Settings,
+  corpus: Corpus,
+  baseline: Snapshot | null,
+): Promise<SiteReport> {
   const origin = new URL(url).origin;
   const started = Date.now();
 
@@ -301,7 +317,13 @@ async function analyze(url: string, settings: Settings, corpus: Corpus): Promise
     };
   }
 
-  const runs = runProbes({ origin, crawl: result, flags: settings.flags });
+  const earlier = baseline?.sites.find((site) => site.origin === origin)?.previous;
+  const runs = runProbes({
+    origin,
+    crawl: result,
+    flags: settings.flags,
+    previous: earlier === undefined ? null : parsePrevious(earlier),
+  });
   const graded = gradeAudit({
     corpus,
     flags: settings.flags,
@@ -318,6 +340,7 @@ async function analyze(url: string, settings: Settings, corpus: Corpus): Promise
     observations: summarizeObservations(runs),
     checks: summarizeChecks(graded),
     readiness: graded.readiness,
+    previous: snapshotAudit({ origin, crawl: result, runs, takenAt: new Date() }),
     verdicts: graded.checks.map((check) => ({
       checkId: check.checkId,
       status: check.status,
@@ -456,7 +479,7 @@ async function main(): Promise<void> {
   const sites: SiteReport[] = [];
   for (const url of args.urls) {
     process.stdout.write(`\ncrawling ${url} ...`);
-    const site = await analyze(url, args.settings, corpus);
+    const site = await analyze(url, args.settings, corpus, args.baseline);
     sites.push(site);
     printSite(site);
   }

@@ -8,6 +8,7 @@ import type { CrawledPage, Extracted } from '@seo/crawler';
 import { environmentOrigins, inputRecordProblem } from '@seo/core';
 import type { PageProbe, SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
+import { matrixMatcher, NOINDEX_DIRECTIVE } from './site.js';
 
 /** Query keys and path segments that mean "these are search results". */
 export const SEARCH_PARAMS = ['q', 's', 'query', 'search', 'keyword', 'keywords'];
@@ -591,10 +592,101 @@ export const stagingProtection: SiteProbe = {
   },
 };
 
+/**
+ * Whether the canary URLs still behave as the URL matrix says they must (5.5).
+ * Reads the `canary` and `urlMatrix` inputs and is `not-applicable` without
+ * either. Each canary URL is judged by the most specific matrix pattern that
+ * matches it; rows naming an environment are set aside, as in
+ * `url-inventory-builder`.
+ *
+ * Fails: a canary URL whose first response, robots.txt access, noindex or
+ * canonical disagrees with its pattern (robots.txt blocking a URL the matrix
+ * says is indexable, or a page the matrix says is indexable carrying noindex).
+ * Warns: a canary URL matching no pattern, one the crawl did not reach, and a
+ * record with no owner or past its review. Whether the URLs answer 200 and the
+ * alert arrives is `availability-canary`'s question.
+ */
+export const indexabilityCanary: SiteProbe = {
+  id: 'indexability-canary',
+  scope: 'site',
+  title: 'Canary URLs keep the status, robots, noindex and canonical the URL matrix names',
+  run({ crawl, inputs, origin }) {
+    const record = inputs?.canary;
+    if (record === undefined) return notApplicable('No canary record was supplied.');
+    const matrix = inputs?.urlMatrix;
+    if (matrix === undefined) return notApplicable('No URL matrix was supplied to judge the canary URLs against.');
+    const rows = matrix.filter((row) => row.environment === undefined);
+    if (rows.length === 0) return notApplicable('The URL matrix has no row that applies to every environment.');
+
+    const matchers = rows.map((row) => ({ row, ...matrixMatcher(row.pattern, origin) }));
+    const specificity = (entry: (typeof matchers)[number]): number =>
+      entry.exact ? Number.MAX_SAFE_INTEGER : entry.row.pattern.replace(/\*/g, '').length;
+
+    const byUrl = new Map<string, CrawledPage>();
+    for (const page of crawl.pages) byUrl.set(page.normalizedUrl, page);
+    const blocked = new Set(crawl.blockedByRobots.map((url) => normalizeUrl(url) ?? url));
+
+    const failures: string[] = [];
+    const unmatched: string[] = [];
+    const unreached: string[] = [];
+    for (const raw of record.urls) {
+      const url = normalizeUrl(raw) ?? raw;
+      const hits = matchers.filter((entry) => entry.test(url));
+      if (hits.length === 0) {
+        unmatched.push(raw);
+        continue;
+      }
+      const { row } = hits.reduce((a, b) => (specificity(b) > specificity(a) ? b : a));
+
+      if (blocked.has(url)) {
+        if (row.indexable) failures.push(`${raw} is disallowed by robots.txt, the matrix expects it indexable`);
+        continue;
+      }
+      const page = byUrl.get(url);
+      if (page === undefined || page.fetch.status === null) {
+        unreached.push(raw);
+        continue;
+      }
+      const first = page.fetch.redirectChain[0]?.status ?? page.fetch.status;
+      if (first !== row.status) failures.push(`${raw} answered ${first}, the matrix expects ${row.status}`);
+      if (page.extracted === null || page.fetch.status !== 200 || page.fetch.redirectChain.length > 0) continue;
+      const noindex = NOINDEX_DIRECTIVE.test(page.extracted.metaRobots ?? '') ||
+        NOINDEX_DIRECTIVE.test(page.fetch.headers['x-robots-tag'] ?? '');
+      if (row.indexable === noindex) {
+        failures.push(`${raw} is ${noindex ? 'noindex' : 'indexable'}, the matrix expects ${row.indexable ? 'indexable' : 'noindex'}`);
+      }
+      const canonical = page.extracted.canonical === null ? null : normalizeUrl(page.extracted.canonical);
+      const expected = row.canonical === 'self' ? url : row.canonical === 'none' ? null : normalizeUrl(row.canonical);
+      if (canonical !== expected) {
+        failures.push(`${raw} has canonical ${canonical ?? 'none'}, the matrix expects ${expected ?? 'none'}`);
+      }
+    }
+
+    const held: string[] = [];
+    if (unmatched.length > 0) held.push(`${unmatched.length} canary URL(s) match no URL matrix pattern: ${unmatched.slice(0, 3).join(', ')}`);
+    if (unreached.length > 0) held.push(`${unreached.length} canary URL(s) were not reached by the crawl: ${unreached.slice(0, 3).join(', ')}`);
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === ''
+      ? 'the canary record has no owner'
+      : at === null
+        ? "the crawl's time is unknown, so the canary record's review date cannot be judged"
+        : inputRecordProblem(record, new Date(at));
+    if (problem !== null) held.push(problem);
+
+    const data = { urls: record.urls, failures, unmatched, unreached, held };
+    if (failures.length > 0) {
+      return fail(`${failures.length} canary disagreement(s) with the URL matrix: ${failures.slice(0, 3).join('; ')}.`, data);
+    }
+    if (held.length > 0) return warn(`The indexability canary is held: ${held.slice(0, 3).join('; ')}.`, data);
+    return pass(`${record.urls.length} canary URL(s) match the URL matrix.`, data);
+  },
+};
+
 export const indexabilityProbes = [
   experimentCloakingDivergence,
   stagingProtection,
   internalSearchIndexability,
+  indexabilityCanary,
   localeCanonical,
   rawRenderedParity,
   renderingStrategyClassifier,

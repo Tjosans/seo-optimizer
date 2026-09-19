@@ -94,6 +94,12 @@ export interface CrawledPage {
    * had no HTML for a render to compare against.
    */
   readonly rendered?: RenderedPage | null;
+  /**
+   * Absent unless `renderMobile` was set. Null when it was set but this page
+   * had no HTML to render. `comparison` is against the desktop render in
+   * `rendered`, and is null when that render is absent or failed.
+   */
+  readonly renderedMobile?: RenderedPage | null;
 }
 
 export interface CrawlOptions {
@@ -164,6 +170,13 @@ export interface CrawlOptions {
   readonly renderSettleMs?: number;
   /** Run axe-core on every render and record its violations on `RenderResult.accessibility`. */
   readonly renderAccessibility?: boolean;
+  /**
+   * Render each HTML page a second time as a phone (`MOBILE_VIEWPORT`, a mobile
+   * Chromium user agent), recorded on `CrawledPage.renderedMobile` and compared
+   * against the desktop render, so it wants `renderPages` beside it. Another
+   * visit to the host, paced like the first.
+   */
+  readonly renderMobile?: boolean;
   /** Called as each page completes, so a long crawl can stream to storage. */
   readonly onPage?: (page: CrawledPage) => void | Promise<void>;
 }
@@ -626,30 +639,42 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
       ? extract(result.body, result.finalUrl)
       : null;
 
+    const renderOnce = async (mobile: boolean, against: Extracted): Promise<RenderedPage> => {
+      // A further real request to the same host, so it waits out the same
+      // politeness delay as the request that just preceded it rather than
+      // arriving back to back.
+      await sleep(delayMs, options.signal);
+      const render = await (options.renderImpl ?? renderPage)(result.finalUrl, {
+        userAgent: options.userAgent,
+        ...(mobile ? { mobile: true } : {}),
+        ...(options.renderTimeoutMs === undefined ? {} : { timeoutMs: options.renderTimeoutMs }),
+        ...(options.renderSettleMs === undefined ? {} : { settleMs: options.renderSettleMs }),
+        ...(options.renderAccessibility === true ? { accessibility: true } : {}),
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+      });
+      const renderedExtracted = render.error === null && render.html !== ''
+        ? extract(render.html, render.finalUrl)
+        : null;
+      return {
+        render,
+        extracted: renderedExtracted,
+        comparison: renderedExtracted === null ? null : compareRenders(against, renderedExtracted),
+      };
+    };
+
     let rendered: RenderedPage | null | undefined;
     if (options.renderPages === true) {
+      rendered = extracted === null ? null : await renderOnce(false, extracted);
+    }
+    let renderedMobile: RenderedPage | null | undefined;
+    if (options.renderMobile === true) {
       if (extracted === null) {
-        rendered = null;
+        renderedMobile = null;
       } else {
-        // A second real request to the same host, so it waits out the same
-        // politeness delay as the fetch that just preceded it rather than
-        // arriving back to back.
-        await sleep(delayMs, options.signal);
-        const render = await (options.renderImpl ?? renderPage)(result.finalUrl, {
-          userAgent: options.userAgent,
-          ...(options.renderTimeoutMs === undefined ? {} : { timeoutMs: options.renderTimeoutMs }),
-          ...(options.renderSettleMs === undefined ? {} : { settleMs: options.renderSettleMs }),
-          ...(options.renderAccessibility === true ? { accessibility: true } : {}),
-          ...(options.signal === undefined ? {} : { signal: options.signal }),
-        });
-        const renderedExtracted = render.error === null && render.html !== ''
-          ? extract(render.html, render.finalUrl)
-          : null;
-        rendered = {
-          render,
-          extracted: renderedExtracted,
-          comparison: renderedExtracted === null ? null : compareRenders(extracted, renderedExtracted),
-        };
+        const desktop = rendered?.extracted ?? null;
+        const mobile = await renderOnce(true, desktop ?? extracted);
+        // Against the raw fetch would read as a desktop comparison it is not.
+        renderedMobile = desktop === null ? { ...mobile, comparison: null } : mobile;
       }
     }
 
@@ -661,6 +686,7 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
       fetch: result,
       extracted,
       ...(rendered === undefined ? {} : { rendered }),
+      ...(renderedMobile === undefined ? {} : { renderedMobile }),
     };
     pages.push(page);
     await options.onPage?.(page);

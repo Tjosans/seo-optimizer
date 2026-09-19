@@ -110,6 +110,72 @@ describe('dual-crawl (renderPages)', () => {
     expect(result.pages[0]?.rendered).toBeNull();
   });
 
+  describe('renderMobile', () => {
+    const renderFor = (mobileHtml: string) => async (url: string, opts: { mobile?: boolean }): Promise<RenderResult> => ({
+      requestedUrl: url,
+      finalUrl: url,
+      status: 200,
+      html: opts.mobile === true
+        ? mobileHtml
+        : '<!doctype html><html lang="en"><head><title>Home</title></head><body><main><h1>Home</h1><p>Copy.</p><a href="/a">A</a><a href="/b">B</a></main></body></html>',
+      totalMs: 1,
+      error: null,
+    });
+
+    it('renders nothing extra by default', async () => {
+      const result = await crawl({
+        ...BASE,
+        fetchImpl: async () => htmlResponse(RAW_HTML),
+        renderPages: true,
+        renderImpl: renderFor('<html></html>'),
+      });
+      expect(result.pages[0]?.renderedMobile).toBeUndefined();
+    });
+
+    it('renders as a phone and compares against the desktop render', async () => {
+      const calls: (boolean | undefined)[] = [];
+      const desktopRender = renderFor('<!doctype html><html><head><title>Home (m)</title></head><body><h1>Home</h1></body></html>');
+      const result = await crawl({
+        ...BASE,
+        fetchImpl: async () => htmlResponse(RAW_HTML),
+        renderPages: true,
+        renderMobile: true,
+        renderImpl: async (url, opts) => {
+          calls.push(opts.mobile);
+          return desktopRender(url, opts);
+        },
+      });
+      expect(calls).toEqual([undefined, true]);
+      const page = result.pages[0];
+      expect(page?.renderedMobile?.extracted?.title).toBe('Home (m)');
+      expect(page?.renderedMobile?.comparison?.titleMatches).toBe(false);
+      expect(page?.renderedMobile?.comparison?.linkCountRaw).toBe(2);
+      expect(page?.renderedMobile?.comparison?.linkCountRendered).toBe(0);
+    });
+
+    it('has no comparison without a desktop render, and is null for non-HTML', async () => {
+      const result = await crawl({
+        ...BASE,
+        fetchImpl: async () => htmlResponse(RAW_HTML),
+        renderMobile: true,
+        renderImpl: renderFor('<!doctype html><html><head><title>Home</title></head><body></body></html>'),
+      });
+      expect(result.pages[0]?.rendered).toBeUndefined();
+      expect(result.pages[0]?.renderedMobile?.extracted?.title).toBe('Home');
+      expect(result.pages[0]?.renderedMobile?.comparison).toBeNull();
+
+      const json = await crawl({
+        ...BASE,
+        fetchImpl: async (): Promise<FetchResult> => ({ ...htmlResponse('{}'), contentType: 'application/json' }),
+        renderMobile: true,
+        renderImpl: async () => {
+          throw new Error('must not render');
+        },
+      });
+      expect(json.pages[0]?.renderedMobile).toBeNull();
+    });
+  });
+
   it('records a failed render without a comparison, rather than throwing', async () => {
     const result = await crawl({
       ...BASE,

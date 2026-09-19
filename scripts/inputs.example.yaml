@@ -140,3 +140,28 @@ domainHistory:
       resolved: true
   owner: Jane Doe
   recordedAt: 2026-09-01T10:00:00Z
+
+# searchConsole: what a person exports from Search Console. Every subsection is
+# optional; an empty manualActions or securityIssues list is the report saying
+# "no issues detected", which is an answer, not a gap. property.type is domain
+# or url-prefix (a url-prefix url must be an http(s) URL); each owner needs an
+# email and a verifiedAt. sitemaps rows carry the report's own status text and a
+# whole-number error count; a sitemap listed twice is refused. A manual action's
+# scope is site-wide or partial; detectedAt is optional on it and on a
+# security issue.
+searchConsole:
+  property:
+    type: domain
+    url: sc-domain:example.com
+    owners:
+      - email: jane@example.com
+        verifiedAt: 2026-08-01T09:00:00Z
+  sitemaps:
+    - url: https://example.com/sitemap.xml
+      submittedAt: 2026-08-02T09:00:00Z
+      status: Success
+      errors: 0
+  manualActions: []
+  securityIssues: []
+  owner: Jane Doe
+  recordedAt: 2026-09-01T09:00:00Z

@@ -232,8 +232,71 @@ export const DOMAIN_HISTORY_REQUIRED_CHECKS = [
   { label: 'archive', words: ['archive', 'wayback'] },
 ] as const;
 
+/** How a Search Console property is verified: the whole domain, or one URL prefix. */
+export const SEARCH_CONSOLE_PROPERTY_TYPES = ['domain', 'url-prefix'] as const;
+
+/** A verified owner of a Search Console property, as its Users and permissions page lists them. */
+export interface SearchConsoleOwner {
+  readonly email: string;
+  /** ISO 8601 instant. */
+  readonly verifiedAt: string;
+}
+
+/** The Search Console property the site is managed under. */
+export interface SearchConsoleProperty {
+  readonly type: (typeof SEARCH_CONSOLE_PROPERTY_TYPES)[number];
+  /** A URL prefix property's address, or a domain property's `sc-domain:` name or bare host. */
+  readonly url: string;
+  readonly owners: readonly SearchConsoleOwner[];
+}
+
+/** One row of the Sitemaps report: what was submitted, when, what Search Console made of it. */
+export interface SearchConsoleSitemap {
+  readonly url: string;
+  /** ISO 8601 instant. */
+  readonly submittedAt: string;
+  /** The report's own words: `Success`, `Has errors`, `Couldn't fetch`… */
+  readonly status: string;
+  /** Errors the report counts against the file. */
+  readonly errors: number;
+}
+
+/** The scope of a manual action: the whole site or only part of it. */
+export const SEARCH_CONSOLE_ACTION_SCOPES = ['site-wide', 'partial'] as const;
+
+/** One row of the Manual actions report. An empty list is a report that says "no issues detected". */
+export interface SearchConsoleManualAction {
+  /** The report's issue type: `Unnatural links to your site`, `Pure spam`… */
+  readonly type: string;
+  readonly scope: (typeof SEARCH_CONSOLE_ACTION_SCOPES)[number];
+  /** ISO 8601 instant, when Search Console shows one. */
+  readonly detectedAt?: string;
+}
+
+/** One row of the Security issues report. An empty list is a report that says "no issues detected". */
+export interface SearchConsoleSecurityIssue {
+  /** The report's issue type: `Hacked content`, `Malware`, `Deceptive pages`… */
+  readonly type: string;
+  /** ISO 8601 instant, when Search Console shows one. */
+  readonly detectedAt?: string;
+}
+
+/**
+ * What a person exports from Search Console. An absent subsection was not
+ * supplied; an empty `manualActions` or `securityIssues` list is the report
+ * saying there is nothing, which is an answer, not a gap.
+ */
+export interface SearchConsoleRecord extends InputRecord {
+  readonly property?: SearchConsoleProperty;
+  readonly sitemaps?: readonly SearchConsoleSitemap[];
+  readonly manualActions?: readonly SearchConsoleManualAction[];
+  readonly securityIssues?: readonly SearchConsoleSecurityIssue[];
+}
+
 /** Every section an audit can be given. */
 export interface AuditInputs {
+  /** Search Console exports: property, sitemaps, manual actions, security issues. */
+  readonly searchConsole?: SearchConsoleRecord;
   /** The history of an inherited domain (0.8). */
   readonly domainHistory?: DomainHistoryRecord;
   /** The migration's redirect map (0.8). */
@@ -253,7 +316,7 @@ export interface AuditInputs {
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -825,6 +888,148 @@ function parseDomainHistory(value: unknown, problem: (path: string, text: string
   return ok ? { ...record, checks, blockingIssues } : null;
 }
 
+const SEARCH_CONSOLE_KEYS = ['property', 'sitemaps', 'manualActions', 'securityIssues'];
+
+function parseSearchConsole(value: unknown, problem: (path: string, text: string) => void): SearchConsoleRecord | null {
+  const record = parseInputRecord('searchConsole', value, problem, SEARCH_CONSOLE_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`searchConsole${path}`, text);
+    ok = false;
+  };
+  const missing = (raw: unknown): boolean => raw === undefined || raw === null || raw === '';
+  const text = (node: Node, path: string, key: string): string | null => {
+    const raw = node[key];
+    if (typeof raw === 'string' && raw.trim() !== '') return raw.trim();
+    fail(`${path}.${key}`, missing(raw) ? 'required' : `expected text, got ${typeof raw} (quote it)`);
+    return null;
+  };
+  const time = (node: Node, path: string, key: string, required: boolean): string | null => {
+    if (!required && missing(node[key])) return null;
+    const raw = text(node, path, key);
+    if (raw === null) return null;
+    const ms = instant(raw);
+    if (ms === null) {
+      fail(`${path}.${key}`, `not a date and time: ${raw}`);
+      return null;
+    }
+    return new Date(ms).toISOString();
+  };
+  const oneOf = <T extends string>(node: Node, path: string, key: string, allowed: readonly T[]): T | null => {
+    const raw = node[key];
+    if (typeof raw === 'string' && (allowed as readonly string[]).includes(raw)) return raw as T;
+    fail(`${path}.${key}`, missing(raw) ? 'required' : `expected ${allowed.join(' or ')}: ${String(raw)}`);
+    return null;
+  };
+  const unknownKeys = (node: Node, path: string, known: readonly string[]): void => {
+    for (const key of Object.keys(node)) if (!known.includes(key)) fail(`${path}.${key}`, 'unknown field');
+  };
+  /** Visit each row of a list subsection; false when the subsection was not supplied or is not a list. */
+  const rows = (key: string, each: (node: Node, path: string) => void): boolean => {
+    const raw = value[key];
+    if (missing(raw)) return false;
+    if (!Array.isArray(raw)) {
+      fail(`.${key}`, 'expected a list');
+      return false;
+    }
+    raw.forEach((node, index) => {
+      const path = `.${key}[${index}]`;
+      if (!isNode(node)) {
+        fail(path, 'expected a mapping');
+        return;
+      }
+      each(node, path);
+    });
+    return true;
+  };
+  const out: {
+    property?: SearchConsoleProperty;
+    sitemaps?: SearchConsoleSitemap[];
+    manualActions?: SearchConsoleManualAction[];
+    securityIssues?: SearchConsoleSecurityIssue[];
+  } = {};
+
+  const propertyRaw = value['property'];
+  if (!missing(propertyRaw)) {
+    if (!isNode(propertyRaw)) {
+      fail('.property', 'expected a mapping');
+    } else {
+      unknownKeys(propertyRaw, '.property', ['type', 'url', 'owners']);
+      const type = oneOf(propertyRaw, '.property', 'type', SEARCH_CONSOLE_PROPERTY_TYPES);
+      const url = text(propertyRaw, '.property', 'url');
+      if (type === 'url-prefix' && url !== null && !isHttpUrl(url)) fail('.property.url', `expected an http(s) URL for a url-prefix property: ${url}`);
+      const owners: SearchConsoleOwner[] = [];
+      const ownersRaw = propertyRaw['owners'];
+      if (missing(ownersRaw)) {
+        fail('.property.owners', 'required');
+      } else if (!Array.isArray(ownersRaw)) {
+        fail('.property.owners', 'expected a list');
+      } else {
+        ownersRaw.forEach((node, index) => {
+          const path = `.property.owners[${index}]`;
+          if (!isNode(node)) {
+            fail(path, 'expected a mapping');
+            return;
+          }
+          unknownKeys(node, path, ['email', 'verifiedAt']);
+          const email = text(node, path, 'email');
+          if (email !== null && !/^[^\s@]+@[^\s@]+$/.test(email)) fail(`${path}.email`, `not an email address: ${email}`);
+          const verifiedAt = time(node, path, 'verifiedAt', true);
+          if (email !== null && verifiedAt !== null) owners.push({ email, verifiedAt });
+        });
+      }
+      if (type !== null && url !== null) out.property = { type, url, owners };
+    }
+  }
+
+  const sitemaps: SearchConsoleSitemap[] = [];
+  const seen = new Set<string>();
+  if (
+    rows('sitemaps', (node, path) => {
+      unknownKeys(node, path, ['url', 'submittedAt', 'status', 'errors']);
+      const url = text(node, path, 'url');
+      if (url !== null && !isHttpUrl(url)) fail(`${path}.url`, `expected an http(s) URL: ${url}`);
+      else if (url !== null && seen.has(url)) fail(`${path}.url`, `duplicate sitemap: ${url}`);
+      else if (url !== null) seen.add(url);
+      const submittedAt = time(node, path, 'submittedAt', true);
+      const status = text(node, path, 'status');
+      const errors = node['errors'];
+      const errorsOk = typeof errors === 'number' && Number.isInteger(errors) && errors >= 0;
+      if (!errorsOk) fail(`${path}.errors`, missing(errors) ? 'required' : 'expected a whole number of 0 or more');
+      if (url !== null && submittedAt !== null && status !== null && errorsOk) sitemaps.push({ url, submittedAt, status, errors });
+    })
+  ) {
+    out.sitemaps = sitemaps;
+  }
+
+  const manualActions: SearchConsoleManualAction[] = [];
+  if (
+    rows('manualActions', (node, path) => {
+      unknownKeys(node, path, ['type', 'scope', 'detectedAt']);
+      const type = text(node, path, 'type');
+      const scope = oneOf(node, path, 'scope', SEARCH_CONSOLE_ACTION_SCOPES);
+      const detectedAt = time(node, path, 'detectedAt', false);
+      if (type !== null && scope !== null) manualActions.push({ type, scope, ...(detectedAt !== null ? { detectedAt } : {}) });
+    })
+  ) {
+    out.manualActions = manualActions;
+  }
+
+  const securityIssues: SearchConsoleSecurityIssue[] = [];
+  if (
+    rows('securityIssues', (node, path) => {
+      unknownKeys(node, path, ['type', 'detectedAt']);
+      const type = text(node, path, 'type');
+      const detectedAt = time(node, path, 'detectedAt', false);
+      if (type !== null) securityIssues.push({ type, ...(detectedAt !== null ? { detectedAt } : {}) });
+    })
+  ) {
+    out.securityIssues = securityIssues;
+  }
+  return ok ? { ...record, ...out } : null;
+}
+
 /**
  * Check a parsed inputs value's shape and return it typed. `undefined` and
  * `null` are no inputs. Throws `InputsError` listing every problem found:
@@ -849,7 +1054,12 @@ export function parseInputs(value: unknown): AuditInputs {
     canary?: CanaryRecord;
     redirectMap?: RedirectMapRecord;
     domainHistory?: DomainHistoryRecord;
+    searchConsole?: SearchConsoleRecord;
   } = {};
+  if (value['searchConsole'] !== undefined && value['searchConsole'] !== null) {
+    const searchConsole = parseSearchConsole(value['searchConsole'], problem);
+    if (searchConsole !== null) inputs.searchConsole = searchConsole;
+  }
   if (value['domainHistory'] !== undefined && value['domainHistory'] !== null) {
     const domainHistory = parseDomainHistory(value['domainHistory'], problem);
     if (domainHistory !== null) inputs.domainHistory = domainHistory;

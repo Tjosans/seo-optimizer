@@ -265,3 +265,51 @@ describe('redirectMapUrls', () => {
     expect(redirectMapUrls(undefined)).toEqual([]);
   });
 });
+
+describe('searchConsole', () => {
+  const base = { owner: 'Jane', recordedAt: '2026-09-01T09:00:00Z' };
+  const full = {
+    ...base,
+    property: { type: 'domain', url: 'sc-domain:example.com', owners: [{ email: 'jane@example.com', verifiedAt: '2026-08-01T09:00:00Z' }] },
+    sitemaps: [{ url: 'https://example.com/sitemap.xml', submittedAt: '2026-08-02T09:00:00Z', status: 'Success', errors: 0 }],
+    manualActions: [{ type: 'Pure spam', scope: 'partial', detectedAt: '2026-08-10T00:00:00Z' }],
+    securityIssues: [],
+  };
+
+  it('reads each subsection, normalizing times', () => {
+    const sc = parseInputs({ searchConsole: full }).searchConsole;
+    expect(sc?.property?.owners[0]?.verifiedAt).toBe('2026-08-01T09:00:00.000Z');
+    expect(sc?.sitemaps?.[0]).toMatchObject({ status: 'Success', errors: 0 });
+    expect(sc?.manualActions?.[0]).toEqual({ type: 'Pure spam', scope: 'partial', detectedAt: '2026-08-10T00:00:00.000Z' });
+  });
+
+  it('tells an empty report from one not supplied', () => {
+    const sc = parseInputs({ searchConsole: { ...full, manualActions: undefined } }).searchConsole;
+    expect(sc?.manualActions).toBeUndefined();
+    expect(sc?.securityIssues).toEqual([]);
+  });
+
+  it('refuses what Search Console would not export, listing every path', () => {
+    const run = (patch: object) => () => parseInputs({ searchConsole: { ...full, ...patch } });
+    expect(run({ extra: 1 })).toThrow(/searchConsole\.extra: unknown field/);
+    expect(run({ property: { ...full.property, type: 'host' } })).toThrow(/property\.type: expected domain or url-prefix/);
+    expect(run({ property: { type: 'url-prefix', url: 'example.com', owners: [] } })).toThrow(/property\.url: expected an http\(s\) URL/);
+    expect(run({ property: { ...full.property, owners: [{ email: 'nope', verifiedAt: '2026-08-01T09:00:00Z' }] } })).toThrow(/not an email address/);
+    expect(run({ sitemaps: [{ ...full.sitemaps[0], errors: -1 }] })).toThrow(/sitemaps\[0\]\.errors/);
+    expect(run({ sitemaps: [{ ...full.sitemaps[0], errors: '0' }] })).toThrow(/sitemaps\[0\]\.errors/);
+    expect(run({ sitemaps: [full.sitemaps[0], full.sitemaps[0]] })).toThrow(/duplicate sitemap/);
+    expect(run({ manualActions: [{ type: 'Pure spam', scope: 'some' }] })).toThrow(/manualActions\[0\]\.scope/);
+    expect(run({ securityIssues: [{ type: 'Malware', detectedAt: 'yesterday' }] })).toThrow(/securityIssues\[0\]\.detectedAt: not a date/);
+    expect(run({ securityIssues: {} })).toThrow(/securityIssues: expected a list/);
+  });
+});
+
+describe('scripts/inputs.example.yaml', () => {
+  it('parses, searchConsole included', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { parse } = await import('yaml');
+    const text = readFileSync(new URL('../../../scripts/inputs.example.yaml', import.meta.url), 'utf8');
+    const inputs = parseInputs(parse(text));
+    expect(inputs.searchConsole?.property?.type).toBe('domain');
+  });
+});

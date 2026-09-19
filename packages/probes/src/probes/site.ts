@@ -1621,10 +1621,53 @@ export const sitemapSubmit: SiteProbe = {
   },
 };
 
+const STALE_EXPORT_DAYS = 30;
+
+export const securityManualActions: SiteProbe = {
+  id: 'security-manual-actions',
+  scope: 'site',
+  title: 'Search Console reports no open manual action or security issue',
+  run({ crawl, inputs }) {
+    const record = inputs?.searchConsole;
+    if (record === undefined) return notApplicable('No Search Console export was supplied.');
+
+    const actions = record.manualActions;
+    const issues = record.securityIssues;
+    const data = {
+      manualActions: (actions ?? []).slice(0, 10).map((action) => `${action.type} (${action.scope})`),
+      securityIssues: (issues ?? []).slice(0, 10).map((issue) => issue.type),
+    };
+
+    // Any open finding is a failure however old the export is: it can only have been resolved since.
+    const open = (actions?.length ?? 0) + (issues?.length ?? 0);
+    if (open > 0) {
+      const named = [...data.manualActions, ...data.securityIssues].slice(0, 3).join(', ');
+      return fail(`Search Console reports ${actions?.length ?? 0} manual action(s) and ${issues?.length ?? 0} security issue(s): ${named}.`, data);
+    }
+    if (actions === undefined || issues === undefined) {
+      const absent = [actions === undefined ? 'Manual actions' : null, issues === undefined ? 'Security issues' : null].filter((x) => x !== null).join(' and ');
+      return warn(`The Search Console export holds no ${absent} report, so it is unverified.`, data);
+    }
+
+    const at = crawl.crawledAt ?? null;
+    if (at !== null) {
+      const recorded = Date.parse(record.recordedAt);
+      const age = (new Date(at).getTime() - recorded) / 86_400_000;
+      if (Number.isFinite(age) && age > STALE_EXPORT_DAYS) {
+        return warn(`The Search Console export was recorded ${Math.floor(age)} days before the crawl, so it may not show what is open now.`, { ...data, ageDays: Math.floor(age) });
+      }
+    }
+    const problem = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) return warn(`The Search Console record is held for review (${problem}).`, data);
+    return pass('The Search Console export shows no manual action and no security issue.', data);
+  },
+};
+
 export const siteProbes = [
   urlInventoryBuilder,
   gscPropertyOwnership,
   sitemapSubmit,
+  securityManualActions,
   inheritedDomainHistory,
   migrationMapBuilder,
   robotsTxt,

@@ -6,7 +6,7 @@
 
 import { extract, isAllowed, isSameSite, normalizeUrl, pathDepth } from '@seo/crawler';
 import type { CrawledPage } from '@seo/crawler';
-import { DOMAIN_HISTORY_REQUIRED_CHECKS, inputRecordProblem, isProductToken, isUserDirectedAgent } from '@seo/core';
+import { DOMAIN_HISTORY_REQUIRED_CHECKS, REPORTING_MEASURED_ENGINES, inputRecordProblem,isProductToken, isUserDirectedAgent } from '@seo/core';
 import type { SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
 import { checkLanguageTag } from './language-tags.js';
@@ -1663,7 +1663,84 @@ export const securityManualActions: SiteProbe = {
   },
 };
 
+/**
+ * Each metric's total per period, periods in the order the export first names
+ * them (oldest first). Fewer than two periods leaves nothing to compare.
+ */
+function performancePeriods(rows: readonly { clicks: number; impressions: number; period: string; query?: string }[]): Map<string, { clicks: number; impressions: number }> {
+  const totals = new Map<string, { clicks: number; impressions: number }>();
+  for (const row of rows) {
+    const total = totals.get(row.period) ?? { clicks: 0, impressions: 0 };
+    total.clicks += row.clicks;
+    total.impressions += row.impressions;
+    totals.set(row.period, total);
+  }
+  return totals;
+}
+
+export const reportingAnomalyThresholds: SiteProbe = {
+  id: 'reporting-anomaly-thresholds',
+  scope: 'site',
+  title: 'Every alert threshold the performance data crosses has an anomaly entry with a disposition',
+  run({ crawl, inputs }) {
+    const record = inputs?.reporting;
+    if (record === undefined) return notApplicable('No reporting record was supplied.');
+
+    const unanswered = record.anomalies.filter((anomaly) => anomaly.disposition === '').map((anomaly) => anomaly.metric);
+    const data: Record<string, unknown> = {
+      rhythm: record.rhythm,
+      thresholds: record.thresholds.length,
+      anomalies: record.anomalies.length,
+      unanswered: unanswered.slice(0, 10),
+    };
+
+    // Which thresholds the export can speak to: Search Console is Google's, and needs two periods to show a change.
+    const unmeasured: string[] = [];
+    const crossed: string[] = [];
+    const unlogged: string[] = [];
+    const periods = performancePeriods(inputs?.searchConsole?.performance ?? []);
+    const names = [...periods.keys()];
+    const previous = names.length >= 2 ? periods.get(names[names.length - 2] as string) : undefined;
+    const current = names.length >= 2 ? periods.get(names[names.length - 1] as string) : undefined;
+    for (const threshold of record.thresholds) {
+      const label = `${threshold.engine} ${threshold.metric} ${threshold.change > 0 ? '+' : ''}${Math.round(threshold.change * 100)}%`;
+      const metric = threshold.metric === 'clicks' || threshold.metric === 'impressions' ? threshold.metric : null;
+      if (metric === null || !(REPORTING_MEASURED_ENGINES as readonly string[]).includes(threshold.engine) || previous === undefined || current === undefined) {
+        unmeasured.push(label);
+        continue;
+      }
+      if (previous[metric] === 0) {
+        unmeasured.push(label);
+        continue;
+      }
+      const moved = (current[metric] - previous[metric]) / previous[metric];
+      const beyond = threshold.change < 0 ? moved <= threshold.change : moved >= threshold.change;
+      if (!beyond) continue;
+      crossed.push(`${label} (${moved > 0 ? '+' : ''}${Math.round(moved * 100)}%)`);
+      if (!record.anomalies.some((anomaly) => anomaly.metric === threshold.metric)) unlogged.push(label);
+    }
+    data['crossed'] = crossed.slice(0, 10);
+    data['unmeasured'] = unmeasured.slice(0, 10);
+
+    const failures: string[] = [];
+    if (unlogged.length > 0) failures.push(`${unlogged.length} threshold(s) the performance data crosses have no anomaly entry: ${unlogged.slice(0, 3).join(', ')}`);
+    if (unanswered.length > 0) failures.push(`${unanswered.length} anomaly entr${unanswered.length === 1 ? 'y has' : 'ies have'} no disposition: ${unanswered.slice(0, 3).join(', ')}`);
+    if (failures.length > 0) return fail(`${failures.join('; ')}.`, data);
+
+    if (record.thresholds.length === 0) return warn('The reporting record defines no alert thresholds, so nothing can be crossed.', data);
+    if (unmeasured.length > 0) {
+      return warn(`${unmeasured.length} of ${record.thresholds.length} threshold(s) could not be measured from the supplied performance data: ${unmeasured.slice(0, 3).join(', ')}.`, data);
+    }
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) return warn(`The reporting record is held for review (${problem}).`, data);
+    if (record.rhythm === '') return warn('The reporting record names no rhythm.', data);
+    return pass(`${record.thresholds.length} threshold(s) checked against the performance data; none is crossed without an answered anomaly entry.`, data);
+  },
+};
+
 export const siteProbes = [
+  reportingAnomalyThresholds,
   urlInventoryBuilder,
   gscPropertyOwnership,
   sitemapSubmit,

@@ -205,3 +205,20 @@ contentDecisions:
     decidedAt: 2026-09-05T09:00:00Z
     owner: Jane Doe
     recordedAt: 2026-09-05T09:00:00Z
+
+# reporting (6.3): how performance is reported and what became of the alerts.
+# rhythm is free text. Each threshold's change is a signed fraction between the
+# last two periods of the Search Console performance export (-0.2 is a fifth
+# lost); only google can be measured from it. An anomaly with no disposition
+# fails the check, and so does a crossed threshold whose metric has no anomaly.
+reporting:
+  rhythm: weekly
+  thresholds:
+    - metric: clicks
+      engine: google
+      change: -0.2
+  anomalies:
+    - metric: clicks
+      disposition: seasonal dip, no action; recheck next week
+  owner: Jane Doe
+  recordedAt: 2026-09-01T09:00:00Z

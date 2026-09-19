@@ -346,8 +346,44 @@ export interface ContentDecision extends InputRecord {
   readonly decidedAt: string;
 }
 
+/** The search engines a Search Console export can speak for. */
+export const REPORTING_MEASURED_ENGINES = ['google'] as const;
+
+/** The performance metrics a threshold can watch. */
+export const REPORTING_METRICS = ['clicks', 'impressions'] as const;
+
+/**
+ * An alert line (6.3): tell someone when `metric` on `engine` moves by
+ * `change`, a signed fraction between periods (`-0.2` is a drop of a fifth,
+ * `0.5` a rise of half).
+ */
+export interface ReportingThreshold {
+  readonly metric: string;
+  readonly engine: string;
+  readonly change: number;
+}
+
+/** What was decided about a movement in `metric`; a blank `disposition` is an anomaly nobody answered. */
+export interface ReportingAnomaly {
+  readonly metric: string;
+  readonly disposition: string;
+}
+
+/**
+ * How the site reports on its search performance (6.3): how often, what
+ * movement raises an alert, and what became of the alerts. `rhythm` is free
+ * text (`weekly`, `monthly`), blank when nobody chose one.
+ */
+export interface ReportingRecord extends InputRecord {
+  readonly rhythm: string;
+  readonly thresholds: readonly ReportingThreshold[];
+  readonly anomalies: readonly ReportingAnomaly[];
+}
+
 /** Every section an audit can be given. */
 export interface AuditInputs {
+  /** The reporting rhythm, alert thresholds and anomaly log (6.3). */
+  readonly reporting?: ReportingRecord;
   /** Search Console exports: property, sitemaps, manual actions, security issues. */
   readonly searchConsole?: SearchConsoleRecord;
   /** The history of an inherited domain (0.8). */
@@ -371,7 +407,7 @@ export interface AuditInputs {
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -990,6 +1026,71 @@ function parseContentDecisions(value: unknown, problem: (path: string, text: str
   return ok ? out : null;
 }
 
+const REPORTING_KEYS = ['rhythm', 'thresholds', 'anomalies'];
+
+function parseReporting(value: unknown, problem: (path: string, text: string) => void): ReportingRecord | null {
+  const record = parseInputRecord('reporting', value, problem, REPORTING_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`reporting${path}`, text);
+    ok = false;
+  };
+  const missing = (raw: unknown): boolean => raw === undefined || raw === null;
+  // Blank is allowed where a person may not have decided yet; the detector counts it.
+  const optionalText = (node: Node, path: string, key: string): string => {
+    const raw = node[key];
+    if (missing(raw)) return '';
+    if (typeof raw === 'string') return raw.trim();
+    fail(`${path}.${key}`, `expected text, got ${typeof raw} (quote it)`);
+    return '';
+  };
+  const requiredText = (node: Node, path: string, key: string): string | null => {
+    const raw = node[key];
+    if (typeof raw === 'string' && raw.trim() !== '') return raw.trim();
+    fail(`${path}.${key}`, missing(raw) || raw === '' ? 'required' : `expected text, got ${typeof raw} (quote it)`);
+    return null;
+  };
+  const list = (key: string, each: (node: Node, path: string) => void): void => {
+    const raw = value[key];
+    if (missing(raw)) return;
+    if (!Array.isArray(raw)) {
+      fail(`.${key}`, 'expected a list');
+      return;
+    }
+    raw.forEach((node, index) => {
+      const path = `.${key}[${index}]`;
+      if (!isNode(node)) fail(path, 'expected a mapping');
+      else each(node, path);
+    });
+  };
+  const unknownKeys = (node: Node, path: string, known: readonly string[]): void => {
+    for (const key of Object.keys(node)) if (!known.includes(key)) fail(`${path}.${key}`, 'unknown field');
+  };
+
+  const rhythm = optionalText(value, '', 'rhythm');
+  const thresholds: ReportingThreshold[] = [];
+  list('thresholds', (node, path) => {
+    unknownKeys(node, path, ['metric', 'engine', 'change']);
+    const metric = requiredText(node, path, 'metric');
+    const engine = requiredText(node, path, 'engine');
+    const change = node['change'];
+    if (typeof change !== 'number' || !Number.isFinite(change) || change === 0) {
+      fail(`${path}.change`, missing(change) ? 'required' : 'expected a number other than 0 (a signed fraction: -0.2 is a fifth lost)');
+    } else if (metric !== null && engine !== null) {
+      thresholds.push({ metric: metric.toLowerCase(), engine: engine.toLowerCase(), change });
+    }
+  });
+  const anomalies: ReportingAnomaly[] = [];
+  list('anomalies', (node, path) => {
+    unknownKeys(node, path, ['metric', 'disposition']);
+    const metric = requiredText(node, path, 'metric');
+    const disposition = optionalText(node, path, 'disposition');
+    if (metric !== null) anomalies.push({ metric: metric.toLowerCase(), disposition });
+  });
+  return ok ? { ...record, rhythm, thresholds, anomalies } : null;
+}
+
 const SEARCH_CONSOLE_KEYS = ['property', 'sitemaps', 'manualActions', 'securityIssues', 'pageIndexing', 'urlInspection', 'performance', 'links'];
 
 function parseSearchConsole(value: unknown, problem: (path: string, text: string) => void): SearchConsoleRecord | null {
@@ -1258,7 +1359,12 @@ export function parseInputs(value: unknown): AuditInputs {
     domainHistory?: DomainHistoryRecord;
     searchConsole?: SearchConsoleRecord;
     contentDecisions?: readonly ContentDecision[];
+    reporting?: ReportingRecord;
   } = {};
+  if (value['reporting'] !== undefined && value['reporting'] !== null) {
+    const reporting = parseReporting(value['reporting'], problem);
+    if (reporting !== null) inputs.reporting = reporting;
+  }
   if (value['contentDecisions'] !== undefined && value['contentDecisions'] !== null) {
     const contentDecisions = parseContentDecisions(value['contentDecisions'], problem);
     if (contentDecisions !== null) inputs.contentDecisions = contentDecisions;

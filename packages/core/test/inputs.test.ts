@@ -366,6 +366,24 @@ describe('scripts/inputs.example.yaml', () => {
   });
 });
 
+describe('reporting', () => {
+  const base = { owner: 'Jane', recordedAt: '2026-09-05T09:00:00Z', rhythm: 'weekly' };
+
+  it('reads a record and counts a blank disposition', () => {
+    const parsed = parseInputs({
+      reporting: { ...base, thresholds: [{ metric: 'Clicks', engine: 'Google', change: -0.2 }], anomalies: [{ metric: 'clicks' }] },
+    }).reporting;
+    expect(parsed?.thresholds[0]).toEqual({ metric: 'clicks', engine: 'google', change: -0.2 });
+    expect(parsed?.anomalies[0]).toEqual({ metric: 'clicks', disposition: '' });
+  });
+
+  it('refuses a bad threshold', () => {
+    expect(() => parseInputs({ reporting: { ...base, thresholds: [{ metric: 'clicks', engine: 'google', change: 0 }] } })).toThrow(/change/);
+    expect(() => parseInputs({ reporting: { ...base, thresholds: [{ metric: 'clicks', change: '20%' }] } })).toThrow(/engine[\s\S]*change/);
+    expect(() => parseInputs({ reporting: { ...base, anomalies: [{ metric: 'clicks', note: 'x' }] } })).toThrow(/unknown field/);
+  });
+});
+
 describe('contentDecisions', () => {
   const row = { url: 'https://example.com/a', decision: 'refresh', decidedAt: '2026-09-05T09:00:00Z', owner: 'Jane', recordedAt: '2026-09-05T09:00:00Z' };
 

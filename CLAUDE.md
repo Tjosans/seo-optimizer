@@ -134,6 +134,14 @@ Key scripts:
 - **A new site-profile flag needs no migration either** — `sites.flags` is `text[]` and the corpus defines the vocabulary. But an audit now fails fast (`UnknownSiteFlagsError`, permanent) when a site declares a flag the pinned corpus does not name, because `resolveScope` would otherwise narrow those checks to `no` with a rationale that reads deliberate.
 - **A site profile is tied to the corpus version it was declared against.** `sites.profileCorpusVersion` records it, and an audit of a site with flags fails fast (`StaleSiteProfileError`, permanent) when that is not the pinned version. A version can make a universal check conditional on a flag the profile's author never saw — v5.0 did it to 2.2, image alt text, a launch gate — and a missing flag would read as a decision. An empty profile needs no version, because it states nothing. Migration 0007 recorded `4.4` on every profile filled in before the column existed.
 
+### What supplied evidence is
+
+- Some checks turn on facts nothing observable can supply — a URL matrix, a redirect map, Search Console exports. A person hands them over as `AuditInputs` (@seo/core `inputs.ts`): an optional bag of named sections on `SiteContext.inputs`, next to `aiPolicy` and `previous`. A probe reads it and never fetches.
+- `parseInputs` is strict, as `parseReleaseFile` is: an unknown section, a number where text belongs and a date that does not parse are refused, every problem listed by path (`InputsError`). `npm run analyze -- <url> --inputs <file.yaml>` reads one; `scripts/inputs.example.yaml` documents the format. There are no sections yet — each arrives with the detector that reads it.
+- Every record shares one shape, `InputRecord`: `{ owner, recordedAt, nextReviewAt? }`; sections validate it with `parseInputRecord`.
+- **A missing section makes the detectors that read it `not-applicable`.** Absence is never read as an answer.
+- **A record with no owner, or past its `nextReviewAt`, holds its check** (`warn`, so the check stays `in-progress`), judged by `inputRecordProblem(record, at)` at the crawl's time, never the wall clock. Evidence nobody answers for, or nobody has looked at lately, is not proof.
+
 ### What the grader will and will not say
 
 - A machine may **fail** a check; only an `automated` check may be **passed** by one. `assisted` means the engine proposes and a person confirms.

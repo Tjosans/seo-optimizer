@@ -16,7 +16,9 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Corpus } from '@seo/core';
+import { parse as parseYaml } from 'yaml';
+import { parseInputs } from '@seo/core';
+import type { AuditInputs, Corpus } from '@seo/core';
 import { CURRENT_CORPUS_VERSION, loadCorpus } from '@seo/corpus';
 import { crawl } from '@seo/crawler';
 import type { CrawlResult } from '@seo/crawler';
@@ -133,6 +135,8 @@ interface Args {
   readonly out: string | null;
   /** Snapshot whose per-site `previous` blocks probes compare against. */
   readonly baseline: Snapshot | null;
+  /** Evidence a person supplied (`--inputs file.yaml`). */
+  readonly inputs: AuditInputs;
 }
 
 function parseArgs(argv: readonly string[]): Args {
@@ -146,6 +150,7 @@ function parseArgs(argv: readonly string[]): Args {
   let save = true;
   let out: string | null = null;
   let baseline: Snapshot | null = null;
+  let inputs: AuditInputs = {};
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i] ?? '';
@@ -165,6 +170,7 @@ function parseArgs(argv: readonly string[]): Args {
       case '--out': out = next(); break;
       case '--no-save': save = false; break;
       case '--baseline': baseline = JSON.parse(readFileSync(next(), 'utf8')) as Snapshot; break;
+      case '--inputs': inputs = parseInputs(parseYaml(readFileSync(next(), 'utf8'))); break;
       case '--file': {
         const text = readFileSync(next(), 'utf8');
         for (const line of text.split(/\r?\n/)) {
@@ -183,7 +189,7 @@ function parseArgs(argv: readonly string[]): Args {
     throw new Error(
       'usage: npm run analyze -- <url...> [--file urls.txt] [--pages N] [--depth N]\n' +
         '       [--delay ms] [--timeout ms] [--flags a,b] [--label name] [--no-save]\n' +
-        '       [--baseline snapshot.json]',
+        '       [--baseline snapshot.json] [--inputs inputs.yaml]',
     );
   }
   return {
@@ -193,6 +199,7 @@ function parseArgs(argv: readonly string[]): Args {
     save,
     out,
     baseline,
+    inputs,
   };
 }
 
@@ -288,6 +295,7 @@ async function analyze(
   settings: Settings,
   corpus: Corpus,
   baseline: Snapshot | null,
+  inputs: AuditInputs,
 ): Promise<SiteReport> {
   const origin = new URL(url).origin;
   const started = Date.now();
@@ -323,6 +331,7 @@ async function analyze(
     crawl: result,
     flags: settings.flags,
     previous: earlier === undefined ? null : parsePrevious(earlier),
+    inputs,
   });
   const graded = gradeAudit({
     corpus,
@@ -479,7 +488,7 @@ async function main(): Promise<void> {
   const sites: SiteReport[] = [];
   for (const url of args.urls) {
     process.stdout.write(`\ncrawling ${url} ...`);
-    const site = await analyze(url, args.settings, corpus, args.baseline);
+    const site = await analyze(url, args.settings, corpus, args.baseline, args.inputs);
     sites.push(site);
     printSite(site);
   }

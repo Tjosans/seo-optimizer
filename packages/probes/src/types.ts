@@ -7,7 +7,7 @@
  * place in a report, and the matrix in `matrix.ts` refuses to lose track of one.
  */
 
-import type { AiCrawlerPolicy } from '@seo/core';
+import type { AiCrawlerPolicy, AuditInputs } from '@seo/core';
 import type { CrawlResult, CrawledPage } from '@seo/crawler';
 import type { PreviousAudit } from './previous.js';
 
@@ -41,6 +41,11 @@ export interface SiteContext {
    * is none. An input, like `aiPolicy`: a probe reads it and never fetches.
    */
   readonly previous?: PreviousAudit | null;
+  /**
+   * Evidence a person supplied (`AuditInputs`), or null/absent when none was.
+   * A detector whose section is missing reports `not-applicable`.
+   */
+  readonly inputs?: AuditInputs | null;
 }
 
 export interface PageContext {

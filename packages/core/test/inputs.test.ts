@@ -53,3 +53,28 @@ describe('inputRecordProblem', () => {
     expect(inputRecordProblem({ ...base, nextReviewAt: '2026-09-10T00:00:00.000Z' }, at)).toMatch(/due/);
   });
 });
+
+describe('experiments section', () => {
+  const entry = {
+    owner: 'Jane',
+    recordedAt: '2026-09-01T09:00:00Z',
+    controlUrl: 'https://example.com/a',
+    variantUrls: ['https://example.com/b'],
+    method: 'redirect',
+    retireBy: '2026-12-01T00:00:00Z',
+  };
+
+  it('parses an experiment and normalizes its dates', () => {
+    const inputs = parseInputs({ experiments: [entry] });
+    expect(inputs.experiments?.[0]?.retireBy).toBe('2026-12-01T00:00:00.000Z');
+    expect(inputs.experiments?.[0]?.variantUrls).toEqual(['https://example.com/b']);
+  });
+
+  it('refuses a missing field, an empty variant list and a bad date', () => {
+    expect(() => parseInputs({ experiments: [{ ...entry, method: undefined }] })).toThrow(/method: required/);
+    expect(() => parseInputs({ experiments: [{ ...entry, variantUrls: [] }] })).toThrow(/variantUrls/);
+    expect(() => parseInputs({ experiments: [{ ...entry, retireBy: 'later' }] })).toThrow(/not a date/);
+    expect(() => parseInputs({ experiments: {} })).toThrow(/expected a list/);
+    expect(() => parseInputs({ experiments: [{ ...entry, extra: 1 }] })).toThrow(/unknown field/);
+  });
+});

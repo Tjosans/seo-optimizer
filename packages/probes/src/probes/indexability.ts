@@ -5,6 +5,7 @@
 
 import { isSameSite, normalizeUrl } from '@seo/crawler';
 import type { CrawledPage, Extracted } from '@seo/crawler';
+import { inputRecordProblem } from '@seo/core';
 import type { PageProbe, SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
 
@@ -417,7 +418,90 @@ export const xRobotsTagNonHtml: PageProbe = {
   },
 };
 
+/**
+ * Whether an experiment's variant URLs are being left behind as pages.
+ *
+ * A test on its own URLs is fine while it runs and a defect once the decision
+ * is made: the variant that is indexable and canonical to itself is a permanent
+ * duplicate of the control. The site's own list of experiments is the only way
+ * to tell a variant from a page, so this reads the `experiments` input and is
+ * `not-applicable` without it. "Past `retireBy`" is judged at the crawl's time,
+ * never the wall clock. A variant redirected elsewhere, noindexed, canonicalized
+ * away or gone is what a finished or well-run test looks like and is left alone.
+ * A variant the crawl never fetched holds the check: whether it is a duplicate
+ * is only observed by fetching it.
+ */
+export const experimentCloakingDivergence: SiteProbe = {
+  id: 'experiment-cloaking-divergence',
+  scope: 'site',
+  title: 'Experiment variants do not outlive their experiment as duplicates',
+  run({ crawl, inputs }) {
+    const experiments = inputs?.experiments;
+    if (experiments === undefined || experiments.length === 0) {
+      return notApplicable('No experiments were supplied.');
+    }
+
+    const at = crawl.crawledAt ?? null;
+    const byUrl = new Map<string, CrawledPage>();
+    for (const page of crawl.pages) {
+      byUrl.set(page.normalizedUrl, page);
+      if (!byUrl.has(normalizeUrl(page.fetch.requestedUrl))) byUrl.set(normalizeUrl(page.fetch.requestedUrl), page);
+    }
+
+    const duplicates: string[] = [];
+    const overdue: string[] = [];
+    const unreached: string[] = [];
+    const held: string[] = [];
+    let observed = 0;
+
+    for (const experiment of experiments) {
+      const label = experiment.controlUrl;
+      if (at === null) {
+        held.push(`${label}: the crawl's time is unknown, so retireBy and review dates cannot be judged`);
+      } else {
+        const when = new Date(at);
+        if (Date.parse(experiment.retireBy) < when.getTime()) overdue.push(`${label} (retireBy ${experiment.retireBy})`);
+        const problem = inputRecordProblem(experiment, when);
+        if (problem !== null) held.push(`${label}: ${problem}`);
+      }
+
+      for (const variantUrl of experiment.variantUrls) {
+        const page = byUrl.get(normalizeUrl(variantUrl));
+        if (page === undefined || page.fetch.status === null || page.fetch.truncated) {
+          unreached.push(variantUrl);
+          continue;
+        }
+        observed += 1;
+        if (page.fetch.status !== 200 || page.extracted === null) continue;
+        if (page.fetch.finalUrl !== page.fetch.requestedUrl) continue;
+        const directives = `${page.extracted.metaRobots ?? ''} ${page.fetch.headers['x-robots-tag'] ?? ''}`;
+        if (NOINDEX.test(directives)) continue;
+        const canonical = page.extracted.canonical;
+        if (canonical !== null && normalizeUrl(canonical) === page.normalizedUrl) duplicates.push(variantUrl);
+      }
+    }
+
+    const data = { experiments: experiments.length, observed, duplicates, overdue, unreached, held };
+    if (duplicates.length > 0 || overdue.length > 0) {
+      const parts = [
+        duplicates.length > 0 ? `${duplicates.length} variant(s) are indexable and canonical to themselves, a permanent duplicate` : '',
+        overdue.length > 0 ? `${overdue.length} experiment(s) are past their retireBy date` : '',
+      ].filter((part) => part !== '');
+      return fail(`${parts.join('; ')}.`, data);
+    }
+    if (unreached.length > 0 || held.length > 0) {
+      const parts = [
+        unreached.length > 0 ? `${unreached.length} variant(s) were never reached by the crawl` : '',
+        held.length > 0 ? `${held.length} experiment record(s) are held for review` : '',
+      ].filter((part) => part !== '');
+      return warn(`${parts.join('; ')}.`, data);
+    }
+    return pass('Every experiment variant is redirected, noindexed, canonicalized away or gone, and none is past its date.', data);
+  },
+};
+
 export const indexabilityProbes = [
+  experimentCloakingDivergence,
   internalSearchIndexability,
   localeCanonical,
   rawRenderedParity,

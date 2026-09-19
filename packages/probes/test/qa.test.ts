@@ -442,3 +442,67 @@ describe('raw-rendered-crawl-diff', () => {
     expect(observation.data).toMatchObject({ pagesCompared: 1, renderFailures: 1 });
   });
 });
+
+// --- experiment-cloaking-divergence -------------------------------------------
+
+describe('experiment-cloaking-divergence', () => {
+  const crawledAt = '2026-09-19T12:00:00.000Z';
+  const experiment = (over: Record<string, unknown> = {}) => ({
+    owner: 'Jane',
+    recordedAt: '2026-09-01T00:00:00.000Z',
+    controlUrl: `${ORIGIN}/pricing`,
+    variantUrls: [`${ORIGIN}/pricing-b`],
+    method: 'redirect',
+    retireBy: '2026-12-01T00:00:00.000Z',
+    ...over,
+  });
+  const check = (pages: readonly CrawledPage[], experiments?: unknown[]): Observation => {
+    return (probeById('experiment-cloaking-divergence') as SiteProbe).run({
+      origin: ORIGIN,
+      flags: [],
+      crawl: {
+        crawledAt,
+        seeds: [`${ORIGIN}/`],
+        pages,
+        robots: { groups: [], sitemaps: [], absent: true },
+        robotsTxt: null,
+        sitemapUrls: [],
+        sitemaps: [],
+        sitemapVideos: [],
+        sitemapNews: [],
+        blockedByRobots: [],
+        notReached: [],
+        auxiliary: [],
+      } satisfies CrawlResult,
+      ...(experiments === undefined ? {} : { inputs: { experiments } as never }),
+    });
+  };
+
+  it('is not applicable without the section', () => {
+    expect(check([]).outcome).toBe('not-applicable');
+  });
+
+  it('fails an indexable, self-canonical variant', () => {
+    expect(check([page('/pricing-b')], [experiment()]).outcome).toBe('fail');
+  });
+
+  it('leaves a noindexed or canonicalized-away variant alone', () => {
+    expect(check([page('/pricing-b', { metaRobots: 'noindex' })], [experiment()]).outcome).toBe('pass');
+    expect(check([page('/pricing-b', { canonical: '/pricing' })], [experiment()]).outcome).toBe('pass');
+    expect(check([page('/pricing-b', { redirectedTo: '/pricing' })], [experiment()]).outcome).toBe('pass');
+  });
+
+  it('fails an experiment past retireBy at crawl time', () => {
+    const observation = check([page('/pricing-b', { status: 404 })], [experiment({ retireBy: '2026-09-01T00:00:00.000Z' })]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/retireBy/);
+  });
+
+  it('warns a variant the crawl never reached', () => {
+    expect(check([], [experiment()]).outcome).toBe('warn');
+  });
+
+  it('holds a record with no owner', () => {
+    expect(check([page('/pricing-b', { canonical: '/pricing' })], [experiment({ owner: '' })]).outcome).toBe('warn');
+  });
+});

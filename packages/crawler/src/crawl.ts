@@ -272,6 +272,12 @@ export interface SitemapNewsEntry extends SitemapNews {
 }
 
 export interface CrawlResult {
+  /**
+   * When the crawl began, as an ISO instant. The moment a probe judges
+   * "past its date" against, never the clock when the probe runs. Absent on a
+   * crawl recorded before this existed.
+   */
+  readonly crawledAt?: string;
   readonly seeds: readonly string[];
   readonly pages: readonly CrawledPage[];
   readonly robots: Robots;
@@ -519,6 +525,7 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
   const firstSeed = options.seeds[0];
   if (firstSeed === undefined) throw new Error('a crawl needs at least one seed URL');
 
+  const crawledAt = new Date().toISOString();
   stopIfCancelled(options.signal);
   const { robots, text: robotsTxt, status: robotsStatus } = await loadRobots(firstSeed, options, request);
   const delayMs = Math.max(options.requestDelayMs ?? 0, crawlDelayMs(robots, options.userAgent));
@@ -798,6 +805,7 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
   }
 
   return {
+    crawledAt,
     seeds: options.seeds,
     pages,
     robots,

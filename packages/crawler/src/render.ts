@@ -115,7 +115,18 @@ export async function closeBrowser(): Promise<void> {
   if (sharedBrowser === null) return;
   const instance = sharedBrowser;
   sharedBrowser = null;
-  await (await instance).close().catch(() => {});
+  const browser = await instance;
+  // A browser that will not shut down must not hold the caller: give it a
+  // moment, then let it go (it is killed with its parent process).
+  let timer: NodeJS.Timeout | undefined;
+  await Promise.race([
+    browser.close().catch(() => {}),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, 20_000);
+      timer.unref();
+    }),
+  ]);
+  clearTimeout(timer);
 }
 
 async function runAxe(page: Page): Promise<AccessibilityResult> {

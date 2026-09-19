@@ -1,8 +1,8 @@
 # Evidence a person supplies to an audit, for `npm run analyze -- <url> --inputs <this file>`.
 #
 # Each kind of evidence is a named section, added with the detector that reads
-# it. There are no sections yet, so this file is empty: an unknown section, a
-# number where text belongs, or a date that does not parse is refused.
+# it: an unknown section, a number where text belongs, or a date that does not
+# parse is refused.
 #
 # Every record in a section carries the same three fields:
 #
@@ -11,4 +11,15 @@
 #   nextReviewAt: 2027-03-01T09:00:00Z   # optional; once past, the check is held
 #
 # A section left out makes the detectors that read it not-applicable.
-{}
+#
+# experiments (1.19, experiment-cloaking-divergence): tests served from their
+# own URLs. A variant still indexable and canonical to itself, or an experiment
+# past retireBy at crawl time, fails; a variant the crawl never reached warns.
+experiments:
+  - controlUrl: https://example.com/pricing
+    variantUrls:
+      - https://example.com/pricing-b
+    method: redirect               # free text: how variants are served
+    retireBy: 2026-12-01T00:00:00Z
+    owner: Jane Doe
+    recordedAt: 2026-09-01T09:00:00Z

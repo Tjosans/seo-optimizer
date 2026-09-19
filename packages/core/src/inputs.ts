@@ -14,7 +14,7 @@
  *   (`warn`), never passes it: evidence nobody answers for, or nobody has
  *   looked at lately, is not proof.
  *
- * There are no sections yet; each is added with the detector that reads it.
+ * Each section is added with the detector that reads it.
  */
 
 import { instant } from './review.js';
@@ -32,12 +32,28 @@ export const INPUT_RECORD_TEXT = ['owner'] as const;
 export const INPUT_RECORD_TIMES = ['recordedAt', 'nextReviewAt'] as const;
 export const INPUT_RECORD_KEYS: readonly string[] = [...INPUT_RECORD_TEXT, ...INPUT_RECORD_TIMES];
 
-/** Every section an audit can be given. Empty until a detector needs one. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface AuditInputs {}
+/**
+ * One running test whose variants live at their own URLs (1.19). The record
+ * fields say who registered it and when; `retireBy` is when the experiment
+ * must be over and its variants gone or folded into the control.
+ */
+export interface ExperimentRecord extends InputRecord {
+  readonly controlUrl: string;
+  readonly variantUrls: readonly string[];
+  /** How the variants are served: `redirect`, `canonical`, `cookie`… free text. */
+  readonly method: string;
+  /** ISO 8601 instant. */
+  readonly retireBy: string;
+}
+
+/** Every section an audit can be given. */
+export interface AuditInputs {
+  /** Experiments the site runs on separate URLs (1.19). */
+  readonly experiments?: readonly ExperimentRecord[];
+}
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = [];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments'];
 
 /** A value that is not valid inputs. Every problem is listed, by path. */
 export class InputsError extends Error {
@@ -116,6 +132,56 @@ export function inputRecordProblem(record: InputRecord, at: Date): string | null
   return null;
 }
 
+const EXPERIMENT_KEYS = ['controlUrl', 'variantUrls', 'method', 'retireBy'];
+
+function parseExperiments(value: unknown, problem: (path: string, text: string) => void): ExperimentRecord[] | null {
+  if (!Array.isArray(value)) {
+    problem('experiments', 'expected a list');
+    return null;
+  }
+  const out: ExperimentRecord[] = [];
+  let ok = true;
+  value.forEach((node, index) => {
+    const path = `experiments[${index}]`;
+    const record = parseInputRecord(path, node, problem, EXPERIMENT_KEYS);
+    if (record === null || !isNode(node)) {
+      ok = false;
+      return;
+    }
+    const text = (key: string): string | null => {
+      const raw = node[key];
+      if (typeof raw === 'string' && raw.trim() !== '') return raw.trim();
+      problem(`${path}.${key}`, raw === undefined || raw === null || raw === '' ? 'required' : `expected text, got ${typeof raw} (quote it)`);
+      return null;
+    };
+    const controlUrl = text('controlUrl');
+    const method = text('method');
+    const retireRaw = text('retireBy');
+    let retireBy: string | null = null;
+    if (retireRaw !== null) {
+      const ms = instant(retireRaw);
+      if (ms === null) problem(`${path}.retireBy`, `not a date and time: ${retireRaw}`);
+      else retireBy = new Date(ms).toISOString();
+    }
+    const urls = node['variantUrls'];
+    const variantUrls: string[] = [];
+    if (!Array.isArray(urls) || urls.length === 0) {
+      problem(`${path}.variantUrls`, 'expected a non-empty list of URLs');
+    } else {
+      urls.forEach((url, at) => {
+        if (typeof url !== 'string' || url.trim() === '') problem(`${path}.variantUrls[${at}]`, 'expected a URL');
+        else variantUrls.push(url.trim());
+      });
+    }
+    if (controlUrl === null || method === null || retireBy === null || variantUrls.length !== (Array.isArray(urls) ? urls.length : -1)) {
+      ok = false;
+      return;
+    }
+    out.push({ ...record, controlUrl, variantUrls, method, retireBy });
+  });
+  return ok ? out : null;
+}
+
 /**
  * Check a parsed inputs value's shape and return it typed. `undefined` and
  * `null` are no inputs. Throws `InputsError` listing every problem found:
@@ -128,6 +194,14 @@ export function parseInputs(value: unknown): AuditInputs {
   for (const key of Object.keys(value)) {
     if (!INPUT_SECTIONS.includes(key as never)) problems.push(`${key}: unknown section`);
   }
+  const problem = (path: string, text: string): void => {
+    problems.push(`${path}: ${text}`);
+  };
+  const inputs: { experiments?: readonly ExperimentRecord[] } = {};
+  if (value['experiments'] !== undefined && value['experiments'] !== null) {
+    const experiments = parseExperiments(value['experiments'], problem);
+    if (experiments !== null) inputs.experiments = experiments;
+  }
   if (problems.length > 0) throw new InputsError(problems);
-  return {};
+  return inputs;
 }

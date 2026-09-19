@@ -779,6 +779,131 @@ export const availabilityCanary: SiteProbe = {
   },
 };
 
+/** The same path on another origin, so a staging audit's URLs can be looked up on production. */
+const rebase = (url: string, from: string, to: string): string => {
+  if (!isSameSite(url, from)) return url;
+  try {
+    const parsed = new URL(url);
+    return normalizeUrl(new URL(`${parsed.pathname}${parsed.search}`, to).toString()) ?? url;
+  } catch {
+    return url;
+  }
+};
+
+/**
+ * The production crawl against the preflight audit (5.3). Reads
+ * `SiteContext.previous` and is `not-applicable` without one.
+ *
+ * Every URL the earlier audit found indexable (200, no noindex, not disallowed
+ * by robots.txt) is looked up now, on the audited origin, and fails if it is
+ * now noindex, disallowed by robots.txt, a 4xx or 5xx, or declares a different
+ * canonical. A previously indexable URL the crawl did not reach holds the check
+ * with a `warn`: nothing was observed either way. Separately, a `urlMatrix`
+ * priority URL (a production or unscoped row, not private) that no crawled page
+ * matches fails.
+ */
+export const productionCrawlVerify: SiteProbe = {
+  id: 'production-crawl-verify',
+  scope: 'site',
+  title: 'URLs indexable in the preflight audit are still indexable, with the same canonical, on production',
+  run({ crawl, previous, inputs, origin }) {
+    if (previous === undefined || previous === null) {
+      return notApplicable('No previous audit was supplied to compare the production crawl against.');
+    }
+
+    const move = (url: string): string => rebase(url, previous.origin, origin);
+    const now = new Map<string, CrawledPage>();
+    for (const page of crawl.pages) now.set(page.normalizedUrl, page);
+    const blockedNow = new Set(crawl.blockedByRobots.map((url) => normalizeUrl(url) ?? url));
+    const blockedBefore = new Set((previous.blockedByRobots ?? []).map((url) => normalizeUrl(url) ?? url));
+
+    const failures: string[] = [];
+    const unreached: string[] = [];
+    let compared = 0;
+    for (const before of previous.pages) {
+      const wasIndexable = before.status === 200 &&
+        !NOINDEX_DIRECTIVE.test(before.metaRobots ?? '') &&
+        !NOINDEX_DIRECTIVE.test(before.xRobotsTag ?? '') &&
+        !blockedBefore.has(before.url);
+      if (!wasIndexable) continue;
+
+      const url = move(before.url);
+      const current = now.get(url);
+      if (blockedNow.has(url)) {
+        failures.push(`${url} was indexable and is now disallowed by robots.txt`);
+        continue;
+      }
+      if (current === undefined || current.fetch.status === null) {
+        unreached.push(url);
+        continue;
+      }
+      compared += 1;
+      const { status } = current.fetch;
+      if (status >= 400) {
+        failures.push(`${url} was indexable and now answers ${status}`);
+        continue;
+      }
+      if (status !== 200) continue;
+      const noindex = NOINDEX_DIRECTIVE.test(current.extracted?.metaRobots ?? '') ||
+        NOINDEX_DIRECTIVE.test(current.fetch.headers['x-robots-tag'] ?? '');
+      if (noindex) {
+        failures.push(`${url} was indexable and is now noindex`);
+        continue;
+      }
+      if (current.extracted !== null) {
+        const wasCanonical = before.canonical === null ? null : move(normalizeUrl(before.canonical) ?? before.canonical);
+        const isCanonical = current.extracted.canonical === null
+          ? null
+          : normalizeUrl(current.extracted.canonical) ?? current.extracted.canonical;
+        if (wasCanonical !== isCanonical) {
+          failures.push(`${url} canonical changed from ${wasCanonical ?? 'none'} to ${isCanonical ?? 'none'}`);
+        }
+      }
+    }
+
+    const rows = (inputs?.urlMatrix ?? []).filter(
+      (row) => row.priority === true && row.access !== 'private' &&
+        (row.environment === undefined || row.environment === 'production'),
+    );
+    const missedPriority: string[] = [];
+    for (const row of rows) {
+      const { test } = matrixMatcher(row.pattern, origin);
+      const reached = crawl.pages.some(
+        (page) => page.fetch.status !== null && isSameSite(page.normalizedUrl, origin) && test(page.normalizedUrl),
+      );
+      if (!reached) missedPriority.push(row.pattern);
+    }
+    for (const pattern of missedPriority) failures.push(`the priority URL ${pattern} was not reached by the production crawl`);
+
+    const data = {
+      previousTakenAt: previous.takenAt,
+      compared,
+      failures: failures.slice(0, SAMPLES),
+      failureCount: failures.length,
+      unreached: unreached.slice(0, SAMPLES),
+      unreachedCount: unreached.length,
+      missedPriority: missedPriority.slice(0, SAMPLES),
+    };
+
+    if (failures.length > 0) {
+      return fail(
+        `${failures.length} regression(s) against the preflight audit: ${failures.slice(0, 3).join('; ')}.`,
+        data,
+      );
+    }
+    if (unreached.length > 0) {
+      return warn(
+        `${unreached.length} URL(s) indexable in the preflight audit were not reached, so their production state is unverified: ${unreached.slice(0, 3).join(', ')}.`,
+        data,
+      );
+    }
+    return pass(
+      `${compared} URL(s) indexable in the preflight audit are still indexable on production with the same canonical.`,
+      data,
+    );
+  },
+};
+
 export const qaProbes = [
   brokenLinks,
   metadataCompleteness,
@@ -787,4 +912,5 @@ export const qaProbes = [
   ciExtendedChecks,
   productionSmokeTest,
   availabilityCanary,
+  productionCrawlVerify,
 ];

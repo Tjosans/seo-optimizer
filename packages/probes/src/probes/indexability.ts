@@ -762,7 +762,68 @@ export const urlInspection: SiteProbe = {
   },
 };
 
+/**
+ * 6.1: does the Page indexing report explain why a URL the crawl calls
+ * indexable is not in the index. Reads `searchConsole.pageIndexing`; never
+ * fetches. Only crawled pages that are indexable and self-canonical are judged
+ * (200, no redirect, no noindex, canonical absent or its own address): for any
+ * other page the report agreeing with the crawl is the expected outcome.
+ *
+ * Fails: such a page the report lists as excluded by noindex or blocked by
+ * robots.txt. Warns: one listed as "Crawled - currently not indexed", which is
+ * Google's judgement of the page and not a defect the crawl can name, and a
+ * record with no owner or past its review. Other reasons are not this
+ * detector's question. Without an export it is `not-applicable`, never a pass.
+ */
+export const indexationReview: SiteProbe = {
+  id: 'indexation-review',
+  scope: 'site',
+  title: 'The Page indexing report holds no indexable page as noindexed, blocked or crawled-not-indexed',
+  run({ crawl, inputs }) {
+    const record = inputs?.searchConsole;
+    if (record === undefined) return notApplicable('No Search Console export was supplied.');
+    const rows = record.pageIndexing;
+    if (rows === undefined) return notApplicable('The Search Console export holds no Page indexing report.');
+
+    const byUrl = new Map<string, CrawledPage>();
+    for (const page of crawl.pages) byUrl.set(page.normalizedUrl, page);
+
+    const failures: string[] = [];
+    const notIndexed: string[] = [];
+    let compared = 0;
+    for (const row of rows) {
+      const url = normalizeUrl(row.url) ?? row.url;
+      const page = byUrl.get(url);
+      if (page === undefined || page.fetch.status !== 200 || page.fetch.redirectChain.length > 0 || page.extracted === null) continue;
+      const noindex = NOINDEX_DIRECTIVE.test(page.extracted.metaRobots ?? '') ||
+        NOINDEX_DIRECTIVE.test(page.fetch.headers['x-robots-tag'] ?? '');
+      if (noindex) continue;
+      const canonical = page.extracted.canonical === null ? url : (normalizeUrl(page.extracted.canonical) ?? page.extracted.canonical);
+      if (canonical !== url) continue;
+
+      compared++;
+      if (/noindex/i.test(row.reason)) failures.push(`${row.url}: the report lists it as "${row.reason}", the crawl finds no noindex`);
+      else if (/blocked by robots|disallowed/i.test(row.reason)) failures.push(`${row.url}: the report lists it as "${row.reason}", the crawl fetched it`);
+      else if (/crawled\s*-\s*currently not indexed/i.test(row.reason)) notIndexed.push(row.url);
+    }
+
+    const held: string[] = [];
+    if (notIndexed.length > 0) held.push(`${notIndexed.length} indexable page(s) are "Crawled - currently not indexed": ${notIndexed.slice(0, 3).join(', ')}`);
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'the Search Console record has no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) held.push(problem);
+
+    const data = { listed: rows.length, compared, notIndexed: notIndexed.slice(0, 10), failures: failures.slice(0, 10) };
+    if (failures.length > 0) {
+      return fail(`${failures.length} indexable page(s) are reported as excluded: ${failures.slice(0, 3).join(' | ')}.`, data);
+    }
+    if (held.length > 0) return warn(`The indexation review is held: ${held.slice(0, 3).join('; ')}.`, data);
+    return pass(`The Page indexing report lists no indexable, self-canonical page as noindexed, blocked or crawled-not-indexed (${rows.length} row(s) read).`, data);
+  },
+};
+
 export const indexabilityProbes = [
+  indexationReview,
   urlInspection,
   experimentCloakingDivergence,
   stagingProtection,

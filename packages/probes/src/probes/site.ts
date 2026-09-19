@@ -1566,9 +1566,65 @@ export const gscPropertyOwnership: SiteProbe = {
   },
 };
 
+/** A sitemap address as the crawl and the Sitemaps report would both spell it. */
+function sitemapKey(url: string): string {
+  return normalizeUrl(url) ?? url;
+}
+
+export const sitemapSubmit: SiteProbe = {
+  id: 'sitemap-submit',
+  scope: 'site',
+  title: 'Every sitemap the crawl found is submitted to Search Console without errors',
+  run({ crawl, inputs }) {
+    const record = inputs?.searchConsole;
+    if (record === undefined) return notApplicable('No Search Console export was supplied.');
+
+    // A file that did not answer is sitemap-validity's finding, not a submission question.
+    const found = [...new Set(crawl.sitemaps.filter((doc) => doc.status !== null && doc.status < 400).map((doc) => doc.url))];
+    if (found.length === 0) return notApplicable('The crawl found no sitemap to submit.');
+
+    // A record with no sitemaps report is account access that was not available: held, never failed.
+    if (record.sitemaps === undefined) {
+      return warn('The Search Console export holds no Sitemaps report, so submission is unverified.', { found: found.length });
+    }
+
+    const reported = new Map(record.sitemaps.map((row) => [sitemapKey(row.url), row]));
+    const withErrors: string[] = [];
+    const unreadable: string[] = [];
+    const pending: string[] = [];
+    for (const url of found) {
+      const row = reported.get(sitemapKey(url));
+      if (row === undefined) pending.push(url);
+      else if (row.errors > 0 || /\berrors?\b/i.test(row.status)) withErrors.push(url);
+      else if (/couldn.?t fetch|fail/i.test(row.status)) unreadable.push(url);
+    }
+
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    const data = {
+      found: found.length,
+      withErrors: withErrors.slice(0, 10),
+      unreadable: unreadable.slice(0, 10),
+      pending: pending.slice(0, 10),
+    };
+    if (withErrors.length > 0) {
+      return fail(`Search Console reports errors on ${withErrors.length} of ${found.length} sitemap(s): ${withErrors.slice(0, 3).join(', ')}.`, data);
+    }
+    if (pending.length > 0) {
+      return warn(`${pending.length} of ${found.length} sitemap(s) the crawl found have no submission record, so submission is pending.`, data);
+    }
+    if (unreadable.length > 0) {
+      return warn(`Search Console could not fetch ${unreadable.length} sitemap(s): ${unreadable.slice(0, 3).join(', ')}.`, data);
+    }
+    if (problem !== null) return warn(`The Search Console record is held for review (${problem}).`, data);
+    return pass(`All ${found.length} sitemap(s) the crawl found are submitted to Search Console without errors.`, data);
+  },
+};
+
 export const siteProbes = [
   urlInventoryBuilder,
   gscPropertyOwnership,
+  sitemapSubmit,
   inheritedDomainHistory,
   migrationMapBuilder,
   robotsTxt,

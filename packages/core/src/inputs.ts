@@ -56,8 +56,27 @@ export interface EnvironmentsRecord extends InputRecord {
   readonly preview?: string;
 }
 
+/**
+ * The CI guard that stops an SEO regression shipping (1.10). `seededDefectsCaught`
+ * names the defect kinds the guard was shown to catch when they were planted in
+ * a build; `cleanRunPassed` is whether an unmodified build passed it.
+ */
+export interface CiGuardRecord extends InputRecord {
+  /** Which build or pipeline run the guard was exercised on. */
+  readonly build: string;
+  /** ISO 8601 instant the guard was exercised. */
+  readonly ranAt: string;
+  readonly seededDefectsCaught: readonly string[];
+  readonly cleanRunPassed: boolean;
+}
+
+/** The defect kinds a CI guard has to be shown to catch (1.10). */
+export const CI_GUARD_DEFECTS = ['noindex', 'canonical', 'crawler-access', 'critical-link'] as const;
+
 /** Every section an audit can be given. */
 export interface AuditInputs {
+  /** The CI guard against SEO regressions (1.10). */
+  readonly ciGuard?: CiGuardRecord;
   /** Experiments the site runs on separate URLs (1.19). */
   readonly experiments?: readonly ExperimentRecord[];
   /** Staging and preview origins the site keeps (1.8). */
@@ -65,7 +84,7 @@ export interface AuditInputs {
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -242,6 +261,50 @@ function parseEnvironments(value: unknown, problem: (path: string, text: string)
   return ok ? out : null;
 }
 
+const CI_GUARD_KEYS = ['build', 'ranAt', 'seededDefectsCaught', 'cleanRunPassed'];
+
+function parseCiGuard(value: unknown, problem: (path: string, text: string) => void): CiGuardRecord | null {
+  const record = parseInputRecord('ciGuard', value, problem, CI_GUARD_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const text = (key: 'build' | 'ranAt'): string | null => {
+    const raw = value[key];
+    if (typeof raw === 'string' && raw.trim() !== '') return raw.trim();
+    problem(`ciGuard.${key}`, raw === undefined || raw === null || raw === '' ? 'required' : `expected text, got ${typeof raw} (quote it)`);
+    return null;
+  };
+  const build = text('build');
+  const ranRaw = text('ranAt');
+  let ranAt: string | null = null;
+  if (ranRaw !== null) {
+    const ms = instant(ranRaw);
+    if (ms === null) problem('ciGuard.ranAt', `not a date and time: ${ranRaw}`);
+    else ranAt = new Date(ms).toISOString();
+  }
+  const caughtRaw = value['seededDefectsCaught'];
+  const caught: string[] = [];
+  if (!Array.isArray(caughtRaw)) {
+    problem('ciGuard.seededDefectsCaught', 'expected a list of defect kinds');
+    ok = false;
+  } else {
+    caughtRaw.forEach((item, index) => {
+      if (typeof item !== 'string' || item.trim() === '') {
+        problem(`ciGuard.seededDefectsCaught[${index}]`, 'expected text');
+        ok = false;
+      } else {
+        caught.push(item.trim().toLowerCase());
+      }
+    });
+  }
+  const clean = value['cleanRunPassed'];
+  if (typeof clean !== 'boolean') {
+    problem('ciGuard.cleanRunPassed', clean === undefined || clean === null ? 'required' : 'expected true or false');
+    ok = false;
+  }
+  if (!ok || build === null || ranAt === null || typeof clean !== 'boolean') return null;
+  return { ...record, build, ranAt, seededDefectsCaught: caught, cleanRunPassed: clean };
+}
+
 /**
  * Check a parsed inputs value's shape and return it typed. `undefined` and
  * `null` are no inputs. Throws `InputsError` listing every problem found:
@@ -257,7 +320,15 @@ export function parseInputs(value: unknown): AuditInputs {
   const problem = (path: string, text: string): void => {
     problems.push(`${path}: ${text}`);
   };
-  const inputs: { experiments?: readonly ExperimentRecord[]; environments?: EnvironmentsRecord } = {};
+  const inputs: {
+    experiments?: readonly ExperimentRecord[];
+    environments?: EnvironmentsRecord;
+    ciGuard?: CiGuardRecord;
+  } = {};
+  if (value['ciGuard'] !== undefined && value['ciGuard'] !== null) {
+    const ciGuard = parseCiGuard(value['ciGuard'], problem);
+    if (ciGuard !== null) inputs.ciGuard = ciGuard;
+  }
   if (value['experiments'] !== undefined && value['experiments'] !== null) {
     const experiments = parseExperiments(value['experiments'], problem);
     if (experiments !== null) inputs.experiments = experiments;

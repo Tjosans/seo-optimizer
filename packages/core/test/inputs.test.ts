@@ -95,3 +95,25 @@ describe('environments section', () => {
     expect(() => parseInputs({ environments: { ...base, staging: 'https://s.example.com', qa: 'x' } })).toThrow(/unknown field/);
   });
 });
+
+describe('parseInputs ciGuard', () => {
+  const base = {
+    owner: 'Jane',
+    recordedAt: '2026-09-01T00:00:00Z',
+    build: 'ci-1',
+    ranAt: '2026-09-01T00:00:00Z',
+    seededDefectsCaught: ['NoIndex', 'canonical'],
+    cleanRunPassed: true,
+  };
+
+  it('parses a record and lower-cases the defect kinds', () => {
+    const { ciGuard } = parseInputs({ ciGuard: base });
+    expect(ciGuard?.seededDefectsCaught).toEqual(['noindex', 'canonical']);
+    expect(ciGuard?.cleanRunPassed).toBe(true);
+  });
+
+  it('refuses a non-boolean cleanRunPassed and a missing build', () => {
+    expect(() => parseInputs({ ciGuard: { ...base, cleanRunPassed: 'yes' } })).toThrow(/cleanRunPassed/);
+    expect(() => parseInputs({ ciGuard: { ...base, build: undefined } })).toThrow(/ciGuard.build/);
+  });
+});

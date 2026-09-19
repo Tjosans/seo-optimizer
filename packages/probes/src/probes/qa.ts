@@ -14,6 +14,7 @@
  * the site disagreeing, and neither page shows it on its own.
  */
 
+import { CI_GUARD_DEFECTS, inputRecordProblem } from '@seo/core';
 import { isSameSite, normalizeUrl } from '@seo/crawler';
 import type { CrawledPage, CrawlResult, FetchResult } from '@seo/crawler';
 import type { SiteProbe } from '../types.js';
@@ -523,4 +524,52 @@ export const rawRenderedCrawlDiff: SiteProbe = {
   },
 };
 
-export const qaProbes = [brokenLinks, metadataCompleteness, rawRenderedCrawlDiff];
+/**
+ * Whether the site's CI guard has been shown to stop the regressions that cost
+ * a launch (1.10). Nothing a crawl sees says whether a pipeline would have
+ * caught a stray noindex, so this reads the `ciGuard` input and is
+ * `not-applicable` without it. A guard that missed a seeded defect kind
+ * (noindex, canonical, crawler access, critical link), or failed a clean
+ * build, fails. Otherwise the check passes and the rules the guard is known to
+ * enforce are recorded. A record nobody answers for or past review holds it.
+ */
+export const ciSeoGuards: SiteProbe = {
+  id: 'ci-seo-guards',
+  scope: 'site',
+  title: 'CI guards catch noindex, canonical, crawler-access and critical-link regressions',
+  run({ crawl, inputs }) {
+    const record = inputs?.ciGuard;
+    if (record === undefined) return notApplicable('No CI guard record was supplied.');
+
+    const caught = new Set(record.seededDefectsCaught.map((kind) => kind.toLowerCase()));
+    const missing = CI_GUARD_DEFECTS.filter((kind) => !caught.has(kind));
+    const data = {
+      build: record.build,
+      ranAt: record.ranAt,
+      rules: [...caught],
+      missing,
+      cleanRunPassed: record.cleanRunPassed,
+    };
+
+    if (missing.length > 0 || !record.cleanRunPassed) {
+      const parts = [
+        missing.length > 0 ? `the guard was not shown to catch a seeded ${missing.join(', ')} defect` : '',
+        !record.cleanRunPassed ? 'a clean build did not pass it' : '',
+      ].filter((part) => part !== '');
+      return fail(`${parts.join('; ')} (build ${record.build}).`, data);
+    }
+
+    const at = crawl.crawledAt ?? null;
+    const problem = at === null
+      ? "the crawl's time is unknown, so the record's review date cannot be judged"
+      : inputRecordProblem(record, new Date(at));
+    if (problem !== null) return warn(`The CI guard record is held for review: ${problem}.`, data);
+
+    return pass(
+      `Build ${record.build} caught every seeded defect kind (${CI_GUARD_DEFECTS.join(', ')}) and a clean run passed.`,
+      data,
+    );
+  },
+};
+
+export const qaProbes = [brokenLinks, metadataCompleteness, rawRenderedCrawlDiff, ciSeoGuards];

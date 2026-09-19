@@ -589,3 +589,59 @@ describe('staging-protection', () => {
     expect(check([environment('staging', { status: 401 })], record({ owner: '' })).outcome).toBe('warn');
   });
 });
+
+// --- ci-seo-guards ------------------------------------------------------------
+
+describe('ci-seo-guards', () => {
+  const crawledAt = '2026-09-19T12:00:00.000Z';
+  const guard = (over: Record<string, unknown> = {}) => ({
+    owner: 'Jane',
+    recordedAt: '2026-09-01T00:00:00.000Z',
+    build: 'ci-1',
+    ranAt: '2026-09-01T00:00:00.000Z',
+    seededDefectsCaught: ['noindex', 'canonical', 'crawler-access', 'critical-link'],
+    cleanRunPassed: true,
+    ...over,
+  });
+  const check = (ciGuard?: unknown): Observation =>
+    (probeById('ci-seo-guards') as SiteProbe).run({
+      origin: ORIGIN,
+      flags: [],
+      crawl: {
+        crawledAt,
+        seeds: [`${ORIGIN}/`],
+        pages: [],
+        robots: { groups: [], sitemaps: [], absent: true },
+        robotsTxt: null,
+        sitemapUrls: [],
+        sitemaps: [],
+        sitemapVideos: [],
+        sitemapNews: [],
+        blockedByRobots: [],
+        notReached: [],
+        auxiliary: [],
+      } satisfies CrawlResult,
+      ...(ciGuard === undefined ? {} : { inputs: { ciGuard } as never }),
+    });
+
+  it('is not applicable without the section', () => {
+    expect(check().outcome).toBe('not-applicable');
+  });
+
+  it('passes a guard that caught every kind and passed a clean run', () => {
+    expect(check(guard()).outcome).toBe('pass');
+  });
+
+  it('fails when a defect kind was never caught', () => {
+    expect(check(guard({ seededDefectsCaught: ['noindex', 'canonical', 'crawler-access'] })).outcome).toBe('fail');
+  });
+
+  it('fails when the clean run did not pass', () => {
+    expect(check(guard({ cleanRunPassed: false })).outcome).toBe('fail');
+  });
+
+  it('holds a record with no owner or past review', () => {
+    expect(check(guard({ owner: '' })).outcome).toBe('warn');
+    expect(check(guard({ nextReviewAt: '2026-09-10T00:00:00.000Z' })).outcome).toBe('warn');
+  });
+});

@@ -34,3 +34,15 @@ environments:
   preview: https://preview.example.com
   owner: Jane Doe
   recordedAt: 2026-09-01T09:00:00Z
+
+# ciGuard (1.10, ci-seo-guards): the CI check that stops SEO regressions
+# shipping. It fails unless seededDefectsCaught names all of noindex, canonical,
+# crawler-access and critical-link (defects planted in a build and caught) and
+# cleanRunPassed is true (an unmodified build passed).
+ciGuard:
+  build: ci-run-1842
+  ranAt: 2026-09-10T08:00:00Z
+  seededDefectsCaught: [noindex, canonical, crawler-access, critical-link]
+  cleanRunPassed: true
+  owner: Jane Doe
+  recordedAt: 2026-09-10T09:00:00Z

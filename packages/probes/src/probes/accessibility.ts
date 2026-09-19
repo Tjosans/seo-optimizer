@@ -23,6 +23,8 @@
  * video without a caption track may have its captions burned into the picture.
  */
 
+import type { Extracted } from '@seo/crawler';
+
 import type { PageProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
 
@@ -176,4 +178,79 @@ export const axeAccessibility: PageProbe = {
   },
 };
 
-export const accessibilityProbes = [contentAccessibility, axeAccessibility];
+/**
+ * The phone render against the desktop one: corpus check 4.3.
+ *
+ * Google indexes the mobile rendering, so what a phone drops is what search
+ * never sees. The baseline is the desktop render when the crawl made one, else
+ * the raw extraction. Fails what a phone loses outright: the title, the first
+ * h1, the canonical, or an added noindex. Warns on a missing viewport meta and
+ * on a phone losing half the words or links, which may be a leaner layout or
+ * content hidden behind interaction. 4.3 is `assisted`: forms, focus, error and
+ * zoom states are a person on a real phone, so this never passes the check.
+ */
+const firstH1 = (extracted: Extracted): string | null =>
+  extracted.headings.find((heading) => heading.level === 1)?.text.trim() || null;
+
+const hasNoindex = (extracted: Extracted): boolean => /\bnoindex\b/i.test(extracted.metaRobots ?? '');
+
+const lostHalf = (desktop: number, mobile: number): boolean => desktop >= 10 && mobile * 2 < desktop;
+
+export const mobileJourneyQa: PageProbe = {
+  id: 'mobile-journey-qa',
+  scope: 'page',
+  htmlOnly: true,
+  title: 'The mobile render keeps the signals and content the desktop one has',
+  run({ page }) {
+    const mobile = page.renderedMobile;
+    if (mobile === undefined || mobile === null) {
+      return notApplicable('No mobile render was captured for this page; mobile rendering was not requested.');
+    }
+    if (mobile.render.error !== null) return errored(`The mobile render failed: ${mobile.render.error}.`);
+    const phone = mobile.extracted;
+    if (phone === null) return errored('The mobile render returned no HTML to read.');
+    const desktopRender = page.rendered?.extracted ?? null;
+    const desktop = desktopRender ?? page.extracted;
+    if (desktop === null) return notApplicable('No desktop extraction to compare the mobile render against.');
+    const baseline = desktopRender === null ? 'raw fetch' : 'desktop render';
+
+    const failures: string[] = [];
+    const doubts: string[] = [];
+    const data: Record<string, unknown> = {
+      baseline,
+      words: { desktop: desktop.wordCount, mobile: phone.wordCount },
+      links: { desktop: desktop.links.length, mobile: phone.links.length },
+    };
+
+    if (desktop.title !== null && desktop.title !== '' && (phone.title === null || phone.title === '')) {
+      failures.push('the mobile render drops the title');
+    }
+    if (firstH1(desktop) !== null && firstH1(phone) === null) failures.push('the mobile render drops the first h1');
+    if (desktop.canonical !== null && phone.canonical === null) failures.push('the mobile render drops the canonical');
+    if (hasNoindex(phone) && !hasNoindex(desktop)) failures.push('the mobile render adds a noindex');
+
+    if (!phone.hasViewportMeta) doubts.push('the page declares no viewport meta, so a phone shows the desktop layout');
+    if (lostHalf(desktop.wordCount, phone.wordCount)) {
+      doubts.push(`the mobile render has ${phone.wordCount} words against ${desktop.wordCount}`);
+    }
+    if (lostHalf(desktop.links.length, phone.links.length)) {
+      doubts.push(`the mobile render has ${phone.links.length} links against ${desktop.links.length}`);
+    }
+
+    if (failures.length > 0) {
+      return fail(
+        `Mobile-first indexing reads what a phone gets: ${[...failures, ...doubts].join('; ')} (against the ${baseline}).`,
+        data,
+      );
+    }
+    if (doubts.length > 0) {
+      return warn(`For a person to settle: ${doubts.join('; ')} (against the ${baseline}).`, data);
+    }
+    return pass(
+      `The mobile render keeps the title, h1, canonical and indexability of the ${baseline}, and most of its words and links. Forms, focus, error and zoom states on a real phone are for a person.`,
+      data,
+    );
+  },
+};
+
+export const accessibilityProbes = [contentAccessibility, axeAccessibility, mobileJourneyQa];

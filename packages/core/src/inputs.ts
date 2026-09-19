@@ -73,8 +73,25 @@ export interface CiGuardRecord extends InputRecord {
 /** The defect kinds a CI guard has to be shown to catch (1.10). */
 export const CI_GUARD_DEFECTS = ['noindex', 'canonical', 'crawler-access', 'critical-link'] as const;
 
+/**
+ * One rule in the site's extended CI checks (1.11). `severity` is free text
+ * (`block`, `warn`…), blank when nobody chose one; `falsePositiveRate` is a
+ * fraction from 0 to 1 of the runs in which the rule flagged something that
+ * was not a defect.
+ */
+export interface CiRuleRecord extends InputRecord {
+  readonly rule: string;
+  readonly severity: string;
+  readonly falsePositiveRate: number;
+}
+
+/** Above this false-positive rate a rule teaches people to ignore it (1.11). */
+export const CI_RULE_MAX_FALSE_POSITIVE_RATE = 0.1;
+
 /** Every section an audit can be given. */
 export interface AuditInputs {
+  /** The extended CI rules and who answers for each (1.11). */
+  readonly ciRules?: readonly CiRuleRecord[];
   /** The CI guard against SEO regressions (1.10). */
   readonly ciGuard?: CiGuardRecord;
   /** Experiments the site runs on separate URLs (1.19). */
@@ -84,7 +101,7 @@ export interface AuditInputs {
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -305,6 +322,48 @@ function parseCiGuard(value: unknown, problem: (path: string, text: string) => v
   return { ...record, build, ranAt, seededDefectsCaught: caught, cleanRunPassed: clean };
 }
 
+const CI_RULE_KEYS = ['rule', 'severity', 'falsePositiveRate'];
+
+function parseCiRules(value: unknown, problem: (path: string, text: string) => void): CiRuleRecord[] | null {
+  if (!Array.isArray(value)) {
+    problem('ciRules', 'expected a list');
+    return null;
+  }
+  const out: CiRuleRecord[] = [];
+  let ok = true;
+  value.forEach((node, index) => {
+    const path = `ciRules[${index}]`;
+    const record = parseInputRecord(path, node, problem, CI_RULE_KEYS);
+    if (record === null || !isNode(node)) {
+      ok = false;
+      return;
+    }
+    const rule = node['rule'];
+    if (typeof rule !== 'string' || rule.trim() === '') {
+      problem(`${path}.rule`, rule === undefined || rule === null || rule === '' ? 'required' : `expected text, got ${typeof rule} (quote it)`);
+      ok = false;
+    }
+    const severityRaw = node['severity'];
+    if (severityRaw !== undefined && severityRaw !== null && typeof severityRaw !== 'string') {
+      problem(`${path}.severity`, `expected text, got ${typeof severityRaw} (quote it)`);
+      ok = false;
+    }
+    const rate = node['falsePositiveRate'];
+    if (typeof rate !== 'number' || !Number.isFinite(rate) || rate < 0 || rate > 1) {
+      problem(`${path}.falsePositiveRate`, rate === undefined || rate === null ? 'required' : 'expected a fraction from 0 to 1');
+      ok = false;
+    }
+    if (typeof rule !== 'string' || typeof rate !== 'number' || rule.trim() === '') return;
+    out.push({
+      ...record,
+      rule: rule.trim(),
+      severity: typeof severityRaw === 'string' ? severityRaw.trim() : '',
+      falsePositiveRate: rate,
+    });
+  });
+  return ok ? out : null;
+}
+
 /**
  * Check a parsed inputs value's shape and return it typed. `undefined` and
  * `null` are no inputs. Throws `InputsError` listing every problem found:
@@ -324,7 +383,12 @@ export function parseInputs(value: unknown): AuditInputs {
     experiments?: readonly ExperimentRecord[];
     environments?: EnvironmentsRecord;
     ciGuard?: CiGuardRecord;
+    ciRules?: readonly CiRuleRecord[];
   } = {};
+  if (value['ciRules'] !== undefined && value['ciRules'] !== null) {
+    const ciRules = parseCiRules(value['ciRules'], problem);
+    if (ciRules !== null) inputs.ciRules = ciRules;
+  }
   if (value['ciGuard'] !== undefined && value['ciGuard'] !== null) {
     const ciGuard = parseCiGuard(value['ciGuard'], problem);
     if (ciGuard !== null) inputs.ciGuard = ciGuard;

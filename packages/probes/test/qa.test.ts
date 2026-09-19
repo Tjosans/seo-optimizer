@@ -645,3 +645,55 @@ describe('ci-seo-guards', () => {
     expect(check(guard({ nextReviewAt: '2026-09-10T00:00:00.000Z' })).outcome).toBe('warn');
   });
 });
+
+// --- ci-extended-checks -------------------------------------------------------
+
+describe('ci-extended-checks', () => {
+  const rule = (over: Record<string, unknown> = {}) => ({
+    rule: 'no-orphan-pages',
+    owner: 'Jane',
+    recordedAt: '2026-09-01T00:00:00.000Z',
+    severity: 'block',
+    falsePositiveRate: 0.02,
+    ...over,
+  });
+  const check = (ciRules?: unknown): Observation =>
+    (probeById('ci-extended-checks') as SiteProbe).run({
+      origin: ORIGIN,
+      flags: [],
+      crawl: {
+        crawledAt: '2026-09-19T12:00:00.000Z',
+        seeds: [`${ORIGIN}/`],
+        pages: [],
+        robots: { groups: [], sitemaps: [], absent: true },
+        robotsTxt: null,
+        sitemapUrls: [],
+        sitemaps: [],
+        sitemapVideos: [],
+        sitemapNews: [],
+        blockedByRobots: [],
+        notReached: [],
+        auxiliary: [],
+      } satisfies CrawlResult,
+      ...(ciRules === undefined ? {} : { inputs: { ciRules } as never }),
+    });
+
+  it('is not applicable without the section', () => {
+    expect(check().outcome).toBe('not-applicable');
+  });
+
+  it('records rules that are owned, graded and quiet', () => {
+    expect(check([rule()]).outcome).toBe('pass');
+  });
+
+  it('warns a rule with no owner, no severity, a noisy rate or a lapsed review', () => {
+    expect(check([rule({ owner: '' })]).outcome).toBe('warn');
+    expect(check([rule({ severity: '' })]).outcome).toBe('warn');
+    expect(check([rule({ falsePositiveRate: 0.25 })]).outcome).toBe('warn');
+    expect(check([rule({ nextReviewAt: '2026-09-10T00:00:00.000Z' })]).outcome).toBe('warn');
+  });
+
+  it('holds the check for one bad rule among good ones', () => {
+    expect(check([rule(), rule({ rule: 'b', falsePositiveRate: 0.5 })]).outcome).toBe('warn');
+  });
+});

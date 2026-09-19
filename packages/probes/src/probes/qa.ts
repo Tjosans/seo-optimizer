@@ -14,7 +14,7 @@
  * the site disagreeing, and neither page shows it on its own.
  */
 
-import { CI_GUARD_DEFECTS, inputRecordProblem } from '@seo/core';
+import { CI_GUARD_DEFECTS, CI_RULE_MAX_FALSE_POSITIVE_RATE, inputRecordProblem } from '@seo/core';
 import { isSameSite, normalizeUrl } from '@seo/crawler';
 import type { CrawledPage, CrawlResult, FetchResult } from '@seo/crawler';
 import type { SiteProbe } from '../types.js';
@@ -572,4 +572,49 @@ export const ciSeoGuards: SiteProbe = {
   },
 };
 
-export const qaProbes = [brokenLinks, metadataCompleteness, rawRenderedCrawlDiff, ciSeoGuards];
+/**
+ * Whether the extended CI rules (1.11) are ones somebody answers for. Nothing a
+ * crawl sees lists a pipeline's rules, so this reads the `ciRules` input and is
+ * `not-applicable` without it. It only ever warns: a rule with no owner, no
+ * severity, a false-positive rate over 10%, or a record past its review date
+ * holds the check. A clean list is `pass`, which the check being `assisted`
+ * keeps from settling it — a person judges whether the rules are the right ones.
+ */
+export const ciExtendedChecks: SiteProbe = {
+  id: 'ci-extended-checks',
+  scope: 'site',
+  title: 'Extended CI rules each have an owner, a severity and a tolerable false-positive rate',
+  run({ crawl, inputs }) {
+    const rules = inputs?.ciRules;
+    if (rules === undefined) return notApplicable('No CI rules were supplied.');
+    if (rules.length === 0) return notApplicable('The CI rules section is empty.');
+
+    const at = crawl.crawledAt ?? null;
+    const held: { rule: string; issue: string }[] = [];
+    for (const rule of rules) {
+      const issues: string[] = [];
+      if (rule.owner.trim() === '') issues.push('no owner');
+      if (rule.severity === '') issues.push('no severity');
+      if (rule.falsePositiveRate > CI_RULE_MAX_FALSE_POSITIVE_RATE) {
+        issues.push(`a false-positive rate of ${Math.round(rule.falsePositiveRate * 1000) / 10}%`);
+      }
+      if (rule.owner.trim() !== '') {
+        const problem = at === null ? null : inputRecordProblem(rule, new Date(at));
+        if (problem !== null) issues.push(problem);
+      }
+      if (issues.length > 0) held.push({ rule: rule.rule, issue: issues.join(', ') });
+    }
+    const data = { rules: rules.map((rule) => rule.rule), held };
+
+    if (held.length > 0) {
+      return warn(
+        `${held.length} of ${rules.length} CI rule(s) are held: ` +
+          held.slice(0, SAMPLES).map((entry) => `${entry.rule} (${entry.issue})`).join('; ') + '.',
+        data,
+      );
+    }
+    return pass(`${rules.length} CI rule(s) each have an owner, a severity and a false-positive rate within 10%.`, data);
+  },
+};
+
+export const qaProbes = [brokenLinks, metadataCompleteness, rawRenderedCrawlDiff, ciSeoGuards, ciExtendedChecks];

@@ -122,7 +122,7 @@ Every v5.0 detector not yet implemented has its own line below, preceded by the 
 - [x] Implement detector `staging-protection` (1.8, a launch gate, @seo/probes `indexability.ts`, site scope): add an `environments` input section `{ staging?, preview? }` of origins; @seo/crawler requests each root once without credentials as an `environment` auxiliary fetch. Fail an environment answering 200 with HTML; warn on a 3xx to a login page; `not-applicable` without the section
 - [x] Build a CI guard a site can run before release: `npm run guard -- <url>` crawls, runs the noindex, canonical, robots and critical-link detectors, prints each failure and exits non-zero on any `fail`, naming the build from `--build <id>`. Document it in README for a site's own CI
 - [x] Implement detector `ci-seo-guards` (1.10, a launch gate, @seo/probes `qa.ts`, site scope): add a `ciGuard` input record `{ build, ranAt, seededDefectsCaught, cleanRunPassed }`; fail when noindex, canonical, crawler-access or critical-link is missing from `seededDefectsCaught`, or `cleanRunPassed` is false; record rules otherwise
-- [ ] Implement detector `ci-extended-checks` (1.11, @seo/probes `qa.ts`, site scope): add a `ciRules` input section `[{ rule, owner, severity, falsePositiveRate }]`; warn a rule with no owner or severity, or a false-positive rate over 10%; `not-applicable` without the section. Assisted, so it never passes
+- [x] Implement detector `ci-extended-checks` (1.11, @seo/probes `qa.ts`, site scope): add a `ciRules` input section `[{ rule, owner, severity, falsePositiveRate }]`; warn a rule with no owner or severity, or a false-positive rate over 10%; `not-applicable` without the section. Assisted, so it never passes
   - NOTE: iteration 12 (completed) failed its tests and was stashed as 'roadmap-runner iteration 12 (20260919-185054): Implement detector `ci-extended-checks` (1.11, @seo/probes `...' (see git stash list).
 
 #### The URL matrix (0.3), and what reads it
@@ -228,6 +228,7 @@ Every v5.0 detector not yet implemented has its own line below, preceded by the 
 
 ## Decisions
 - 2026-09-19: `ci-seo-guards` passes when every seeded defect kind was caught and the clean run passed (rules recorded in `data`); a missing kind or a failed clean run fails, and an ownerless or overdue record only warns. Kinds are matched case-insensitively.
+- 2026-09-19: `ciRules.falsePositiveRate` is a fraction from 0 to 1 (10% = 0.1); a clean list returns `pass` and the check being `assisted` keeps the grader from settling it. An empty list is `not-applicable`.
 - 2026-09-19: the guard blocks only on `fail` (exit 1) and uses exit 2 for "could not run", because a warn or a crawl error is not a verdict; it reuses the existing detectors for 1.10's four defects rather than adding a probe
 - 2026-09-19: `environments` is one record (`{ owner, recordedAt, staging?, preview? }`), origins reduced to `origin`; a redirect chain ending at a login-looking URL is the "3xx to a login page" warn, since fetch follows redirects; no answer at all passes (nothing public served).
 - 2026-09-19: `audits.inputs` stores null (not `{}`) when a request supplies no sections, and `POST /audits` reports `parseInputs` problems as `inputs.<path>: ...` in the same 400 list; `submit` throws `InputsError` before the row is written.

@@ -46,3 +46,13 @@ ciGuard:
   cleanRunPassed: true
   owner: Jane Doe
   recordedAt: 2026-09-10T09:00:00Z
+
+# ciRules (1.11, ci-extended-checks): the extended rules the pipeline runs.
+# falsePositiveRate is a fraction from 0 to 1. A rule with no owner or severity,
+# or a rate over 0.1, warns; the check is assisted, so it never passes alone.
+ciRules:
+  - rule: no-orphan-pages
+    severity: block
+    falsePositiveRate: 0.02
+    owner: Jane Doe
+    recordedAt: 2026-09-10T09:00:00Z

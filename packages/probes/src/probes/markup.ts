@@ -10,7 +10,7 @@
 import { isSameSite } from '@seo/crawler';
 import type { CrawledPage } from '@seo/crawler';
 import type { PageProbe, SiteProbe } from '../types.js';
-import { fail, notApplicable, pass, warn } from '../types.js';
+import { errored, fail, notApplicable, pass, warn } from '../types.js';
 import { bareType } from './content.js';
 import { jsonLdNodes, typesOf } from './metadata.js';
 
@@ -558,7 +558,103 @@ export const ugcGovernance: SiteProbe = {
   },
 };
 
+/** Each `@type` a page's JSON-LD declares (namespace stripped), with the `@id`s it appears under. */
+const typeIds = (blocks: readonly unknown[]): Map<string, Set<string>> => {
+  const found = new Map<string, Set<string>>();
+  for (const node of jsonLdNodes(blocks)) {
+    const id = typeof node['@id'] === 'string' ? node['@id'] : null;
+    for (const type of typesOf(node)) {
+      const key = bareType(type);
+      const ids = found.get(key) ?? new Set<string>();
+      if (id !== null) ids.add(id);
+      found.set(key, ids);
+    }
+  }
+  return found;
+};
+
+/**
+ * Whether the structured data a page ships is the same before and after
+ * scripts run, and whether it parses at all (4.6).
+ *
+ * A block that does not parse is invalid on either side, so `jsonLdErrors`
+ * fails with or without a render: a crawl that never rendered still
+ * observed the raw markup. With a render, a `@type` the raw JSON-LD
+ * declares that is gone afterwards, or that comes back under a different
+ * `@id`, fails: consumers that read the raw response and consumers that
+ * render would disagree about what the page is. A `@type` only rendering
+ * adds is a `warn`, since not every consumer renders. Which features the
+ * markup makes a page eligible for, and the policy review, are a person's.
+ */
+export const schemaValidationParity: PageProbe = {
+  id: 'schema-validation-parity',
+  scope: 'page',
+  htmlOnly: true,
+  title: 'Structured data parses, and raw and rendered responses declare the same types',
+  run({ page }) {
+    const raw = page.extracted;
+    if (raw === null) return notApplicable(NO_HTML);
+    const rendered = page.rendered;
+    const renderedExtracted = rendered?.render.error === null ? (rendered.extracted ?? null) : null;
+
+    const failures: string[] = [];
+    const data: Record<string, unknown> = {};
+
+    if (raw.jsonLdErrors > 0) {
+      failures.push(`${raw.jsonLdErrors} raw JSON-LD block(s) failed to parse`);
+      data['rawJsonLdErrors'] = raw.jsonLdErrors;
+    }
+    if (renderedExtracted !== null && renderedExtracted.jsonLdErrors > 0) {
+      failures.push(`${renderedExtracted.jsonLdErrors} rendered JSON-LD block(s) failed to parse`);
+      data['renderedJsonLdErrors'] = renderedExtracted.jsonLdErrors;
+    }
+
+    const added: string[] = [];
+    if (renderedExtracted !== null) {
+      const rawTypes = typeIds(raw.jsonLd);
+      const renderedTypes = typeIds(renderedExtracted.jsonLd);
+      const gone = [...rawTypes.keys()].filter((type) => !renderedTypes.has(type));
+      const changed = [...rawTypes.entries()]
+        .filter(([type, ids]) => {
+          const after = renderedTypes.get(type);
+          return after !== undefined && [...ids].some((id) => !after.has(id));
+        })
+        .map(([type]) => type);
+      if (gone.length > 0) {
+        failures.push(`@type ${gone.join(', ')} in the raw JSON-LD is gone after rendering`);
+        data['goneTypes'] = gone;
+      }
+      if (changed.length > 0) {
+        failures.push(`@type ${changed.join(', ')} appears with a different @id after rendering`);
+        data['changedIdTypes'] = changed;
+      }
+      added.push(...[...renderedTypes.keys()].filter((type) => !rawTypes.has(type)));
+    }
+
+    if (failures.length > 0) return fail(`Structured data is invalid or unstable: ${failures.join('; ')}.`, data);
+    if (rendered !== undefined && rendered !== null && renderedExtracted === null) {
+      return errored(
+        rendered.render.error !== null
+          ? `Rendering failed: ${rendered.render.error}; the raw JSON-LD parses, but parity was not checked.`
+          : 'The rendered response was empty or not HTML, so its structured data was not compared.',
+      );
+    }
+    if (added.length > 0) {
+      return warn(
+        `@type ${added.join(', ')} exists only after rendering; a consumer that does not render never sees it.`,
+        { addedTypes: added },
+      );
+    }
+    return pass(
+      renderedExtracted === null
+        ? 'Every raw JSON-LD block parses. No render was captured, so parity was not checked.'
+        : 'Every JSON-LD block parses, and raw and rendered declare the same types.',
+    );
+  },
+};
+
 export const markupProbes = [
+  schemaValidationParity,
   semanticHtml,
   headingOutline,
   primaryHeading,

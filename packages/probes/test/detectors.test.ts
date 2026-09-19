@@ -3920,3 +3920,43 @@ describe('raw-rendered-parity', () => {
     expect(run(target).outcome).toBe('pass');
   });
 });
+
+describe('schema-validation-parity', () => {
+  const ld = (...blocks: unknown[]): string =>
+    '<html><head>' + blocks.map(jsonLdScript).join('') + '</head><body><p>x</p></body></html>';
+  const broken = '<html><head><script type="application/ld+json">{nope</script></head><body></body></html>';
+  const run = (target: CrawledPage) => runPage('schema-validation-parity', target, [target]);
+  const org = { '@context': 'https://schema.org', '@type': 'Organization', '@id': '#org' };
+  const product = { '@context': 'https://schema.org', '@type': 'Product' };
+
+  it('judges the raw side alone without a render', () => {
+    expect(run(page({ path: '/', html: ld(org) })).outcome).toBe('pass');
+    const observation = run(page({ path: '/', html: broken }));
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/failed to parse/);
+  });
+
+  it('fails unparseable JSON-LD on the rendered side', () => {
+    const target = withRender(page({ path: '/', html: ld(org) }), broken);
+    expect(run(target).outcome).toBe('fail');
+  });
+
+  it('fails a type rendering removes, and one that changes @id', () => {
+    const gone = run(withRender(page({ path: '/', html: ld(org, product) }), ld(org)));
+    expect(gone.outcome).toBe('fail');
+    expect(gone.summary).toMatch(/Product.*gone/);
+    const moved = run(withRender(page({ path: '/', html: ld(org) }), ld({ ...org, '@id': '#other' })));
+    expect(moved.outcome).toBe('fail');
+    expect(moved.summary).toMatch(/different @id/);
+  });
+
+  it('warns on a type only rendering adds, passes when they agree', () => {
+    expect(run(withRender(page({ path: '/', html: ld(org) }), ld(org, product))).outcome).toBe('warn');
+    expect(run(withRender(page({ path: '/', html: ld(org) }), ld(org))).outcome).toBe('pass');
+  });
+
+  it('errors on a failed render unless the raw side already failed', () => {
+    expect(run(withRender(page({ path: '/', html: ld(org) }), null, 'timeout')).outcome).toBe('error');
+    expect(run(withRender(page({ path: '/', html: broken }), null, 'timeout')).outcome).toBe('fail');
+  });
+});

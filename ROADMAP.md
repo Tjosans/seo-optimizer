@@ -123,6 +123,7 @@ Every v5.0 detector not yet implemented has its own line below, preceded by the 
 - [x] Build a CI guard a site can run before release: `npm run guard -- <url>` crawls, runs the noindex, canonical, robots and critical-link detectors, prints each failure and exits non-zero on any `fail`, naming the build from `--build <id>`. Document it in README for a site's own CI
 - [x] Implement detector `ci-seo-guards` (1.10, a launch gate, @seo/probes `qa.ts`, site scope): add a `ciGuard` input record `{ build, ranAt, seededDefectsCaught, cleanRunPassed }`; fail when noindex, canonical, crawler-access or critical-link is missing from `seededDefectsCaught`, or `cleanRunPassed` is false; record rules otherwise
 - [ ] Implement detector `ci-extended-checks` (1.11, @seo/probes `qa.ts`, site scope): add a `ciRules` input section `[{ rule, owner, severity, falsePositiveRate }]`; warn a rule with no owner or severity, or a false-positive rate over 10%; `not-applicable` without the section. Assisted, so it never passes
+  - NOTE: iteration 12 (completed) failed its tests and was stashed as 'roadmap-runner iteration 12 (20260919-185054): Implement detector `ci-extended-checks` (1.11, @seo/probes `...' (see git stash list).
 
 #### The URL matrix (0.3), and what reads it
 - [ ] Add the `urlMatrix` input section (0.3): `[{ pattern, priority?, status, indexable, canonical: 'self'|'none'|<url>, inSitemap, access: 'public'|'private', environment? }]`, a glob or exact URL per pattern, strict like every section, with an example in `scripts/inputs.example.yaml`

@@ -88,8 +88,33 @@ export interface CiRuleRecord extends InputRecord {
 /** Above this false-positive rate a rule teaches people to ignore it (1.11). */
 export const CI_RULE_MAX_FALSE_POSITIVE_RATE = 0.1;
 
+/**
+ * One row of the URL matrix (0.3): what a person decided a URL pattern must
+ * do at launch. `pattern` is an exact URL or a glob (`*` within a path
+ * segment, `**` across segments), absolute or a path from the site root.
+ * `canonical` is `self`, `none` or the URL the pattern canonicalizes to.
+ * `priority` marks a launch template (absent means not a priority);
+ * `environment` names where the row applies (absent means everywhere).
+ */
+export interface UrlMatrixEntry extends InputRecord {
+  readonly pattern: string;
+  readonly priority?: boolean;
+  /** The HTTP status the pattern must answer with. */
+  readonly status: number;
+  readonly indexable: boolean;
+  readonly canonical: string;
+  readonly inSitemap: boolean;
+  readonly access: 'public' | 'private';
+  readonly environment?: string;
+}
+
+/** The values `UrlMatrixEntry.access` takes. */
+export const URL_MATRIX_ACCESS = ['public', 'private'] as const;
+
 /** Every section an audit can be given. */
 export interface AuditInputs {
+  /** The URL matrix: expected status, indexability, canonical and sitemap membership per pattern (0.3). */
+  readonly urlMatrix?: readonly UrlMatrixEntry[];
   /** The extended CI rules and who answers for each (1.11). */
   readonly ciRules?: readonly CiRuleRecord[];
   /** The CI guard against SEO regressions (1.10). */
@@ -101,7 +126,7 @@ export interface AuditInputs {
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -364,6 +389,95 @@ function parseCiRules(value: unknown, problem: (path: string, text: string) => v
   return ok ? out : null;
 }
 
+const URL_MATRIX_KEYS = ['pattern', 'priority', 'status', 'indexable', 'canonical', 'inSitemap', 'access', 'environment'];
+
+const isHttpUrl = (raw: string): boolean => {
+  try {
+    const url = new URL(raw);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
+function parseUrlMatrix(value: unknown, problem: (path: string, text: string) => void): UrlMatrixEntry[] | null {
+  if (!Array.isArray(value)) {
+    problem('urlMatrix', 'expected a list');
+    return null;
+  }
+  const out: UrlMatrixEntry[] = [];
+  let ok = true;
+  const seen = new Set<string>();
+  value.forEach((node, index) => {
+    const path = `urlMatrix[${index}]`;
+    const record = parseInputRecord(path, node, problem, URL_MATRIX_KEYS);
+    if (record === null || !isNode(node)) {
+      ok = false;
+      return;
+    }
+    const fail = (key: string, text: string): void => {
+      problem(`${path}.${key}`, text);
+      ok = false;
+    };
+    const missing = (raw: unknown): boolean => raw === undefined || raw === null || raw === '';
+    const text = (key: string): string | null => {
+      const raw = node[key];
+      if (typeof raw === 'string' && raw.trim() !== '') return raw.trim();
+      fail(key, missing(raw) ? 'required' : `expected text, got ${typeof raw} (quote it)`);
+      return null;
+    };
+    const flag = (key: 'indexable' | 'inSitemap'): boolean | null => {
+      const raw = node[key];
+      if (typeof raw === 'boolean') return raw;
+      fail(key, missing(raw) ? 'required' : 'expected true or false');
+      return null;
+    };
+
+    const pattern = text('pattern');
+    if (pattern !== null && !(pattern.startsWith('/') || isHttpUrl(pattern))) {
+      fail('pattern', `expected an http(s) URL or a path starting with /: ${pattern}`);
+    }
+    const status = node['status'];
+    if (typeof status !== 'number' || !Number.isInteger(status) || status < 100 || status > 599) {
+      fail('status', missing(status) ? 'required' : 'expected an HTTP status code from 100 to 599');
+    }
+    const indexable = flag('indexable');
+    const inSitemap = flag('inSitemap');
+    const canonical = text('canonical');
+    if (canonical !== null && canonical !== 'self' && canonical !== 'none' && !isHttpUrl(canonical)) {
+      fail('canonical', `expected self, none or an http(s) URL: ${canonical}`);
+    }
+    const access = text('access');
+    if (access !== null && !(URL_MATRIX_ACCESS as readonly string[]).includes(access)) {
+      fail('access', `expected public or private: ${access}`);
+    }
+    const priority = node['priority'];
+    if (!missing(priority) && typeof priority !== 'boolean') fail('priority', 'expected true or false');
+    const environment = node['environment'];
+    if (!missing(environment) && (typeof environment !== 'string' || environment.trim() === '')) {
+      fail('environment', `expected text, got ${typeof environment} (quote it)`);
+    }
+    if (pattern !== null) {
+      const key = `${pattern}\n${typeof environment === 'string' ? environment.trim() : ''}`;
+      if (seen.has(key)) fail('pattern', `duplicate pattern: ${pattern}`);
+      seen.add(key);
+    }
+    if (!ok || pattern === null || indexable === null || inSitemap === null || canonical === null || access === null) return;
+    out.push({
+      ...record,
+      pattern,
+      ...(typeof priority === 'boolean' ? { priority } : {}),
+      status: status as number,
+      indexable,
+      canonical,
+      inSitemap,
+      access: access as 'public' | 'private',
+      ...(typeof environment === 'string' ? { environment: environment.trim() } : {}),
+    });
+  });
+  return ok ? out : null;
+}
+
 /**
  * Check a parsed inputs value's shape and return it typed. `undefined` and
  * `null` are no inputs. Throws `InputsError` listing every problem found:
@@ -384,7 +498,12 @@ export function parseInputs(value: unknown): AuditInputs {
     environments?: EnvironmentsRecord;
     ciGuard?: CiGuardRecord;
     ciRules?: readonly CiRuleRecord[];
+    urlMatrix?: readonly UrlMatrixEntry[];
   } = {};
+  if (value['urlMatrix'] !== undefined && value['urlMatrix'] !== null) {
+    const urlMatrix = parseUrlMatrix(value['urlMatrix'], problem);
+    if (urlMatrix !== null) inputs.urlMatrix = urlMatrix;
+  }
   if (value['ciRules'] !== undefined && value['ciRules'] !== null) {
     const ciRules = parseCiRules(value['ciRules'], problem);
     if (ciRules !== null) inputs.ciRules = ciRules;

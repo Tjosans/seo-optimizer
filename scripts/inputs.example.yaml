@@ -56,3 +56,28 @@ ciRules:
     falsePositiveRate: 0.02
     owner: Jane Doe
     recordedAt: 2026-09-10T09:00:00Z
+
+# urlMatrix (0.3): what each URL pattern must do at launch, one row per pattern.
+# pattern is an exact URL or a glob (* within a path segment, ** across
+# segments), absolute or a path from the site root. status is the HTTP status
+# expected; canonical is self, none or the URL it points to; access is public
+# or private. priority (a launch template) and environment are optional.
+urlMatrix:
+  - pattern: https://example.com/products/*
+    priority: true
+    status: 200
+    indexable: true
+    canonical: self
+    inSitemap: true
+    access: public
+    owner: Jane Doe
+    recordedAt: 2026-09-01T09:00:00Z
+  - pattern: /account/**
+    status: 200
+    indexable: false
+    canonical: none
+    inSitemap: false
+    access: private
+    environment: production
+    owner: Jane Doe
+    recordedAt: 2026-09-01T09:00:00Z

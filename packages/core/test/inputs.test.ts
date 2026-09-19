@@ -117,3 +117,61 @@ describe('parseInputs ciGuard', () => {
     expect(() => parseInputs({ ciGuard: { ...base, build: undefined } })).toThrow(/ciGuard.build/);
   });
 });
+
+describe('urlMatrix', () => {
+  const row = {
+    pattern: 'https://example.com/products/*',
+    priority: true,
+    status: 200,
+    indexable: true,
+    canonical: 'self',
+    inSitemap: true,
+    access: 'public',
+    owner: 'Jane',
+    recordedAt: '2026-09-01T09:00:00Z',
+  };
+  const problemsOf = (rows: unknown): readonly string[] => {
+    try {
+      parseInputs({ urlMatrix: rows });
+      return [];
+    } catch (error) {
+      return (error as InputsError).problems;
+    }
+  };
+
+  it('reads a row, with priority and environment optional', () => {
+    const { urlMatrix } = parseInputs({
+      urlMatrix: [row, { ...row, pattern: '/a/**', priority: undefined, canonical: 'https://example.com/b', environment: ' staging ' }],
+    });
+    expect(urlMatrix?.[0]).toMatchObject({ pattern: row.pattern, priority: true, status: 200, canonical: 'self', access: 'public' });
+    expect(urlMatrix?.[1]).toMatchObject({ canonical: 'https://example.com/b', environment: 'staging' });
+    expect(urlMatrix?.[1]).not.toHaveProperty('priority');
+  });
+
+  it('refuses what is not a list, and unknown fields', () => {
+    expect(problemsOf({})).toEqual(['urlMatrix: expected a list']);
+    expect(problemsOf([{ ...row, extra: 1 }])).toEqual(['urlMatrix[0].extra: unknown field']);
+  });
+
+  it('lists every bad field by path', () => {
+    const problems = problemsOf([
+      { ...row, pattern: 'products', status: '200', indexable: 'yes', canonical: 'elsewhere', inSitemap: undefined, access: 'secret', priority: 1 },
+    ]);
+    expect(problems).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('urlMatrix[0].pattern'),
+        'urlMatrix[0].status: expected an HTTP status code from 100 to 599',
+        'urlMatrix[0].indexable: expected true or false',
+        expect.stringContaining('urlMatrix[0].canonical'),
+        'urlMatrix[0].inSitemap: required',
+        expect.stringContaining('urlMatrix[0].access'),
+        'urlMatrix[0].priority: expected true or false',
+      ]),
+    );
+  });
+
+  it('refuses a duplicate pattern in one environment, not across environments', () => {
+    expect(problemsOf([row, row])).toEqual([expect.stringContaining('duplicate pattern')]);
+    expect(problemsOf([row, { ...row, environment: 'staging' }])).toEqual([]);
+  });
+});

@@ -17,7 +17,7 @@
  */
 
 import { chromium } from 'playwright';
-import type { Browser, Page } from 'playwright';
+import type { Browser, Page, Request } from 'playwright';
 import { AxeBuilder } from '@axe-core/playwright';
 
 export interface AxeViolation {
@@ -37,6 +37,21 @@ export interface AccessibilityResult {
   readonly error: string | null;
 }
 
+/** One request the browser made while building a page, the document itself included. */
+export interface RenderedRequest {
+  readonly url: string;
+  readonly method: string;
+  /** Playwright's resource type: `document`, `script`, `image`, `fetch`, … */
+  readonly resourceType: string;
+  /** Null when no response arrived, which is what `failed` says why. */
+  readonly status: number | null;
+  /** True when the request errored before a response (blocked, refused, aborted). */
+  readonly failed: boolean;
+}
+
+/** A page's requests are recorded up to this many; the rest are counted out, not kept. */
+export const MAX_RENDERED_REQUESTS = 500;
+
 export interface RenderResult {
   readonly requestedUrl: string;
   /** Where the browser ended up, after any redirect or client-side navigation. */
@@ -47,6 +62,10 @@ export interface RenderResult {
   readonly totalMs: number | null;
   /** Set when no render was obtained at all. Never a verdict about the site. */
   readonly error: string | null;
+  /** Every request the page made up to `MAX_RENDERED_REQUESTS`. Present whenever a render was obtained. */
+  readonly requests?: readonly RenderedRequest[];
+  /** True when the page made more requests than `requests` holds. */
+  readonly requestsTruncated?: boolean;
   /** Present only when `RenderOptions.accessibility` asked for axe and a render was obtained. */
   readonly accessibility?: AccessibilityResult;
 }
@@ -131,6 +150,32 @@ export async function renderPage(url: string, options: RenderOptions): Promise<R
       page.close().catch(() => {});
     };
     signal?.addEventListener('abort', onAbort, { once: true });
+    const requests: { -readonly [K in keyof RenderedRequest]: RenderedRequest[K] }[] = [];
+    const byRequest = new Map<Request, (typeof requests)[number]>();
+    let requestsTruncated = false;
+    page.on('request', (request) => {
+      if (requests.length >= MAX_RENDERED_REQUESTS) {
+        requestsTruncated = true;
+        return;
+      }
+      const entry = {
+        url: request.url(),
+        method: request.method(),
+        resourceType: request.resourceType(),
+        status: null,
+        failed: false,
+      };
+      requests.push(entry);
+      byRequest.set(request, entry);
+    });
+    page.on('response', (response) => {
+      const entry = byRequest.get(response.request());
+      if (entry !== undefined) entry.status = response.status();
+    });
+    page.on('requestfailed', (request) => {
+      const entry = byRequest.get(request);
+      if (entry !== undefined) entry.failed = true;
+    });
     try {
       const response = await page.goto(url, { waitUntil: 'load', timeout: timeoutMs });
       if (aborted()) return failure('cancelled');
@@ -144,6 +189,8 @@ export async function renderPage(url: string, options: RenderOptions): Promise<R
         html,
         totalMs: Math.round(performance.now() - started),
         error: null,
+        requests: requests.map((r) => ({ ...r })),
+        requestsTruncated,
         ...(accessibility === undefined ? {} : { accessibility }),
       };
     } catch (cause) {

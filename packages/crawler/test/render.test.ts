@@ -27,6 +27,31 @@ async function startServer(): Promise<string> {
       response.end('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Axe</title></head><body><main><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw="></main></body></html>');
       return;
     }
+    if (path === '/subresources') {
+      response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      response.end('<!doctype html><html><head><title>Sub</title><script src="/ok.js"></script><script src="/missing.js"></script></head><body></body></html>');
+      return;
+    }
+    if (path === '/ok.js') {
+      response.writeHead(200, { 'content-type': 'text/javascript' });
+      response.end('');
+      return;
+    }
+    if (path === '/many') {
+      response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      response.end(`<!doctype html><html><head><title>Many</title></head><body><script>for (let i = 0; i < 520; i++) fetch('/n/' + i).catch(() => {});</script></body></html>`);
+      return;
+    }
+    if (path.startsWith('/n/')) {
+      response.writeHead(204);
+      response.end();
+      return;
+    }
+    if (path === '/missing.js') {
+      response.writeHead(404);
+      response.end();
+      return;
+    }
     if (path === '/slow') {
       // Never responds within renderPage's timeout.
       return;
@@ -104,6 +129,23 @@ describe('renderPage', () => {
     });
     expect(result.error).toBe('cancelled');
   });
+
+  it('records each request the page made with its status', async () => {
+    const origin = await startServer();
+    const result = await renderPage(`${origin}/subresources`, { userAgent: 'seo-optimizer/0.1 (+test)' });
+    expect(result.requestsTruncated).toBe(false);
+    const byPath = new Map((result.requests ?? []).map((r) => [new URL(r.url).pathname, r]));
+    expect(byPath.get('/subresources')).toMatchObject({ method: 'GET', resourceType: 'document', status: 200, failed: false });
+    expect(byPath.get('/ok.js')).toMatchObject({ resourceType: 'script', status: 200 });
+    expect(byPath.get('/missing.js')).toMatchObject({ resourceType: 'script', status: 404 });
+  }, 30_000);
+
+  it('caps a page at 500 requests and says it did', async () => {
+    const origin = await startServer();
+    const result = await renderPage(`${origin}/many`, { userAgent: 'seo-optimizer/0.1 (+test)' });
+    expect(result.requests).toHaveLength(500);
+    expect(result.requestsTruncated).toBe(true);
+  }, 30_000);
 
   it('records axe-core violations only when asked', async () => {
     const origin = await startServer();

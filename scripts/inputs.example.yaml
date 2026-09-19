@@ -163,5 +163,35 @@ searchConsole:
       errors: 0
   manualActions: []
   securityIssues: []
+  # pageIndexing: the Page indexing report's not-indexed rows, an http(s) url and
+  # the report's reason. urlInspection: one URL Inspection result per url, in
+  # the tool's words; googleCanonical is optional. performance: clicks and
+  # impressions (whole numbers, clicks no more than impressions) for a page,
+  # and for a query when the export is split by one; period is the date range
+  # as exported. links: the Links report's linking sites and their link counts.
+  # Each list refuses a repeated row.
+  pageIndexing:
+    - url: https://example.com/old-page
+      reason: Crawled - currently not indexed
+  urlInspection:
+    - url: https://example.com/
+      verdict: Pass
+      coverage: Submitted and indexed
+      googleCanonical: https://example.com/
+      robots: Allowed
+      indexing: Indexing allowed
+  performance:
+    - page: https://example.com/
+      clicks: 120
+      impressions: 4300
+      period: 2026-06-01/2026-08-31
+    - page: https://example.com/
+      query: example shoes
+      clicks: 14
+      impressions: 310
+      period: 2026-06-01/2026-08-31
+  links:
+    - site: news.example.org
+      count: 12
   owner: Jane Doe
   recordedAt: 2026-09-01T09:00:00Z

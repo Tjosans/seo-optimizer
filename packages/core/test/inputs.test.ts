@@ -304,6 +304,56 @@ describe('searchConsole', () => {
   });
 });
 
+describe('searchConsole, part two', () => {
+  const base = { owner: 'Jane', recordedAt: '2026-09-01T09:00:00Z' };
+  const part = {
+    ...base,
+    pageIndexing: [{ url: 'https://example.com/a', reason: 'Crawled - currently not indexed' }],
+    urlInspection: [
+      { url: 'https://example.com/', verdict: 'Pass', coverage: 'Submitted and indexed', googleCanonical: 'https://example.com/', robots: 'Allowed', indexing: 'Indexing allowed' },
+      { url: 'https://example.com/b', verdict: 'Neutral', coverage: 'Discovered - currently not indexed', robots: 'Allowed', indexing: 'Indexing allowed' },
+    ],
+    performance: [
+      { page: 'https://example.com/', clicks: 10, impressions: 200, period: '2026-06-01/2026-08-31' },
+      { page: 'https://example.com/', query: 'shoes', clicks: 3, impressions: 40, period: '2026-06-01/2026-08-31' },
+    ],
+    links: [{ site: 'news.example.org', count: 12 }],
+  };
+  const run = (patch: object) => () => parseInputs({ searchConsole: { ...part, ...patch } });
+
+  it('reads each subsection', () => {
+    const sc = parseInputs({ searchConsole: part }).searchConsole;
+    expect(sc?.pageIndexing).toEqual(part.pageIndexing);
+    expect(sc?.urlInspection?.[0]?.googleCanonical).toBe('https://example.com/');
+    expect(sc?.urlInspection?.[1]).not.toHaveProperty('googleCanonical');
+    expect(sc?.performance?.[0]).not.toHaveProperty('query');
+    expect(sc?.performance?.[1]?.query).toBe('shoes');
+    expect(sc?.links).toEqual([{ site: 'news.example.org', count: 12 }]);
+  });
+
+  it('keeps an empty list as an answer', () => {
+    const sc = parseInputs({ searchConsole: { ...base, pageIndexing: [], links: [] } }).searchConsole;
+    expect(sc?.pageIndexing).toEqual([]);
+    expect(sc?.urlInspection).toBeUndefined();
+  });
+
+  it('refuses what an export would not hold, listing every path', () => {
+    expect(run({ pageIndexing: [{ url: 'a/b', reason: 'x' }] })).toThrow(/pageIndexing\[0\]\.url: expected an http\(s\) URL/);
+    expect(run({ pageIndexing: [{ url: 'https://example.com/a' }] })).toThrow(/pageIndexing\[0\]\.reason: required/);
+    expect(run({ pageIndexing: [{ url: 'https://example.com/a', reason: 'x', extra: 1 }] })).toThrow(/pageIndexing\[0\]\.extra: unknown field/);
+    expect(run({ urlInspection: [part.urlInspection[0], part.urlInspection[0]] })).toThrow(/duplicate inspection/);
+    expect(run({ urlInspection: [{ ...part.urlInspection[0], robots: undefined }] })).toThrow(/urlInspection\[0\]\.robots: required/);
+    expect(run({ urlInspection: [{ ...part.urlInspection[0], googleCanonical: 'none' }] })).toThrow(/googleCanonical: expected an http/);
+    expect(run({ performance: [{ ...part.performance[0], clicks: -1 }] })).toThrow(/performance\[0\]\.clicks/);
+    expect(run({ performance: [{ ...part.performance[0], impressions: '5' }] })).toThrow(/performance\[0\]\.impressions/);
+    expect(run({ performance: [{ ...part.performance[0], clicks: 500 }] })).toThrow(/more clicks than impressions/);
+    expect(run({ performance: [part.performance[0], part.performance[0]] })).toThrow(/duplicate row/);
+    expect(run({ links: [{ site: 'a.org', count: 1.5 }] })).toThrow(/links\[0\]\.count/);
+    expect(run({ links: [{ site: 'a.org', count: 1 }, { site: 'a.org', count: 2 }] })).toThrow(/duplicate site/);
+    expect(run({ links: {} })).toThrow(/links: expected a list/);
+  });
+});
+
 describe('scripts/inputs.example.yaml', () => {
   it('parses, searchConsole included', async () => {
     const { readFileSync } = await import('node:fs');
@@ -311,5 +361,7 @@ describe('scripts/inputs.example.yaml', () => {
     const text = readFileSync(new URL('../../../scripts/inputs.example.yaml', import.meta.url), 'utf8');
     const inputs = parseInputs(parse(text));
     expect(inputs.searchConsole?.property?.type).toBe('domain');
+    expect(inputs.searchConsole?.urlInspection).toHaveLength(1);
+    expect(inputs.searchConsole?.links?.[0]?.count).toBe(12);
   });
 });

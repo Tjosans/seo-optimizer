@@ -281,16 +281,58 @@ export interface SearchConsoleSecurityIssue {
   readonly detectedAt?: string;
 }
 
+/** One row of the Page indexing report: a URL Search Console did not index, and the reason it gives. */
+export interface SearchConsolePageIndexing {
+  readonly url: string;
+  /** The report's own words: `Crawled - currently not indexed`, `Duplicate without user-selected canonical`… */
+  readonly reason: string;
+}
+
+/** One URL Inspection result, in the inspection tool's own words. */
+export interface SearchConsoleUrlInspection {
+  readonly url: string;
+  /** `Pass`, `Neutral`, `Fail`… */
+  readonly verdict: string;
+  /** The coverage state: `Submitted and indexed`, `Discovered - currently not indexed`… */
+  readonly coverage: string;
+  /** The canonical Google selected; absent when the tool shows none. */
+  readonly googleCanonical?: string;
+  /** Whether robots.txt allowed the crawl: `Allowed`, `Blocked`… */
+  readonly robots: string;
+  /** Whether indexing was allowed: `Indexing allowed`, `Blocked by 'noindex' tag`… */
+  readonly indexing: string;
+}
+
+/** One row of the Performance report: clicks and impressions for a page, and for a query when the export is split by one. */
+export interface SearchConsolePerformance {
+  readonly page: string;
+  readonly query?: string;
+  readonly clicks: number;
+  readonly impressions: number;
+  /** The date range the numbers cover, as exported: `2026-06-01/2026-08-31`, `Last 3 months`… */
+  readonly period: string;
+}
+
+/** One row of the Links report: a site linking to the property, and how many links it has. */
+export interface SearchConsoleLink {
+  readonly site: string;
+  readonly count: number;
+}
+
 /**
  * What a person exports from Search Console. An absent subsection was not
- * supplied; an empty `manualActions` or `securityIssues` list is the report
- * saying there is nothing, which is an answer, not a gap.
+ * supplied; an empty list is the report saying there is nothing, which is an
+ * answer, not a gap.
  */
 export interface SearchConsoleRecord extends InputRecord {
   readonly property?: SearchConsoleProperty;
   readonly sitemaps?: readonly SearchConsoleSitemap[];
   readonly manualActions?: readonly SearchConsoleManualAction[];
   readonly securityIssues?: readonly SearchConsoleSecurityIssue[];
+  readonly pageIndexing?: readonly SearchConsolePageIndexing[];
+  readonly urlInspection?: readonly SearchConsoleUrlInspection[];
+  readonly performance?: readonly SearchConsolePerformance[];
+  readonly links?: readonly SearchConsoleLink[];
 }
 
 /** Every section an audit can be given. */
@@ -888,7 +930,7 @@ function parseDomainHistory(value: unknown, problem: (path: string, text: string
   return ok ? { ...record, checks, blockingIssues } : null;
 }
 
-const SEARCH_CONSOLE_KEYS = ['property', 'sitemaps', 'manualActions', 'securityIssues'];
+const SEARCH_CONSOLE_KEYS = ['property', 'sitemaps', 'manualActions', 'securityIssues', 'pageIndexing', 'urlInspection', 'performance', 'links'];
 
 function parseSearchConsole(value: unknown, problem: (path: string, text: string) => void): SearchConsoleRecord | null {
   const record = parseInputRecord('searchConsole', value, problem, SEARCH_CONSOLE_KEYS);
@@ -948,7 +990,25 @@ function parseSearchConsole(value: unknown, problem: (path: string, text: string
     sitemaps?: SearchConsoleSitemap[];
     manualActions?: SearchConsoleManualAction[];
     securityIssues?: SearchConsoleSecurityIssue[];
+    pageIndexing?: SearchConsolePageIndexing[];
+    urlInspection?: SearchConsoleUrlInspection[];
+    performance?: SearchConsolePerformance[];
+    links?: SearchConsoleLink[];
   } = {};
+  const count = (node: Node, path: string, key: string): number | null => {
+    const raw = node[key];
+    if (typeof raw === 'number' && Number.isInteger(raw) && raw >= 0) return raw;
+    fail(`${path}.${key}`, missing(raw) ? 'required' : 'expected a whole number of 0 or more');
+    return null;
+  };
+  const httpUrl = (node: Node, path: string, key: string): string | null => {
+    const raw = text(node, path, key);
+    if (raw !== null && !isHttpUrl(raw)) {
+      fail(`${path}.${key}`, `expected an http(s) URL: ${raw}`);
+      return null;
+    }
+    return raw;
+  };
 
   const propertyRaw = value['property'];
   if (!missing(propertyRaw)) {
@@ -1026,6 +1086,88 @@ function parseSearchConsole(value: unknown, problem: (path: string, text: string
     })
   ) {
     out.securityIssues = securityIssues;
+  }
+  const pageIndexing: SearchConsolePageIndexing[] = [];
+  const indexingSeen = new Set<string>();
+  if (
+    rows('pageIndexing', (node, path) => {
+      unknownKeys(node, path, ['url', 'reason']);
+      const url = httpUrl(node, path, 'url');
+      const reason = text(node, path, 'reason');
+      if (url !== null && reason !== null) {
+        if (indexingSeen.has(`${url}\n${reason}`)) fail(`${path}.url`, `duplicate row: ${url}`);
+        indexingSeen.add(`${url}\n${reason}`);
+        pageIndexing.push({ url, reason });
+      }
+    })
+  ) {
+    out.pageIndexing = pageIndexing;
+  }
+
+  const urlInspection: SearchConsoleUrlInspection[] = [];
+  const inspected = new Set<string>();
+  if (
+    rows('urlInspection', (node, path) => {
+      unknownKeys(node, path, ['url', 'verdict', 'coverage', 'googleCanonical', 'robots', 'indexing']);
+      const url = httpUrl(node, path, 'url');
+      if (url !== null) {
+        if (inspected.has(url)) fail(`${path}.url`, `duplicate inspection: ${url}`);
+        inspected.add(url);
+      }
+      const verdict = text(node, path, 'verdict');
+      const coverage = text(node, path, 'coverage');
+      const hasCanonical = !missing(node['googleCanonical']);
+      const googleCanonical = hasCanonical ? httpUrl(node, path, 'googleCanonical') : null;
+      const robots = text(node, path, 'robots');
+      const indexing = text(node, path, 'indexing');
+      if (url !== null && verdict !== null && coverage !== null && robots !== null && indexing !== null && (googleCanonical !== null || !hasCanonical)) {
+        urlInspection.push({ url, verdict, coverage, ...(googleCanonical !== null ? { googleCanonical } : {}), robots, indexing });
+      }
+    })
+  ) {
+    out.urlInspection = urlInspection;
+  }
+
+  const performance: SearchConsolePerformance[] = [];
+  const perfSeen = new Set<string>();
+  if (
+    rows('performance', (node, path) => {
+      unknownKeys(node, path, ['page', 'query', 'clicks', 'impressions', 'period']);
+      const page = httpUrl(node, path, 'page');
+      const hasQuery = !missing(node['query']);
+      const query = hasQuery ? text(node, path, 'query') : null;
+      const clicks = count(node, path, 'clicks');
+      const impressions = count(node, path, 'impressions');
+      if (clicks !== null && impressions !== null && clicks > impressions) fail(`${path}.clicks`, 'more clicks than impressions');
+      const period = text(node, path, 'period');
+      if (page !== null && period !== null) {
+        const key = `${page}\n${query ?? ''}\n${period}`;
+        if (perfSeen.has(key)) fail(`${path}.page`, `duplicate row: ${page}`);
+        perfSeen.add(key);
+      }
+      if (page !== null && clicks !== null && impressions !== null && period !== null && (query !== null || !hasQuery)) {
+        performance.push({ page, ...(query !== null ? { query } : {}), clicks, impressions, period });
+      }
+    })
+  ) {
+    out.performance = performance;
+  }
+
+  const links: SearchConsoleLink[] = [];
+  const linkSeen = new Set<string>();
+  if (
+    rows('links', (node, path) => {
+      unknownKeys(node, path, ['site', 'count']);
+      const site = text(node, path, 'site');
+      const linkCount = count(node, path, 'count');
+      if (site !== null) {
+        if (linkSeen.has(site)) fail(`${path}.site`, `duplicate site: ${site}`);
+        linkSeen.add(site);
+      }
+      if (site !== null && linkCount !== null) links.push({ site, count: linkCount });
+    })
+  ) {
+    out.links = links;
   }
   return ok ? { ...record, ...out } : null;
 }

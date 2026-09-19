@@ -147,6 +147,27 @@ and says whether coverage and verdicts moved, and which way — which is how an
 engine change is shown to have improved what an audit can say, rather than
 merely having passed its tests.
 
+## Guarding a release from a site's own CI
+
+```bash
+npm run guard -- https://staging.example.com --build "$GITHUB_SHA"
+```
+
+`guard` crawls the URL (default 50 pages, depth 3; `--pages`, `--depth`,
+`--delay`, `--timeout` adjust) and runs the four detectors behind check 1.10:
+noindex (`metadata-completeness`), canonical (`canonicalization`,
+`sitemap-canonical-agreement`), robots (`robots-txt`) and critical links
+(`broken-links`). It prints each failure and the build it judged (`--build`).
+
+Exit codes: `0` no `fail`; `1` at least one `fail`, so the CI step fails;
+`2` the guard could not run. A `warn` is printed as a count and never blocks.
+
+A GitHub Actions step, after the site is deployed to a preview or staging URL:
+
+```yaml
+- run: npm ci && npm run guard -- ${{ env.PREVIEW_URL }} --build ${{ github.sha }}
+```
+
 ## Entering releases and review runs
 
 READY FOR CUTOVER is assessed against a site's release record and its review

@@ -64,6 +64,13 @@
       "when": 1789598886089,
       "tag": "0008_bright_maverick",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789840671156,
+      "tag": "0009_dashing_thena",
+      "breakpoints": true
     }
   ]
 }

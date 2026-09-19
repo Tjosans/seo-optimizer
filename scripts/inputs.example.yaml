@@ -1,0 +1,197 @@
+# Evidence a person supplies to an audit, for `npm run analyze -- <url> --inputs <this file>`.
+#
+# Each kind of evidence is a named section, added with the detector that reads
+# it: an unknown section, a number where text belongs, or a date that does not
+# parse is refused.
+#
+# Every record in a section carries the same three fields:
+#
+#   owner: Jane Doe                      # who answers for it; blank holds the check
+#   recordedAt: 2026-09-01T09:00:00Z     # ISO 8601 with a zone
+#   nextReviewAt: 2027-03-01T09:00:00Z   # optional; once past, the check is held
+#
+# A section left out makes the detectors that read it not-applicable.
+#
+# experiments (1.19, experiment-cloaking-divergence): tests served from their
+# own URLs. A variant still indexable and canonical to itself, or an experiment
+# past retireBy at crawl time, fails; a variant the crawl never reached warns.
+experiments:
+  - controlUrl: https://example.com/pricing
+    variantUrls:
+      - https://example.com/pricing-b
+    method: redirect               # free text: how variants are served
+    retireBy: 2026-12-01T00:00:00Z
+    owner: Jane Doe
+    recordedAt: 2026-09-01T09:00:00Z
+
+# environments (1.8, staging-protection): the origins of the site's staging and
+# preview environments. The crawl requests each root once, with no credentials.
+# An answer of 200 with HTML fails; a redirect to a login page warns (protected,
+# but by a page rather than a refusal); 401, 403, 404 or no answer passes.
+# At least one of staging, preview is required.
+environments:
+  staging: https://staging.example.com
+  preview: https://preview.example.com
+  owner: Jane Doe
+  recordedAt: 2026-09-01T09:00:00Z
+
+# ciGuard (1.10, ci-seo-guards): the CI check that stops SEO regressions
+# shipping. It fails unless seededDefectsCaught names all of noindex, canonical,
+# crawler-access and critical-link (defects planted in a build and caught) and
+# cleanRunPassed is true (an unmodified build passed).
+ciGuard:
+  build: ci-run-1842
+  ranAt: 2026-09-10T08:00:00Z
+  seededDefectsCaught: [noindex, canonical, crawler-access, critical-link]
+  cleanRunPassed: true
+  owner: Jane Doe
+  recordedAt: 2026-09-10T09:00:00Z
+
+# ciRules (1.11, ci-extended-checks): the extended rules the pipeline runs.
+# falsePositiveRate is a fraction from 0 to 1. A rule with no owner or severity,
+# or a rate over 0.1, warns; the check is assisted, so it never passes alone.
+ciRules:
+  - rule: no-orphan-pages
+    severity: block
+    falsePositiveRate: 0.02
+    owner: Jane Doe
+    recordedAt: 2026-09-10T09:00:00Z
+
+# urlMatrix (0.3): what each URL pattern must do at launch, one row per pattern.
+# pattern is an exact URL or a glob (* within a path segment, ** across
+# segments), absolute or a path from the site root. status is the HTTP status
+# expected; canonical is self, none or the URL it points to; access is public
+# or private. priority (a launch template) and environment are optional.
+urlMatrix:
+  - pattern: https://example.com/products/*
+    priority: true
+    status: 200
+    indexable: true
+    canonical: self
+    inSitemap: true
+    access: public
+    owner: Jane Doe
+    recordedAt: 2026-09-01T09:00:00Z
+  - pattern: /account/**
+    status: 200
+    indexable: false
+    canonical: none
+    inSitemap: false
+    access: private
+    environment: production
+    owner: Jane Doe
+    recordedAt: 2026-09-01T09:00:00Z
+
+# canary (5.5, availability-canary): the URLs watched after launch and the alert
+# that watches them. Fails a canary URL the crawl got a non-200 from, a test
+# alert delivered later than targetMinutes after lastTestAlertAt, and an alert
+# with no deliveredAt. lastTestAlertAt and deliveredAt are optional; without a
+# test alert the check is held.
+canary:
+  urls: [https://example.com/]
+  targetMinutes: 5
+  recipient: oncall@example.com
+  lastTestAlertAt: 2026-09-10T08:00:00Z
+  deliveredAt: 2026-09-10T08:03:00Z
+  owner: Jane Doe
+  recordedAt: 2026-09-10T09:00:00Z
+
+# redirectMap (0.8, migration): what each old URL must do after the move.
+# kind is move (the site changes address or structure: name oldOrigin, list an
+# entry per old URL) or history-only (nothing to carry over; entries may be
+# left out). from is an absolute URL or a path from the old origin. expect is
+# 301, 308, 404 or 410; a 301 or 308 needs to (a URL or path), a 404 or 410
+# takes none. A repeated from is refused. changeOfAddress (5.2) is the Search
+# Console move of oldOrigin: status pending or accepted, submittedAt a date and
+# time; a pending one holds migration-redirects-live.
+redirectMap:
+  kind: move
+  oldOrigin: https://old.example.com
+  changeOfAddress:
+    status: pending
+    submittedAt: "2026-09-10T09:00:00Z"
+  entries:
+    - from: /products/blue-widget
+      expect: 301
+      to: https://example.com/products/blue-widget
+    - from: /about-us
+      expect: 308
+      to: /about
+    - from: /discontinued/widget
+      expect: 410
+  owner: Jane Doe
+  recordedAt: 2026-09-10T09:00:00Z
+
+# domainHistory (0.8): what was learned about the past of an inherited domain.
+# checks lists what was looked at (name, result in your words, checkedAt); a
+# manual-actions check and an archive check (a name containing "manual", and
+# one containing "archive" or "wayback") are required. blockingIssues lists
+# what the history turned up; any with resolved: false fails inherited-domain-history.
+domainHistory:
+  checks:
+    - name: Manual actions review
+      result: none found
+      checkedAt: 2026-09-01T09:00:00Z
+    - name: Wayback archive review
+      result: previously a small blog, no spam
+      checkedAt: 2026-09-01T09:30:00Z
+  blockingIssues:
+    - issue: Spammy backlinks inherited from the previous owner
+      resolved: true
+  owner: Jane Doe
+  recordedAt: 2026-09-01T10:00:00Z
+
+# searchConsole: what a person exports from Search Console. Every subsection is
+# optional; an empty manualActions or securityIssues list is the report saying
+# "no issues detected", which is an answer, not a gap. property.type is domain
+# or url-prefix (a url-prefix url must be an http(s) URL); each owner needs an
+# email and a verifiedAt. sitemaps rows carry the report's own status text and a
+# whole-number error count; a sitemap listed twice is refused. A manual action's
+# scope is site-wide or partial; detectedAt is optional on it and on a
+# security issue.
+searchConsole:
+  property:
+    type: domain
+    url: sc-domain:example.com
+    owners:
+      - email: jane@example.com
+        verifiedAt: 2026-08-01T09:00:00Z
+  sitemaps:
+    - url: https://example.com/sitemap.xml
+      submittedAt: 2026-08-02T09:00:00Z
+      status: Success
+      errors: 0
+  manualActions: []
+  securityIssues: []
+  # pageIndexing: the Page indexing report's not-indexed rows, an http(s) url and
+  # the report's reason. urlInspection: one URL Inspection result per url, in
+  # the tool's words; googleCanonical is optional. performance: clicks and
+  # impressions (whole numbers, clicks no more than impressions) for a page,
+  # and for a query when the export is split by one; period is the date range
+  # as exported. links: the Links report's linking sites and their link counts.
+  # Each list refuses a repeated row.
+  pageIndexing:
+    - url: https://example.com/old-page
+      reason: Crawled - currently not indexed
+  urlInspection:
+    - url: https://example.com/
+      verdict: Pass
+      coverage: Submitted and indexed
+      googleCanonical: https://example.com/
+      robots: Allowed
+      indexing: Indexing allowed
+  performance:
+    - page: https://example.com/
+      clicks: 120
+      impressions: 4300
+      period: 2026-06-01/2026-08-31
+    - page: https://example.com/
+      query: example shoes
+      clicks: 14
+      impressions: 310
+      period: 2026-06-01/2026-08-31
+  links:
+    - site: news.example.org
+      count: 12
+  owner: Jane Doe
+  recordedAt: 2026-09-01T09:00:00Z

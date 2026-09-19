@@ -1,3 +1,4 @@
+export * from './guard.js';
 export * from './matrix.js';
 export * from './previous.js';
 export * from './registry.js';

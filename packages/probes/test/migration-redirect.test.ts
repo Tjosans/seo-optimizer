@@ -1,0 +1,212 @@
+/** `migration-redirect-test` (4.8): what the redirect-map pass saw against what the map promised. */
+
+import { describe, expect, it } from 'vitest';
+import type { AuxiliaryFetch, CrawlResult, FetchResult } from '@seo/crawler';
+import { probeById } from '@seo/probes';
+import type { Observation, SiteProbe } from '@seo/probes';
+
+const ORIGIN = 'https://www.example.com';
+const OLD = 'https://old.example.com';
+
+const record = (entries: unknown[]) => ({
+  owner: 'Jane',
+  recordedAt: '2026-09-01T00:00:00.000Z',
+  kind: 'move',
+  oldOrigin: OLD,
+  entries,
+});
+
+const hop = (url: string, status: number, location: string) => ({ url, status, location });
+
+const seen = (
+  path: string,
+  over: { chain?: ReturnType<typeof hop>[]; status?: number | null; finalUrl?: string; error?: string | null },
+): AuxiliaryFetch => {
+  const url = `${OLD}${path}`;
+  return {
+    reason: 'redirect-map',
+    url,
+    fetch: {
+      requestedUrl: url,
+      finalUrl: over.finalUrl ?? url,
+      status: over.status === undefined ? 200 : over.status,
+      headers: {},
+      redirectChain: over.chain ?? [],
+      body: '',
+      byteLength: 0,
+      truncated: false,
+      contentType: null,
+      ttfbMs: null,
+      totalMs: null,
+      error: over.error ?? null,
+    } as unknown as FetchResult,
+  };
+};
+
+const moved = (path: string, to: string, status = 301): AuxiliaryFetch =>
+  seen(path, { chain: [hop(`${OLD}${path}`, status, to)], finalUrl: `${ORIGIN}${to}` });
+
+const check = (map: unknown, auxiliary: AuxiliaryFetch[]): Observation =>
+  (probeById('migration-redirect-test') as SiteProbe).run({
+    origin: ORIGIN,
+    flags: [],
+    crawl: {
+      crawledAt: '2026-09-19T12:00:00.000Z',
+      seeds: [`${ORIGIN}/`],
+      pages: [],
+      robots: { groups: [], sitemaps: [], absent: true },
+      robotsTxt: null,
+      sitemapUrls: [],
+      sitemaps: [],
+      sitemapVideos: [],
+      sitemapNews: [],
+      blockedByRobots: [],
+      notReached: [],
+      auxiliary,
+    } satisfies CrawlResult,
+    ...(map === undefined ? {} : { inputs: { redirectMap: map } as never }),
+  });
+
+const entry = (from: string, to: string, expect = 301) => ({ from, expect, to });
+
+describe('migration-redirect-test', () => {
+  it('is not applicable without a map or entries', () => {
+    expect(check(undefined, []).outcome).toBe('not-applicable');
+    expect(check(record([]), []).outcome).toBe('not-applicable');
+  });
+
+  it('passes a one-hop redirect to the mapped target and a retired 404', () => {
+    const map = record([entry('/a', '/b'), { from: '/gone', expect: 404 }]);
+    expect(check(map, [moved('/a', '/b'), seen('/gone', { status: 404 })]).outcome).toBe('pass');
+  });
+
+  it('fails the wrong status, wrong target, extra hops and a loop', () => {
+    const map = record([entry('/a', '/b')]);
+    expect(check(map, [moved('/a', '/b', 302)]).outcome).toBe('fail');
+    expect(check(map, [moved('/a', '/other')]).outcome).toBe('fail');
+    expect(check(map, [seen('/a', { status: 200 })]).outcome).toBe('fail');
+    expect(
+      check(map, [
+        seen('/a', {
+          chain: [hop(`${OLD}/a`, 301, '/x'), hop(`${OLD}/x`, 301, '/b')],
+          finalUrl: `${ORIGIN}/b`,
+        }),
+      ]).outcome,
+    ).toBe('fail');
+    expect(check(map, [seen('/a', { status: null, error: 'redirect loop: target is the current URL' })]).outcome).toBe('fail');
+    expect(check(record([{ from: '/gone', expect: 410 }]), [seen('/gone', { status: 404 })]).outcome).toBe('fail');
+  });
+
+  it('warns on an entry the crawl never requested', () => {
+    const map = record([entry('/a', '/b'), entry('/c', '/d')]);
+    expect(check(map, [moved('/a', '/b')]).outcome).toBe('warn');
+  });
+});
+
+describe('migration-redirects-live', () => {
+  const live = (map: unknown, auxiliary: AuxiliaryFetch[], origin = ORIGIN, environments?: unknown): Observation =>
+    (probeById('migration-redirects-live') as SiteProbe).run({
+      origin,
+      flags: [],
+      crawl: {
+        crawledAt: '2026-09-19T12:00:00.000Z',
+        seeds: [`${origin}/`],
+        pages: [],
+        robots: { groups: [], sitemaps: [], absent: true },
+        robotsTxt: null,
+        sitemapUrls: [],
+        sitemaps: [],
+        sitemapVideos: [],
+        sitemapNews: [],
+        blockedByRobots: [],
+        notReached: [],
+        auxiliary,
+      } satisfies CrawlResult,
+      inputs: { redirectMap: map, ...(environments === undefined ? {} : { environments }) } as never,
+    });
+  const root = moved('/', '/');
+  const map = (extra: object = {}) => ({ ...record([entry('/a', '/b')]), ...extra });
+
+  it('is not applicable without a move map, on the old domain, or on a listed environment', () => {
+    expect(live(undefined, []).outcome).toBe('not-applicable');
+    expect(live({ ...map(), kind: 'history-only' }, []).outcome).toBe('not-applicable');
+    expect(live(map(), [], OLD).outcome).toBe('not-applicable');
+    expect(
+      live(map(), [], ORIGIN, {
+        owner: 'Jane',
+        recordedAt: '2026-09-01T00:00:00.000Z',
+        staging: ORIGIN,
+      }).outcome,
+    ).toBe('not-applicable');
+  });
+
+  it('passes when the entries and the old root redirect', () => {
+    expect(live(map(), [root, moved('/a', '/b')]).outcome).toBe('pass');
+  });
+
+  it('fails a root that no longer redirects, and entries that drift', () => {
+    expect(live(map(), [seen('/', { status: 200 }), moved('/a', '/b')]).outcome).toBe('fail');
+    expect(live(map(), [root, moved('/a', '/other')]).outcome).toBe('fail');
+  });
+
+  it('warns on an unrequested root and on a pending change of address', () => {
+    expect(live(map(), [moved('/a', '/b')]).outcome).toBe('warn');
+    const pending = { changeOfAddress: { status: 'pending', submittedAt: '2026-09-10T00:00:00Z' } };
+    expect(live(map(pending), [root, moved('/a', '/b')]).outcome).toBe('warn');
+    const done = { changeOfAddress: { status: 'accepted', submittedAt: '2026-09-10T00:00:00Z' } };
+    expect(live(map(done), [root, moved('/a', '/b')]).outcome).toBe('pass');
+  });
+});
+
+describe('post-migration-monitor', () => {
+  const page = (url: string, over: object = {}) => ({
+    url, status: 200, finalUrl: url, metaRobots: null, xRobotsTag: null, canonical: null, title: null,
+    jsonLdTypes: [], hreflang: [], ...over,
+  });
+  const previousOf = (pages: object[], probes: object[] = []) =>
+    ({ schema: 1, origin: ORIGIN, takenAt: '2026-09-10T00:00:00.000Z', pages, probes }) as never;
+  const passed = [{ probeId: 'migration-redirect-test', pageUrl: null, outcome: 'pass' }];
+  const map = record([entry('/a', '/b')]);
+
+  const monitor = (m: unknown, previous: unknown, auxiliary: AuxiliaryFetch[], pages: object[] = []): Observation =>
+    (probeById('post-migration-monitor') as SiteProbe).run({
+      origin: ORIGIN,
+      flags: [],
+      crawl: {
+        crawledAt: '2026-09-19T12:00:00.000Z', seeds: [`${ORIGIN}/`], pages: pages as never,
+        robots: { groups: [], sitemaps: [], absent: true }, robotsTxt: null, sitemapUrls: [], sitemaps: [],
+        sitemapVideos: [], sitemapNews: [], blockedByRobots: [], notReached: [], auxiliary,
+      } satisfies CrawlResult,
+      ...(previous === undefined ? {} : { previous: previous as never }),
+      ...(m === undefined ? {} : { inputs: { redirectMap: m } as never }),
+    });
+  const crawled = (url: string, status = 200, metaRobots: string | null = null) => ({
+    normalizedUrl: url,
+    fetch: { status, headers: {} },
+    extracted: { metaRobots, canonical: null },
+  });
+
+  it('is not applicable without a map or a previous audit', () => {
+    expect(monitor(undefined, previousOf([]), []).outcome).toBe('not-applicable');
+    expect(monitor(map, undefined, []).outcome).toBe('not-applicable');
+  });
+
+  it('passes when the map holds and the destination is still indexable', () => {
+    const previous = previousOf([page(`${ORIGIN}/b`)], passed);
+    expect(monitor(map, previous, [moved('/a', '/b')], [crawled(`${ORIGIN}/b`)]).outcome).toBe('pass');
+  });
+
+  it('fails a redirect that was right before and is wrong now', () => {
+    expect(monitor(map, previousOf([], passed), [moved('/a', '/other')]).outcome).toBe('fail');
+  });
+
+  it('warns, not fails, on an entry with no evidence it was ever right', () => {
+    expect(monitor(map, previousOf([]), [moved('/a', '/other')]).outcome).toBe('warn');
+  });
+
+  it('fails a destination that lost indexability', () => {
+    const previous = previousOf([page(`${ORIGIN}/b`)], passed);
+    expect(monitor(map, previous, [moved('/a', '/b')], [crawled(`${ORIGIN}/b`, 404)]).outcome).toBe('fail');
+    expect(monitor(map, previous, [moved('/a', '/b')], [crawled(`${ORIGIN}/b`, 200, 'noindex')]).outcome).toBe('fail');
+  });
+});

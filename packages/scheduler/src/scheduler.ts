@@ -53,7 +53,7 @@
  */
 
 import { and, eq, inArray, lt, sql } from 'drizzle-orm';
-import { parseAiCrawlerPolicy } from '@seo/core';
+import { parseAiCrawlerPolicy, parseInputs } from '@seo/core';
 import type { CrawlOptions } from '@seo/crawler';
 import { audits, sites } from '@seo/db';
 import type { Database } from '@seo/db';
@@ -256,6 +256,10 @@ export class AuditScheduler {
     // audit row written first would sit `pending` forever with no job to run
     // it, waiting for the reconcile sweep to explain itself.
     const aiPolicy = parseAiCrawlerPolicy(site.aiPolicy);
+    // The same rule covers supplied inputs: `parseInputs` throws `InputsError`
+    // before anything is written.
+    const parsedInputs = request.inputs === undefined ? null : parseInputs(request.inputs);
+    const inputs = parsedInputs !== null && Object.keys(parsedInputs).length > 0 ? parsedInputs : null;
     let releaseId: string | null = null;
     if (request.release !== undefined) {
       releaseId = await findRelease(this.#db, site.id, request.release);
@@ -264,7 +268,7 @@ export class AuditScheduler {
 
     const [audit] = await this.#db
       .insert(audits)
-      .values({ siteId: site.id, corpusVersion: request.corpusVersion, releaseId })
+      .values({ siteId: site.id, corpusVersion: request.corpusVersion, releaseId, inputs })
       .returning({ id: audits.id });
     if (audit === undefined) throw new Error('the audit row was not created');
 
@@ -275,6 +279,7 @@ export class AuditScheduler {
       flags: site.flags,
       profileCorpusVersion: site.profileCorpusVersion,
       aiPolicy,
+      inputs,
       corpusVersion: request.corpusVersion,
       options,
     };

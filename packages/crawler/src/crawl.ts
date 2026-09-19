@@ -147,6 +147,21 @@ export interface CrawlOptions {
    * really does get to decide what to do about it.
    */
   readonly userAgentTests?: readonly string[];
+  /**
+   * Root URLs of the site's staging and preview environments, each requested
+   * once, as any visitor arrives: no credentials, no cookies. Whether an
+   * environment answers a stranger is only observable by being one, which is
+   * what corpus check 1.8 means by protected. `name` says which environment
+   * the URL is, for the report; the list comes from the `environments` input.
+   */
+  readonly environments?: readonly { readonly name: string; readonly url: string }[];
+  /**
+   * The old URLs of a migration's redirect map, each requested once so the
+   * chain it answers with is on record. Absolute URLs; the list comes from the
+   * `redirectMap` input. Off the walk, paced like every other auxiliary
+   * request, at most `MAX_REDIRECT_MAP_FETCHES` of them.
+   */
+  readonly redirectMapUrls?: readonly string[];
   /** Injection seam for tests and for replaying a stored crawl. */
   readonly fetchImpl?: typeof fetchPage;
   /** Injection seam for the TLS handshake, like `fetchImpl` for requests. */
@@ -208,9 +223,18 @@ export interface AuxiliaryFetch {
    * `asset` — a stylesheet or script a page declared, fetched to weigh it
    *   against Googlebot's per-file fetch limit; `crawler-fetch-limit`
    *   (corpus 1.5) is the reader.
+   * `environment` — the root of a staging or preview environment the site
+   *   named, requested without credentials; `staging-protection` (corpus 1.8)
+   *   is the reader. `environment` carries which one.
+   * `redirect-map` — an old URL the migration's redirect map names, requested
+   *   as a visitor holding the old link would be. `fetch.redirectChain` holds
+   *   every hop, in order, and `fetch.finalUrl` where it ended. No probe reads
+   *   it yet.
    */
-  readonly reason: 'host-variant' | 'icon' | 'user-agent-test' | 'external-link' | 'asset';
+  readonly reason: 'host-variant' | 'icon' | 'user-agent-test' | 'external-link' | 'asset' | 'environment' | 'redirect-map';
   readonly url: string;
+  /** Which environment (`staging`, `preview`) an `environment` fetch was of. */
+  readonly environment?: string;
   /** The `user-agent` sent, when it was not the crawl's own. */
   readonly userAgent?: string;
   readonly fetch: FetchResult;
@@ -272,6 +296,12 @@ export interface SitemapNewsEntry extends SitemapNews {
 }
 
 export interface CrawlResult {
+  /**
+   * When the crawl began, as an ISO instant. The moment a probe judges
+   * "past its date" against, never the clock when the probe runs. Absent on a
+   * crawl recorded before this existed.
+   */
+  readonly crawledAt?: string;
   readonly seeds: readonly string[];
   readonly pages: readonly CrawledPage[];
   readonly robots: Robots;
@@ -519,6 +549,7 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
   const firstSeed = options.seeds[0];
   if (firstSeed === undefined) throw new Error('a crawl needs at least one seed URL');
 
+  const crawledAt = new Date().toISOString();
   stopIfCancelled(options.signal);
   const { robots, text: robotsTxt, status: robotsStatus } = await loadRobots(firstSeed, options, request);
   const delayMs = Math.max(options.requestDelayMs ?? 0, crawlDelayMs(robots, options.userAgent));
@@ -577,7 +608,7 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
   const aside = async (
     reason: AuxiliaryFetch['reason'],
     target: string,
-    extra: { readonly keepBytes?: boolean; readonly userAgent?: string } = {},
+    extra: { readonly keepBytes?: boolean; readonly userAgent?: string; readonly environment?: string } = {},
   ): Promise<void> => {
     if (!first) await sleep(delayMs, options.signal);
     first = false;
@@ -586,6 +617,7 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
       reason,
       url: target,
       ...(extra.userAgent === undefined ? {} : { userAgent: extra.userAgent }),
+      ...(extra.environment === undefined ? {} : { environment: extra.environment }),
       fetch: await request(target, {
         userAgent,
         ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
@@ -602,6 +634,10 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
     for (const agent of [...new Set(options.userAgentTests ?? [])].slice(0, MAX_UA_TESTS)) {
       stopIfCancelled(options.signal);
       await aside('user-agent-test', firstSeed, { userAgent: agent });
+    }
+    for (const environment of (options.environments ?? []).slice(0, MAX_ENVIRONMENTS)) {
+      stopIfCancelled(options.signal);
+      await aside('environment', environment.url, { environment: environment.name });
     }
   }
 
@@ -753,6 +789,14 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
       externalFetched += 1;
     }
 
+    // The old addresses a migration promised to carry over. `fetchPage`
+    // follows redirects one hop at a time and records each, so one request per
+    // URL leaves the whole chain on the record.
+    for (const url of [...new Set(options.redirectMapUrls ?? [])].slice(0, MAX_REDIRECT_MAP_FETCHES)) {
+      stopIfCancelled(options.signal);
+      await aside('redirect-map', url);
+    }
+
     // Googlebot fetches a page's CSS and JavaScript separately, each under its
     // own limit, but the walk only ever reads the document — `crawler-fetch-limit`
     // (1.5) cannot weigh what it never saw. Fetched once per URL, deduplicated
@@ -798,6 +842,7 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
   }
 
   return {
+    crawledAt,
     seeds: options.seeds,
     pages,
     robots,
@@ -841,6 +886,12 @@ const MAX_ICON_FETCHES = 3;
  * origin and a policy naming forty crawlers should not cost forty visits.
  */
 const MAX_UA_TESTS = 12;
+
+/** Staging and preview: the two an `environments` input can name. */
+const MAX_ENVIRONMENTS = 2;
+
+/** How many redirect-map URLs one crawl will request. */
+const MAX_REDIRECT_MAP_FETCHES = 500;
 
 /** How many external link targets one crawl will fetch, across every host. */
 const MAX_EXTERNAL_LINK_FETCHES = 30;

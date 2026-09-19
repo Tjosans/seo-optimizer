@@ -3,8 +3,8 @@
  *
  * 4.1 asks that "priority URLs have no broken links, missing metadata or
  * indexation conflicts", and declares a detector for each half a raw crawl can
- * see. The third, `raw-rendered-crawl-diff`, needs a rendered crawl (Phase 5),
- * so 4.1 stays ungraded until it exists; these two still report today.
+ * see. The third, `raw-rendered-crawl-diff`, needs a rendered crawl and is
+ * `not-applicable` without one.
  *
  * Both are site-scoped because both findings live between pages. A 404 is a
  * fact about one response, and `http-status` (1.4) already judges it; a broken
@@ -14,10 +14,14 @@
  * the site disagreeing, and neither page shows it on its own.
  */
 
-import { normalizeUrl } from '@seo/crawler';
+import { CI_GUARD_DEFECTS, redirectMapRootUrl, CI_RULE_MAX_FALSE_POSITIVE_RATE, environmentOrigins, inputRecordProblem } from '@seo/core';
+import type { RedirectMapRecord } from '@seo/core';
+import { isSameSite, normalizeUrl } from '@seo/crawler';
 import type { CrawledPage, CrawlResult, FetchResult } from '@seo/crawler';
 import type { SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
+import { previousPage } from '../previous.js';
+import { matrixMatcher, NOINDEX_DIRECTIVE } from './site.js';
 
 /** How many examples of each finding an observation carries. */
 const SAMPLES = 10;
@@ -424,4 +428,798 @@ function countMissing(gaps: readonly Missing[]): Record<string, number> {
   return counts;
 }
 
-export const qaProbes = [brokenLinks, metadataCompleteness];
+interface RenderDiff {
+  readonly url: string;
+  readonly issue: string;
+}
+
+/**
+ * A browser and a plain fetch land on the same page, with the same status, and
+ * reach the same site through the same links.
+ *
+ * Rendering is opt-in per crawl, so this is `not-applicable` when no page was
+ * rendered, and `error` when every render attempted failed. On each page with a
+ * render, `fail`:
+ * - the rendered `finalUrl` is not the raw one — a client-side redirect a
+ *   crawler that does not run scripts never follows;
+ * - the rendered status is not the raw one.
+ *
+ * `warn`: a same-site URL linked only from rendered DOM, anywhere in the
+ * crawl, and never from any page's raw HTML — reachable only by rendering, so
+ * a non-rendering crawler cannot discover it. `raw-rendered-parity` (1.1)
+ * judges the same difference one page at a time; here it is judged across the
+ * crawl, where a link one page adds may be one another carries in raw.
+ */
+export const rawRenderedCrawlDiff: SiteProbe = {
+  id: 'raw-rendered-crawl-diff',
+  scope: 'site',
+  title: 'A rendered crawl lands where the raw one does and finds no page only scripts link to',
+  run({ crawl, origin }) {
+    const rendered = crawl.pages.filter((page) => page.rendered !== undefined && page.rendered !== null);
+    if (rendered.length === 0) return notApplicable('No page was rendered; rendering was not requested.');
+
+    const diffs: RenderDiff[] = [];
+    const rawTargets = new Set<string>();
+    const renderedTargets = new Set<string>();
+    let compared = 0;
+    let failedRenders = 0;
+
+    const collect = (links: readonly { readonly url: string }[], into: Set<string>): void => {
+      for (const link of links) {
+        if (!isSameSite(link.url, origin)) continue;
+        const target = normalizeUrl(link.url);
+        if (target !== null) into.add(target);
+      }
+    };
+    for (const page of parsedPages(crawl)) collect(page.extracted?.links ?? [], rawTargets);
+
+    for (const page of rendered) {
+      const capture = page.rendered;
+      if (capture === undefined || capture === null) continue;
+      if (capture.render.error !== null) {
+        failedRenders += 1;
+        continue;
+      }
+      compared += 1;
+      const url = page.normalizedUrl;
+      const rawFinal = normalizeUrl(page.fetch.finalUrl);
+      const renderedFinal = normalizeUrl(capture.render.finalUrl);
+      if (rawFinal !== null && renderedFinal !== null && rawFinal !== renderedFinal) {
+        diffs.push({ url, issue: `the raw fetch ends at ${rawFinal} but the browser ends at ${renderedFinal}` });
+      }
+      const { status } = capture.render;
+      if (status !== null && page.fetch.status !== null && status !== page.fetch.status) {
+        diffs.push({ url, issue: `the raw status is ${page.fetch.status} and the rendered status is ${status}` });
+      }
+      collect(capture.extracted?.links ?? [], renderedTargets);
+    }
+
+    if (compared === 0) {
+      return errored(`Every render attempted failed (${failedRenders} page(s)), so nothing was compared.`);
+    }
+
+    const onlyRendered = [...renderedTargets].filter((target) => !rawTargets.has(target));
+    const data = {
+      pagesRendered: rendered.length,
+      pagesCompared: compared,
+      renderFailures: failedRenders,
+      differences: diffs.length,
+      renderOnlyTargets: onlyRendered.length,
+    };
+
+    if (diffs.length > 0) {
+      return fail(
+        `${diffs.length} page(s) end somewhere else, or answer differently, once rendered.`,
+        { ...data, samples: diffs.slice(0, SAMPLES) },
+      );
+    }
+    if (onlyRendered.length > 0) {
+      return warn(
+        `${onlyRendered.length} same-site URL(s) are linked only from rendered DOM and never from raw HTML; ` +
+          'a crawler that does not render cannot reach them.',
+        { ...data, renderOnly: onlyRendered.slice(0, SAMPLES) },
+      );
+    }
+    return pass(
+      `${compared} rendered page(s) end where the raw fetch does, with the same status, and add no link target.`,
+      data,
+    );
+  },
+};
+
+/**
+ * Whether the site's CI guard has been shown to stop the regressions that cost
+ * a launch (1.10). Nothing a crawl sees says whether a pipeline would have
+ * caught a stray noindex, so this reads the `ciGuard` input and is
+ * `not-applicable` without it. A guard that missed a seeded defect kind
+ * (noindex, canonical, crawler access, critical link), or failed a clean
+ * build, fails. Otherwise the check passes and the rules the guard is known to
+ * enforce are recorded. A record nobody answers for or past review holds it.
+ */
+export const ciSeoGuards: SiteProbe = {
+  id: 'ci-seo-guards',
+  scope: 'site',
+  title: 'CI guards catch noindex, canonical, crawler-access and critical-link regressions',
+  run({ crawl, inputs }) {
+    const record = inputs?.ciGuard;
+    if (record === undefined) return notApplicable('No CI guard record was supplied.');
+
+    const caught = new Set(record.seededDefectsCaught.map((kind) => kind.toLowerCase()));
+    const missing = CI_GUARD_DEFECTS.filter((kind) => !caught.has(kind));
+    const data = {
+      build: record.build,
+      ranAt: record.ranAt,
+      rules: [...caught],
+      missing,
+      cleanRunPassed: record.cleanRunPassed,
+    };
+
+    if (missing.length > 0 || !record.cleanRunPassed) {
+      const parts = [
+        missing.length > 0 ? `the guard was not shown to catch a seeded ${missing.join(', ')} defect` : '',
+        !record.cleanRunPassed ? 'a clean build did not pass it' : '',
+      ].filter((part) => part !== '');
+      return fail(`${parts.join('; ')} (build ${record.build}).`, data);
+    }
+
+    const at = crawl.crawledAt ?? null;
+    const problem = at === null
+      ? "the crawl's time is unknown, so the record's review date cannot be judged"
+      : inputRecordProblem(record, new Date(at));
+    if (problem !== null) return warn(`The CI guard record is held for review: ${problem}.`, data);
+
+    return pass(
+      `Build ${record.build} caught every seeded defect kind (${CI_GUARD_DEFECTS.join(', ')}) and a clean run passed.`,
+      data,
+    );
+  },
+};
+
+/**
+ * Whether the extended CI rules (1.11) are ones somebody answers for. Nothing a
+ * crawl sees lists a pipeline's rules, so this reads the `ciRules` input and is
+ * `not-applicable` without it. It only ever warns: a rule with no owner, no
+ * severity, a false-positive rate over 10%, or a record past its review date
+ * holds the check. A clean list is `pass`, which the check being `assisted`
+ * keeps from settling it — a person judges whether the rules are the right ones.
+ */
+export const ciExtendedChecks: SiteProbe = {
+  id: 'ci-extended-checks',
+  scope: 'site',
+  title: 'Extended CI rules each have an owner, a severity and a tolerable false-positive rate',
+  run({ crawl, inputs }) {
+    const rules = inputs?.ciRules;
+    if (rules === undefined) return notApplicable('No CI rules were supplied.');
+    if (rules.length === 0) return notApplicable('The CI rules section is empty.');
+
+    const at = crawl.crawledAt ?? null;
+    const held: { rule: string; issue: string }[] = [];
+    for (const rule of rules) {
+      const issues: string[] = [];
+      if (rule.owner.trim() === '') issues.push('no owner');
+      if (rule.severity === '') issues.push('no severity');
+      if (rule.falsePositiveRate > CI_RULE_MAX_FALSE_POSITIVE_RATE) {
+        issues.push(`a false-positive rate of ${Math.round(rule.falsePositiveRate * 1000) / 10}%`);
+      }
+      if (rule.owner.trim() !== '') {
+        const problem = at === null ? null : inputRecordProblem(rule, new Date(at));
+        if (problem !== null) issues.push(problem);
+      }
+      if (issues.length > 0) held.push({ rule: rule.rule, issue: issues.join(', ') });
+    }
+    const data = { rules: rules.map((rule) => rule.rule), held };
+
+    if (held.length > 0) {
+      return warn(
+        `${held.length} of ${rules.length} CI rule(s) are held: ` +
+          held.slice(0, SAMPLES).map((entry) => `${entry.rule} (${entry.issue})`).join('; ') + '.',
+        data,
+      );
+    }
+    return pass(`${rules.length} CI rule(s) each have an owner, a severity and a false-positive rate within 10%.`, data);
+  },
+};
+
+/**
+ * The post-cutover smoke test on the production hostname (5.1). It reads the
+ * URL matrix, and applies only when the audit origin is the matrix's
+ * `production` environment: the matrix names a `production` row and the origin
+ * is not a staging or preview origin the `environments` input lists. Otherwise
+ * it is `not-applicable`, since a smoke test of staging says nothing about launch.
+ *
+ * Fails: a priority URL not answering 200, a page the matrix says is indexable
+ * that carries noindex, and a `private` pattern answering 200 to a crawl that
+ * held no credentials. A priority pattern the crawl never reached holds the
+ * check with a `warn`. Organic crawler traffic cannot be seen from a crawl, so
+ * every result records it as `unavailable`; a passing smoke test does not say
+ * that a real search crawler was observed.
+ */
+export const productionSmokeTest: SiteProbe = {
+  id: 'production-smoke-test',
+  scope: 'site',
+  title: 'Priority URLs answer 200, are indexable and private URLs stay private on production',
+  run({ crawl, inputs, origin }) {
+    const matrix = inputs?.urlMatrix;
+    if (matrix === undefined) return notApplicable('No URL matrix was supplied.');
+    if (!matrix.some((row) => row.environment === 'production')) {
+      return notApplicable('The URL matrix names no production environment, so the audit origin is not known to be production.');
+    }
+    const elsewhere = environmentOrigins(inputs?.environments).find((entry) => isSameSite(origin, entry.origin));
+    if (elsewhere !== undefined) {
+      return notApplicable(`The audit origin is the ${elsewhere.name} environment, not production.`);
+    }
+
+    const rows = matrix.filter((row) => row.environment === undefined || row.environment === 'production');
+    const matchers = rows.map((row) => ({ row, ...matrixMatcher(row.pattern, origin) }));
+    const specificity = (entry: (typeof matchers)[number]): number =>
+      entry.exact ? Number.MAX_SAFE_INTEGER : entry.row.pattern.replace(/\*/g, '').length;
+
+    const reached = new Set<(typeof matchers)[number]>();
+    const failures: string[] = [];
+    for (const page of crawl.pages) {
+      if (page.fetch.status === null || !isSameSite(page.normalizedUrl, origin)) continue;
+      const hits = matchers.filter((entry) => entry.test(page.normalizedUrl));
+      if (hits.length === 0) continue;
+      const best = hits.reduce((a, b) => (specificity(b) > specificity(a) ? b : a));
+      reached.add(best);
+      const { row } = best;
+      const url = page.normalizedUrl;
+      const { status } = page.fetch;
+      if (row.priority === true && status !== 200) failures.push(`${url} answered ${status}, a priority URL must answer 200`);
+      if (row.access === 'private' && status === 200) {
+        failures.push(`${url} answered 200 without credentials, the matrix marks it private`);
+      }
+      if (row.indexable && page.extracted !== null && status === 200) {
+        const noindex = NOINDEX_DIRECTIVE.test(page.extracted.metaRobots ?? '') ||
+          NOINDEX_DIRECTIVE.test(page.fetch.headers['x-robots-tag'] ?? '');
+        if (noindex) failures.push(`${url} is noindex, the matrix expects it indexable`);
+      }
+    }
+
+    const unreached = matchers
+      .filter((entry) => entry.row.priority === true && entry.row.access !== 'private' && !reached.has(entry))
+      .map((entry) => entry.row.pattern);
+    const data = {
+      rows: rows.length,
+      failures: failures.slice(0, SAMPLES),
+      failureCount: failures.length,
+      unreached: unreached.slice(0, SAMPLES),
+      organicCrawling: 'unavailable',
+    };
+
+    if (failures.length > 0) {
+      return fail(
+        `${failures.length} production smoke-test failure(s): ${failures.slice(0, 3).join('; ')}.`,
+        data,
+      );
+    }
+    if (unreached.length > 0) {
+      return warn(
+        `${unreached.length} priority pattern(s) were not reached, so their production response is unverified: ${unreached.slice(0, 3).join(', ')}.`,
+        data,
+      );
+    }
+    return pass(
+      'Priority URLs answer 200, no indexable URL is noindex and no private URL answered without credentials; ' +
+        'organic crawler activity is unavailable to a crawl and is not verified.',
+      data,
+    );
+  },
+};
+
+/**
+ * The availability canary and the alert that watches it (5.5). Reads the
+ * `canary` input and is `not-applicable` without it.
+ *
+ * Fails: a canary URL the crawl fetched and got a non-200 from, a test alert
+ * delivered later than `targetMinutes` after it was raised, and an alert
+ * raised that was never delivered. Holds with a `warn`: no test alert on
+ * record, no recipient, a canary URL the crawl did not reach, and a record with
+ * no owner or past review. Whether the canary keeps its URLs indexable belongs
+ * to `indexability-canary`.
+ */
+export const availabilityCanary: SiteProbe = {
+  id: 'availability-canary',
+  scope: 'site',
+  title: 'Canary URLs answer 200 and a test alert reaches its recipient within the target',
+  run({ crawl, inputs }) {
+    const record = inputs?.canary;
+    if (record === undefined) return notApplicable('No canary record was supplied.');
+
+    const failures: string[] = [];
+    const held: string[] = [];
+
+    const byUrl = new Map<string, CrawledPage>();
+    for (const page of crawl.pages) byUrl.set(page.normalizedUrl, page);
+    const unreached: string[] = [];
+    for (const url of record.urls) {
+      const page = byUrl.get(normalizeUrl(url) ?? url);
+      const status = page?.fetch.status ?? null;
+      if (page === undefined || status === null) unreached.push(url);
+      else if (status !== 200) failures.push(`${url} answered ${status}, a canary URL must answer 200`);
+    }
+    if (unreached.length > 0) {
+      held.push(`${unreached.length} canary URL(s) were not reached by the crawl: ${unreached.slice(0, 3).join(', ')}`);
+    }
+
+    const raised = record.lastTestAlertAt === undefined ? null : Date.parse(record.lastTestAlertAt);
+    const delivered = record.deliveredAt === undefined ? null : Date.parse(record.deliveredAt);
+    let minutes: number | null = null;
+    if (raised === null) {
+      held.push('no test alert is on record');
+    } else if (delivered === null || delivered < raised) {
+      failures.push(`the test alert raised ${record.lastTestAlertAt} was never delivered`);
+    } else {
+      minutes = Math.round(((delivered - raised) / 60_000) * 10) / 10;
+      if (minutes > record.targetMinutes) {
+        failures.push(`the test alert took ${minutes} minutes to arrive, the target is ${record.targetMinutes}`);
+      }
+    }
+    if (record.recipient === '') held.push('no alert recipient is recorded');
+
+    const at = crawl.crawledAt ?? null;
+    const problem = at === null
+      ? "the crawl's time is unknown, so the record's review date cannot be judged"
+      : inputRecordProblem(record, new Date(at));
+    if (problem !== null) held.push(problem);
+
+    const data = {
+      urls: record.urls,
+      failures,
+      held,
+      targetMinutes: record.targetMinutes,
+      deliveryMinutes: minutes,
+    };
+    if (failures.length > 0) {
+      return fail(`${failures.length} canary failure(s): ${failures.slice(0, 3).join('; ')}.`, data);
+    }
+    if (held.length > 0) return warn(`The canary is held: ${held.slice(0, 3).join('; ')}.`, data);
+    return pass(
+      `${record.urls.length} canary URL(s) answered 200 and a test alert reached ${record.recipient} in ${minutes} minutes (target ${record.targetMinutes}).`,
+      data,
+    );
+  },
+};
+
+/** The same path on another origin, so a staging audit's URLs can be looked up on production. */
+const rebase = (url: string, from: string, to: string): string => {
+  if (!isSameSite(url, from)) return url;
+  try {
+    const parsed = new URL(url);
+    return normalizeUrl(new URL(`${parsed.pathname}${parsed.search}`, to).toString()) ?? url;
+  } catch {
+    return url;
+  }
+};
+
+/**
+ * The production crawl against the preflight audit (5.3). Reads
+ * `SiteContext.previous` and is `not-applicable` without one.
+ *
+ * Every URL the earlier audit found indexable (200, no noindex, not disallowed
+ * by robots.txt) is looked up now, on the audited origin, and fails if it is
+ * now noindex, disallowed by robots.txt, a 4xx or 5xx, or declares a different
+ * canonical. A previously indexable URL the crawl did not reach holds the check
+ * with a `warn`: nothing was observed either way. Separately, a `urlMatrix`
+ * priority URL (a production or unscoped row, not private) that no crawled page
+ * matches fails.
+ */
+export const productionCrawlVerify: SiteProbe = {
+  id: 'production-crawl-verify',
+  scope: 'site',
+  title: 'URLs indexable in the preflight audit are still indexable, with the same canonical, on production',
+  run({ crawl, previous, inputs, origin }) {
+    if (previous === undefined || previous === null) {
+      return notApplicable('No previous audit was supplied to compare the production crawl against.');
+    }
+
+    const move = (url: string): string => rebase(url, previous.origin, origin);
+    const now = new Map<string, CrawledPage>();
+    for (const page of crawl.pages) now.set(page.normalizedUrl, page);
+    const blockedNow = new Set(crawl.blockedByRobots.map((url) => normalizeUrl(url) ?? url));
+    const blockedBefore = new Set((previous.blockedByRobots ?? []).map((url) => normalizeUrl(url) ?? url));
+
+    const failures: string[] = [];
+    const unreached: string[] = [];
+    let compared = 0;
+    for (const before of previous.pages) {
+      const wasIndexable = before.status === 200 &&
+        !NOINDEX_DIRECTIVE.test(before.metaRobots ?? '') &&
+        !NOINDEX_DIRECTIVE.test(before.xRobotsTag ?? '') &&
+        !blockedBefore.has(before.url);
+      if (!wasIndexable) continue;
+
+      const url = move(before.url);
+      const current = now.get(url);
+      if (blockedNow.has(url)) {
+        failures.push(`${url} was indexable and is now disallowed by robots.txt`);
+        continue;
+      }
+      if (current === undefined || current.fetch.status === null) {
+        unreached.push(url);
+        continue;
+      }
+      compared += 1;
+      const { status } = current.fetch;
+      if (status >= 400) {
+        failures.push(`${url} was indexable and now answers ${status}`);
+        continue;
+      }
+      if (status !== 200) continue;
+      const noindex = NOINDEX_DIRECTIVE.test(current.extracted?.metaRobots ?? '') ||
+        NOINDEX_DIRECTIVE.test(current.fetch.headers['x-robots-tag'] ?? '');
+      if (noindex) {
+        failures.push(`${url} was indexable and is now noindex`);
+        continue;
+      }
+      if (current.extracted !== null) {
+        const wasCanonical = before.canonical === null ? null : move(normalizeUrl(before.canonical) ?? before.canonical);
+        const isCanonical = current.extracted.canonical === null
+          ? null
+          : normalizeUrl(current.extracted.canonical) ?? current.extracted.canonical;
+        if (wasCanonical !== isCanonical) {
+          failures.push(`${url} canonical changed from ${wasCanonical ?? 'none'} to ${isCanonical ?? 'none'}`);
+        }
+      }
+    }
+
+    const rows = (inputs?.urlMatrix ?? []).filter(
+      (row) => row.priority === true && row.access !== 'private' &&
+        (row.environment === undefined || row.environment === 'production'),
+    );
+    const missedPriority: string[] = [];
+    for (const row of rows) {
+      const { test } = matrixMatcher(row.pattern, origin);
+      const reached = crawl.pages.some(
+        (page) => page.fetch.status !== null && isSameSite(page.normalizedUrl, origin) && test(page.normalizedUrl),
+      );
+      if (!reached) missedPriority.push(row.pattern);
+    }
+    for (const pattern of missedPriority) failures.push(`the priority URL ${pattern} was not reached by the production crawl`);
+
+    const data = {
+      previousTakenAt: previous.takenAt,
+      compared,
+      failures: failures.slice(0, SAMPLES),
+      failureCount: failures.length,
+      unreached: unreached.slice(0, SAMPLES),
+      unreachedCount: unreached.length,
+      missedPriority: missedPriority.slice(0, SAMPLES),
+    };
+
+    if (failures.length > 0) {
+      return fail(
+        `${failures.length} regression(s) against the preflight audit: ${failures.slice(0, 3).join('; ')}.`,
+        data,
+      );
+    }
+    if (unreached.length > 0) {
+      return warn(
+        `${unreached.length} URL(s) indexable in the preflight audit were not reached, so their production state is unverified: ${unreached.slice(0, 3).join(', ')}.`,
+        data,
+      );
+    }
+    return pass(
+      `${compared} URL(s) indexable in the preflight audit are still indexable on production with the same canonical.`,
+      data,
+    );
+  },
+};
+
+/**
+ * `migration-redirect-test` (4.8, a launch gate): the `redirect-map` pass
+ * requested every old URL the map names, and this reads what came back. An entry
+ * fails on an outcome other than the one it expects, a final URL other than
+ * `to`, more than one hop, and a loop. An entry the crawl never requested (past
+ * its request cap) or could not get an answer for holds the check with a `warn`.
+ */
+export const migrationRedirectTest: SiteProbe = {
+  id: 'migration-redirect-test',
+  scope: 'site',
+  title: 'Every mapped old URL redirects, in one hop, to the URL the map names',
+  run({ crawl, inputs, origin }) {
+    const map = inputs?.redirectMap;
+    if (map === undefined) return notApplicable('No redirect map was supplied.');
+    if (map.entries.length === 0) return notApplicable('The redirect map has no entries to test.');
+
+    const { failures, unrequested, unanswered, tested } = testRedirectMap(map, crawl, origin);
+
+    const data = {
+      entries: map.entries.length,
+      tested,
+      failures: failures.slice(0, SAMPLES),
+      failureCount: failures.length,
+      unrequested: unrequested.slice(0, SAMPLES),
+      unrequestedCount: unrequested.length,
+      unanswered: unanswered.slice(0, SAMPLES),
+      unansweredCount: unanswered.length,
+    };
+    if (failures.length > 0) {
+      return fail(`${failures.length} redirect map problem(s): ${failures.slice(0, 3).join('; ')}.`, data);
+    }
+    if (unrequested.length > 0 || unanswered.length > 0) {
+      const notes = [
+        unrequested.length > 0 ? `${unrequested.length} entr${unrequested.length === 1 ? 'y was' : 'ies were'} past the request cap` : '',
+        unanswered.length > 0 ? `${unanswered.length} old URL(s) got no answer` : '',
+      ].filter((note) => note !== '');
+      return warn(`${notes.join('; ')}, so they are unverified.`, data);
+    }
+    return pass(`All ${tested} mapped old URL(s) answer as the map expects, in one hop.`, data);
+  },
+};
+
+/** What the `redirect-map` pass saw for each entry, against what the map promised. */
+function testRedirectMap(
+  map: RedirectMapRecord,
+  crawl: CrawlResult,
+  origin: string,
+): { failures: string[]; unrequested: string[]; unanswered: string[]; tested: number } {
+  const requested = new Map<string, FetchResult>();
+  for (const aside of crawl.auxiliary) {
+    if (aside.reason === 'redirect-map') requested.set(aside.url, aside.fetch);
+  }
+
+  const failures: string[] = [];
+  const unrequested: string[] = [];
+  const unanswered: string[] = [];
+  let tested = 0;
+  for (const entry of map.entries) {
+    let from: string;
+    try {
+      from = new URL(entry.from, map.oldOrigin).toString();
+    } catch {
+      continue; // `migration-map-builder` reports an unresolvable entry.
+    }
+    const result = requested.get(from);
+    if (result === undefined) {
+      unrequested.push(from);
+      continue;
+    }
+    const chain = result.redirectChain;
+    const urls = chain.map((hop) => hop.url);
+    const looped = new Set(urls).size < urls.length || (result.error !== null && /loop|too many redirects/i.test(result.error));
+    if (looped) {
+      tested += 1;
+      failures.push(`${from} loops`);
+      continue;
+    }
+    if (result.status === null) {
+      unanswered.push(from);
+      continue;
+    }
+    tested += 1;
+
+    if (entry.expect === 404 || entry.expect === 410) {
+      if (chain.length > 0) failures.push(`${from} redirects but the map expects ${entry.expect}`);
+      else if (result.status !== entry.expect) failures.push(`${from} answers ${result.status}, the map expects ${entry.expect}`);
+      continue;
+    }
+
+    if (chain.length === 0) {
+      failures.push(`${from} answers ${result.status}, the map expects a ${entry.expect} redirect`);
+      continue;
+    }
+    if (chain.length > 1) failures.push(`${from} takes ${chain.length} hops`);
+    const first = chain[0]!.status;
+    if (first !== entry.expect) failures.push(`${from} redirects with ${first}, the map expects ${entry.expect}`);
+    if (entry.to !== undefined) {
+      const want = mapTarget(entry.to, origin);
+      const got = normalizeUrl(result.finalUrl) ?? result.finalUrl;
+      if (want !== null && want !== got) failures.push(`${from} ends at ${got}, the map names ${want}`);
+    }
+    if (result.status >= 400) failures.push(`${from} ends in a ${result.status}`);
+  }
+  return { failures, unrequested, unanswered, tested };
+}
+
+/**
+ * `migration-redirects-live` (5.2, a launch gate): the 4.8 redirect test run
+ * against production. Applies to a `move` map whose `oldOrigin` is another site
+ * than the audited one, on an origin the `environments` input does not list as
+ * staging or preview. Entries are judged as in `migration-redirect-test`, and the
+ * old origin's root must still redirect: a root that answers itself, or an error,
+ * means the domain the map promised to keep is no longer controlled. A change of
+ * address still `pending` in Search Console holds the check with a `warn`.
+ */
+export const migrationRedirectsLive: SiteProbe = {
+  id: 'migration-redirects-live',
+  scope: 'site',
+  title: 'On production, mapped old URLs and the old origin root still redirect as the map says',
+  run({ crawl, inputs, origin }) {
+    const map = inputs?.redirectMap;
+    if (map === undefined) return notApplicable('No redirect map was supplied.');
+    if (map.kind !== 'move' || map.oldOrigin === undefined) {
+      return notApplicable('The redirect map names no old origin to keep redirecting.');
+    }
+    if (isSameSite(origin, map.oldOrigin)) {
+      return notApplicable('The site did not change domain, so there is no old origin to keep redirecting.');
+    }
+    const elsewhere = environmentOrigins(inputs?.environments).find((entry) => isSameSite(origin, entry.origin));
+    if (elsewhere !== undefined) {
+      return notApplicable(`The audit origin is the ${elsewhere.name} environment, not production.`);
+    }
+
+    const { failures, unrequested, unanswered, tested } = testRedirectMap(map, crawl, origin);
+
+    const rootUrl = redirectMapRootUrl(map);
+    let rootState: 'redirects' | 'unverified' | 'broken' = 'unverified';
+    if (rootUrl !== undefined) {
+      const root = crawl.auxiliary.find((aside) => aside.reason === 'redirect-map' && aside.url === rootUrl)?.fetch;
+      if (root !== undefined && root.status !== null) {
+        if (root.redirectChain.length === 0) {
+          rootState = 'broken';
+          failures.push(`the old origin ${rootUrl} answers ${root.status} instead of redirecting`);
+        } else if (root.status >= 400) {
+          rootState = 'broken';
+          failures.push(`the old origin ${rootUrl} redirects to an error (${root.status})`);
+        } else {
+          rootState = 'redirects';
+        }
+      }
+    }
+
+    const change = map.changeOfAddress;
+    const data = {
+      entries: map.entries.length,
+      tested,
+      failures: failures.slice(0, SAMPLES),
+      failureCount: failures.length,
+      unrequestedCount: unrequested.length,
+      unansweredCount: unanswered.length,
+      oldOrigin: map.oldOrigin,
+      rootState,
+      changeOfAddress: change ?? null,
+    };
+    if (failures.length > 0) {
+      return fail(`${failures.length} live redirect problem(s): ${failures.slice(0, 3).join('; ')}.`, data);
+    }
+    const holds: string[] = [];
+    if (unrequested.length > 0) holds.push(`${unrequested.length} entr${unrequested.length === 1 ? 'y was' : 'ies were'} past the request cap`);
+    if (unanswered.length > 0) holds.push(`${unanswered.length} old URL(s) got no answer`);
+    if (rootState === 'unverified') holds.push('the old origin root was not answered');
+    if (change?.status === 'pending') holds.push(`the change of address submitted ${change.submittedAt} is still pending`);
+    if (holds.length > 0) return warn(`${holds.join('; ')}.`, data);
+    return pass(`The old origin root and all ${tested} mapped old URL(s) still redirect as the map says.`, data);
+  },
+};
+
+/**
+ * `post-migration-monitor` (6.6): the redirect map and its destinations, watched
+ * after cutover against `SiteContext.previous`. `not-applicable` without a map
+ * (or with no entries) or without a previous audit.
+ *
+ * Fails a mapped old URL that was right before and is wrong now, and a
+ * destination that was indexable before and is now noindex, disallowed by
+ * robots.txt, or a 4xx or 5xx. "Right before" is per URL where the earlier crawl
+ * holds the old URL (it ended where the map says, or answered the retired
+ * status), else the map as a whole when the earlier audit passed 4.8 or 5.2. An
+ * entry that is wrong now with no evidence it was ever right is not a
+ * regression, so it holds the check with a `warn` and is left to 4.8 and 5.2, as
+ * is a destination or old URL the crawl did not reach.
+ */
+export const postMigrationMonitor: SiteProbe = {
+  id: 'post-migration-monitor',
+  scope: 'site',
+  title: 'Mapped old URLs still resolve as they did, and their destinations are still indexable',
+  run({ crawl, inputs, origin, previous }) {
+    const map = inputs?.redirectMap;
+    if (map === undefined) return notApplicable('No redirect map was supplied.');
+    if (map.entries.length === 0) return notApplicable('The redirect map has no entries to monitor.');
+    if (previous === undefined || previous === null) {
+      return notApplicable('No previous audit was supplied to compare the migration against.');
+    }
+
+    const { failures: wrongNow, unrequested, unanswered } = testRedirectMap(map, crawl, origin);
+    const mapWasCorrect = previous.probes.some(
+      (probe) =>
+        (probe.probeId === 'migration-redirect-test' || probe.probeId === 'migration-redirects-live') &&
+        probe.pageUrl === null &&
+        probe.outcome === 'pass',
+    );
+    const blockedBefore = new Set((previous.blockedByRobots ?? []).map((url) => normalizeUrl(url) ?? url));
+    const blockedNow = new Set(crawl.blockedByRobots.map((url) => normalizeUrl(url) ?? url));
+    const now = new Map<string, CrawledPage>();
+    for (const page of crawl.pages) now.set(page.normalizedUrl, page);
+    const noindexed = (metaRobots: string | null, header: string | null): boolean =>
+      NOINDEX_DIRECTIVE.test(metaRobots ?? '') || NOINDEX_DIRECTIVE.test(header ?? '');
+
+    const regressions: string[] = [];
+    const lost: string[] = [];
+    const unproven: string[] = [];
+    const unreached: string[] = [];
+    let watched = 0;
+    for (const entry of map.entries) {
+      let from: string;
+      try {
+        from = new URL(entry.from, map.oldOrigin ?? previous.origin).toString();
+      } catch {
+        continue;
+      }
+      watched += 1;
+
+      const problems = wrongNow.filter((problem) => problem.startsWith(`${from} `));
+      if (problems.length > 0) {
+        const before = previousPage(previous, from);
+        const to = entry.to === undefined ? null : mapTarget(entry.to, origin);
+        const wasRight = before === undefined
+          ? mapWasCorrect
+          : entry.expect === 404 || entry.expect === 410
+            ? before.status === entry.expect
+            : to !== null && before.status !== null && before.status < 400 &&
+              (normalizeUrl(before.finalUrl ?? '') ?? before.finalUrl) === to;
+        if (wasRight) regressions.push(problems[0]!);
+        else unproven.push(problems[0]!);
+      }
+
+      if (entry.to === undefined || (entry.expect !== 301 && entry.expect !== 308)) continue;
+      const destination = mapTarget(entry.to, origin);
+      if (destination === null) continue;
+      const before = previousPage(previous, destination);
+      if (
+        before === undefined || before.status !== 200 || noindexed(before.metaRobots, before.xRobotsTag) ||
+        blockedBefore.has(before.url)
+      ) {
+        continue; // Not indexable before, so nothing was lost.
+      }
+      const current = now.get(destination);
+      if (blockedNow.has(destination)) {
+        lost.push(`${destination} was indexable and is now disallowed by robots.txt`);
+      } else if (current === undefined || current.fetch.status === null) {
+        unreached.push(destination);
+      } else if (current.fetch.status >= 400) {
+        lost.push(`${destination} was indexable and now answers ${current.fetch.status}`);
+      } else if (noindexed(current.extracted?.metaRobots ?? null, current.fetch.headers['x-robots-tag'] ?? null)) {
+        lost.push(`${destination} was indexable and is now noindex`);
+      }
+    }
+
+    const problems = [...regressions, ...lost];
+    const data = {
+      previousTakenAt: previous.takenAt,
+      watched,
+      regressions: regressions.slice(0, SAMPLES),
+      regressionCount: regressions.length,
+      lostIndexability: lost.slice(0, SAMPLES),
+      lostIndexabilityCount: lost.length,
+      unproven: unproven.slice(0, SAMPLES),
+      unprovenCount: unproven.length,
+      unreached: unreached.slice(0, SAMPLES),
+      unreachedCount: unreached.length,
+      unrequestedCount: unrequested.length,
+      unansweredCount: unanswered.length,
+    };
+    if (problems.length > 0) {
+      return fail(`${problems.length} post-migration regression(s): ${problems.slice(0, 3).join('; ')}.`, data);
+    }
+    const holds: string[] = [];
+    if (unproven.length > 0) holds.push(`${unproven.length} mapped URL(s) are wrong now with no evidence they were right before`);
+    if (unreached.length > 0) holds.push(`${unreached.length} destination(s) indexable before were not reached`);
+    if (unrequested.length > 0) holds.push(`${unrequested.length} entr${unrequested.length === 1 ? 'y was' : 'ies were'} past the request cap`);
+    if (unanswered.length > 0) holds.push(`${unanswered.length} old URL(s) got no answer`);
+    if (holds.length > 0) return warn(`${holds.join('; ')}.`, data);
+    return pass(`${watched} mapped URL(s) resolve as before and their destinations are still indexable.`, data);
+  },
+};
+
+/** A map target as the crawl spells it: resolved against the audited origin. */
+function mapTarget(value: string, origin: string): string | null {
+  try {
+    return normalizeUrl(new URL(value, origin).toString());
+  } catch {
+    return null;
+  }
+}
+
+export const qaProbes = [
+  migrationRedirectTest,
+  migrationRedirectsLive,
+  postMigrationMonitor,
+  brokenLinks,
+  metadataCompleteness,
+  rawRenderedCrawlDiff,
+  ciSeoGuards,
+  ciExtendedChecks,
+  productionSmokeTest,
+  availabilityCanary,
+  productionCrawlVerify,
+];

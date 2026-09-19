@@ -19,7 +19,7 @@ import { eq } from 'drizzle-orm';
 import { audits } from '@seo/db';
 import type { Database } from '@seo/db';
 import { CorpusVersionMismatchError, gradeAudit, recordGrade, toEvidence } from '@seo/grader';
-import { simulatableAgents } from '@seo/core';
+import { environmentOrigins, redirectMapRootUrl, redirectMapUrls, simulatableAgents } from '@seo/core';
 import { unknownFlags } from '@seo/corpus';
 import { CrawlCancelledError } from '@seo/crawler';
 import { crawlToDatabase, persistProbeRuns } from '@seo/persistence';
@@ -114,6 +114,12 @@ export async function runAudit(
     }
     stopIfCancelled();
 
+    // The old origin's root goes first so the request cap never drops it: 5.2
+    // asks whether the old domain still redirects.
+    const rootUrl = redirectMapRootUrl(job.inputs?.redirectMap);
+    const mapUrls = redirectMapUrls(job.inputs?.redirectMap);
+    if (rootUrl !== undefined) mapUrls.unshift(...(mapUrls.includes(rootUrl) ? [] : [rootUrl]));
+
     const crawled = await crawlToDatabase(db, {
       auditId: job.auditId,
       // The crawl's own stopping point. Without this the signal would only be
@@ -127,6 +133,17 @@ export async function runAudit(
         ...(job.aiPolicy === null
           ? {}
           : { userAgentTests: simulatableAgents(job.aiPolicy) }),
+        // The environments a person named are the only ones worth asking a
+        // stranger's question of.
+        ...(environmentOrigins(job.inputs?.environments).length === 0
+          ? {}
+          : {
+              environments: environmentOrigins(job.inputs?.environments).map(({ name, origin }) => ({
+                name,
+                url: `${origin}/`,
+              })),
+            }),
+        ...(mapUrls.length === 0 ? {} : { redirectMapUrls: mapUrls }),
         ...(signal === undefined ? {} : { signal }),
       },
       ...(blobStore === undefined ? {} : { blobStore }),
@@ -138,6 +155,7 @@ export async function runAudit(
       crawl: crawled.result,
       flags: job.flags,
       aiPolicy: job.aiPolicy,
+      inputs: job.inputs ?? null,
     };
     const runs = runProbes(context);
 

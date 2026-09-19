@@ -3,10 +3,12 @@
  * the site says so explicitly.
  */
 
-import { normalizeUrl } from '@seo/crawler';
-import type { CrawledPage } from '@seo/crawler';
+import { isSameSite, normalizeUrl } from '@seo/crawler';
+import type { CrawledPage, Extracted } from '@seo/crawler';
+import { environmentOrigins, inputRecordProblem } from '@seo/core';
 import type { PageProbe, SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
+import { matrixMatcher, NOINDEX_DIRECTIVE } from './site.js';
 
 /** Query keys and path segments that mean "these are search results". */
 export const SEARCH_PARAMS = ['q', 's', 'query', 'search', 'keyword', 'keywords'];
@@ -295,6 +297,104 @@ export const renderingStrategyClassifier: PageProbe = {
   },
 };
 
+const firstH1 = (extracted: Extracted): string | null =>
+  extracted.headings.find((heading) => heading.level === 1)?.text ?? null;
+
+/** Same-site link targets, normalized so a fragment or a trailing-slash spelling is not a difference. */
+const sameSiteTargets = (extracted: Extracted, origin: string): Set<string> => {
+  const targets = new Set<string>();
+  for (const link of extracted.links) {
+    if (!isSameSite(link.url, origin)) continue;
+    try {
+      const normalized = normalizeUrl(link.url);
+      if (normalized !== null) targets.add(normalized);
+    } catch {
+      // An unparseable target has no identity to compare.
+    }
+  }
+  return targets;
+};
+
+/**
+ * Whether raw and rendered carry the same things, not the same amount of them.
+ *
+ * `rendering-strategy-classifier` judges directives, canonical and volume; a
+ * page can pass all of that and still swap its title, its h1 or half its
+ * navigation once scripts run. A `<title>` or first h1 that differs, and a
+ * same-site link target that only the raw response carries, fail: a crawler
+ * that renders would index something other than what one that does not
+ * sees, and the links rendering removed are edges a non-rendering crawl
+ * followed. A same-site target that appears only after rendering is a `warn`:
+ * a non-rendering crawler cannot discover it, which is a reliability question
+ * for whoever owns the rendering strategy.
+ *
+ * A title or h1 present on one side only counts as a difference. Rendering
+ * is opt-in per crawl: no render is `not-applicable`, a failed one `error`.
+ */
+export const rawRenderedParity: PageProbe = {
+  id: 'raw-rendered-parity',
+  scope: 'page',
+  htmlOnly: true,
+  title: 'Raw and rendered responses carry the same title, heading and links',
+  run({ page, site }) {
+    const rendered = page.rendered;
+    if (rendered === undefined || rendered === null) {
+      return notApplicable('No render was captured for this crawl; rendering was not requested.');
+    }
+    if (rendered.render.error !== null) {
+      return errored(`Rendering failed: ${rendered.render.error}.`);
+    }
+    const renderedExtracted = rendered.extracted;
+    if (renderedExtracted === null) {
+      return errored('The rendered response was empty or not HTML, so there is nothing to compare it against.');
+    }
+    const raw = page.extracted;
+    if (raw === null) return notApplicable('Response is not HTML.');
+
+    const failures: string[] = [];
+    const data: Record<string, unknown> = {};
+
+    if (raw.title !== renderedExtracted.title) {
+      failures.push(`the title is "${raw.title ?? ''}" raw and "${renderedExtracted.title ?? ''}" rendered`);
+      data['rawTitle'] = raw.title;
+      data['renderedTitle'] = renderedExtracted.title;
+    }
+    const rawH1 = firstH1(raw);
+    const renderedH1 = firstH1(renderedExtracted);
+    if (rawH1 !== renderedH1) {
+      failures.push(`the first h1 is "${rawH1 ?? ''}" raw and "${renderedH1 ?? ''}" rendered`);
+      data['rawH1'] = rawH1;
+      data['renderedH1'] = renderedH1;
+    }
+
+    const rawTargets = sameSiteTargets(raw, site.origin);
+    const renderedTargets = sameSiteTargets(renderedExtracted, site.origin);
+    const removed = [...rawTargets].filter((target) => !renderedTargets.has(target));
+    const added = [...renderedTargets].filter((target) => !rawTargets.has(target));
+    if (removed.length > 0) {
+      failures.push(`${removed.length} same-site link target(s) in the raw response are gone after rendering`);
+      data['removedLinks'] = removed.slice(0, 10);
+    }
+
+    if (failures.length > 0) {
+      return fail(`Raw and rendered disagree: ${failures.join('; ')}.`, {
+        ...data,
+        removedLinkCount: removed.length,
+        addedLinkCount: added.length,
+      });
+    }
+    if (added.length > 0) {
+      return warn(
+        `${added.length} same-site link target(s) exist only after rendering; a crawler that does not render cannot discover them.`,
+        { addedLinks: added.slice(0, 10), addedLinkCount: added.length },
+      );
+    }
+    return pass('Raw and rendered responses carry the same title, first h1 and same-site link targets.', {
+      linkTargets: rawTargets.size,
+    });
+  },
+};
+
 export const xRobotsTagNonHtml: PageProbe = {
   id: 'x-robots-tag-non-html',
   scope: 'page',
@@ -319,9 +419,418 @@ export const xRobotsTagNonHtml: PageProbe = {
   },
 };
 
+/**
+ * Whether an experiment's variant URLs are being left behind as pages.
+ *
+ * A test on its own URLs is fine while it runs and a defect once the decision
+ * is made: the variant that is indexable and canonical to itself is a permanent
+ * duplicate of the control. The site's own list of experiments is the only way
+ * to tell a variant from a page, so this reads the `experiments` input and is
+ * `not-applicable` without it. "Past `retireBy`" is judged at the crawl's time,
+ * never the wall clock. A variant redirected elsewhere, noindexed, canonicalized
+ * away or gone is what a finished or well-run test looks like and is left alone.
+ * A variant the crawl never fetched holds the check: whether it is a duplicate
+ * is only observed by fetching it.
+ */
+export const experimentCloakingDivergence: SiteProbe = {
+  id: 'experiment-cloaking-divergence',
+  scope: 'site',
+  title: 'Experiment variants do not outlive their experiment as duplicates',
+  run({ crawl, inputs }) {
+    const experiments = inputs?.experiments;
+    if (experiments === undefined || experiments.length === 0) {
+      return notApplicable('No experiments were supplied.');
+    }
+
+    const at = crawl.crawledAt ?? null;
+    const byUrl = new Map<string, CrawledPage>();
+    for (const page of crawl.pages) {
+      byUrl.set(page.normalizedUrl, page);
+      const requested = normalizeUrl(page.fetch.requestedUrl) ?? page.fetch.requestedUrl;
+      if (!byUrl.has(requested)) byUrl.set(requested, page);
+    }
+
+    const duplicates: string[] = [];
+    const overdue: string[] = [];
+    const unreached: string[] = [];
+    const held: string[] = [];
+    let observed = 0;
+
+    for (const experiment of experiments) {
+      const label = experiment.controlUrl;
+      if (at === null) {
+        held.push(`${label}: the crawl's time is unknown, so retireBy and review dates cannot be judged`);
+      } else {
+        const when = new Date(at);
+        if (Date.parse(experiment.retireBy) < when.getTime()) overdue.push(`${label} (retireBy ${experiment.retireBy})`);
+        const problem = inputRecordProblem(experiment, when);
+        if (problem !== null) held.push(`${label}: ${problem}`);
+      }
+
+      for (const variantUrl of experiment.variantUrls) {
+        const page = byUrl.get(normalizeUrl(variantUrl) ?? variantUrl);
+        if (page === undefined || page.fetch.status === null || page.fetch.truncated) {
+          unreached.push(variantUrl);
+          continue;
+        }
+        observed += 1;
+        if (page.fetch.status !== 200 || page.extracted === null) continue;
+        if (page.fetch.finalUrl !== page.fetch.requestedUrl) continue;
+        const directives = `${page.extracted.metaRobots ?? ''} ${page.fetch.headers['x-robots-tag'] ?? ''}`;
+        if (NOINDEX.test(directives)) continue;
+        const canonical = page.extracted.canonical;
+        if (canonical !== null && normalizeUrl(canonical) === page.normalizedUrl) duplicates.push(variantUrl);
+      }
+    }
+
+    const data = { experiments: experiments.length, observed, duplicates, overdue, unreached, held };
+    if (duplicates.length > 0 || overdue.length > 0) {
+      const parts = [
+        duplicates.length > 0 ? `${duplicates.length} variant(s) are indexable and canonical to themselves, a permanent duplicate` : '',
+        overdue.length > 0 ? `${overdue.length} experiment(s) are past their retireBy date` : '',
+      ].filter((part) => part !== '');
+      return fail(`${parts.join('; ')}.`, data);
+    }
+    if (unreached.length > 0 || held.length > 0) {
+      const parts = [
+        unreached.length > 0 ? `${unreached.length} variant(s) were never reached by the crawl` : '',
+        held.length > 0 ? `${held.length} experiment record(s) are held for review` : '',
+      ].filter((part) => part !== '');
+      return warn(`${parts.join('; ')}.`, data);
+    }
+    return pass('Every experiment variant is redirected, noindexed, canonicalized away or gone, and none is past its date.', data);
+  },
+};
+
+const LOGIN_PAGE = /(^|[/._-])(log-?in|sign-?in|sso|auth(enticate)?|account\/login|session)([/._?-]|$)/i;
+
+const looksLikeLogin = (url: string): boolean => {
+  try {
+    const parsed = new URL(url);
+    return LOGIN_PAGE.test(`${parsed.hostname}${parsed.pathname}`);
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Whether the site's staging and preview environments turn a stranger away.
+ *
+ * A staging copy answering the public is duplicate content under another host
+ * and a leak of unreleased work. Only the site's own list of environments says
+ * where they live, so this reads the `environments` input and is
+ * `not-applicable` without it; the crawl requested each root once, with no
+ * credentials (@seo/crawler `environment` auxiliary fetch). A 200 with HTML
+ * fails. A redirect that ends at a login page warns: protected, but by a page
+ * a crawler can index rather than by a refusal. 401, 403, a missing page or a
+ * host that does not answer at all pass — nothing public is served. An
+ * environment the crawl did not request, or a record nobody answers for or past
+ * review, holds the check.
+ */
+export const stagingProtection: SiteProbe = {
+  id: 'staging-protection',
+  scope: 'site',
+  title: 'Staging and preview environments are not open to the public',
+  run({ crawl, inputs }) {
+    const record = inputs?.environments;
+    const named = environmentOrigins(record);
+    if (record === undefined || named.length === 0) {
+      return notApplicable('No staging or preview environments were supplied.');
+    }
+
+    const open: string[] = [];
+    const login: string[] = [];
+    const protectedNames: string[] = [];
+    const unrequested: string[] = [];
+    const held: string[] = [];
+
+    const at = crawl.crawledAt ?? null;
+    if (at === null) {
+      held.push("the crawl's time is unknown, so the record's review date cannot be judged");
+    } else {
+      const problem = inputRecordProblem(record, new Date(at));
+      if (problem !== null) held.push(problem);
+    }
+
+    for (const { name, origin } of named) {
+      const entry = crawl.auxiliary.find((item) => item.reason === 'environment' && item.environment === name);
+      if (entry === undefined) {
+        unrequested.push(`${name} (${origin})`);
+        continue;
+      }
+      const { fetch } = entry;
+      const label = `${name} (${origin})`;
+      if (fetch.status === null) {
+        // No answer is not a public answer, but it is not a refusal either:
+        // a typo in the origin looks the same.
+        protectedNames.push(`${label}: no response (${fetch.error ?? 'unknown error'})`);
+        continue;
+      }
+      const html = fetch.contentType !== null && /html/i.test(fetch.contentType);
+      if (fetch.redirectChain.length > 0 && looksLikeLogin(fetch.finalUrl)) {
+        login.push(`${label} redirects to ${fetch.finalUrl}`);
+      } else if (fetch.status === 200 && html) {
+        open.push(label);
+      } else {
+        protectedNames.push(`${label}: ${fetch.status}`);
+      }
+    }
+
+    const data = { environments: named.length, open, login, protected: protectedNames, unrequested, held };
+    if (open.length > 0) {
+      return fail(`${open.join(', ')} answered 200 with HTML to a visitor with no credentials.`, data);
+    }
+    if (login.length > 0 || unrequested.length > 0 || held.length > 0) {
+      const parts = [
+        login.length > 0 ? `${login.join('; ')} — protected by a login page, not a refusal` : '',
+        unrequested.length > 0 ? `${unrequested.join(', ')} not requested by the crawl` : '',
+        held.length > 0 ? `the environments record is held for review: ${held.join('; ')}` : '',
+      ].filter((part) => part !== '');
+      return warn(`${parts.join('; ')}.`, data);
+    }
+    return pass('Every named environment turned a visitor with no credentials away.', data);
+  },
+};
+
+/**
+ * Whether the canary URLs still behave as the URL matrix says they must (5.5).
+ * Reads the `canary` and `urlMatrix` inputs and is `not-applicable` without
+ * either. Each canary URL is judged by the most specific matrix pattern that
+ * matches it; rows naming an environment are set aside, as in
+ * `url-inventory-builder`.
+ *
+ * Fails: a canary URL whose first response, robots.txt access, noindex or
+ * canonical disagrees with its pattern (robots.txt blocking a URL the matrix
+ * says is indexable, or a page the matrix says is indexable carrying noindex).
+ * Warns: a canary URL matching no pattern, one the crawl did not reach, and a
+ * record with no owner or past its review. Whether the URLs answer 200 and the
+ * alert arrives is `availability-canary`'s question.
+ */
+export const indexabilityCanary: SiteProbe = {
+  id: 'indexability-canary',
+  scope: 'site',
+  title: 'Canary URLs keep the status, robots, noindex and canonical the URL matrix names',
+  run({ crawl, inputs, origin }) {
+    const record = inputs?.canary;
+    if (record === undefined) return notApplicable('No canary record was supplied.');
+    const matrix = inputs?.urlMatrix;
+    if (matrix === undefined) return notApplicable('No URL matrix was supplied to judge the canary URLs against.');
+    const rows = matrix.filter((row) => row.environment === undefined);
+    if (rows.length === 0) return notApplicable('The URL matrix has no row that applies to every environment.');
+
+    const matchers = rows.map((row) => ({ row, ...matrixMatcher(row.pattern, origin) }));
+    const specificity = (entry: (typeof matchers)[number]): number =>
+      entry.exact ? Number.MAX_SAFE_INTEGER : entry.row.pattern.replace(/\*/g, '').length;
+
+    const byUrl = new Map<string, CrawledPage>();
+    for (const page of crawl.pages) byUrl.set(page.normalizedUrl, page);
+    const blocked = new Set(crawl.blockedByRobots.map((url) => normalizeUrl(url) ?? url));
+
+    const failures: string[] = [];
+    const unmatched: string[] = [];
+    const unreached: string[] = [];
+    for (const raw of record.urls) {
+      const url = normalizeUrl(raw) ?? raw;
+      const hits = matchers.filter((entry) => entry.test(url));
+      if (hits.length === 0) {
+        unmatched.push(raw);
+        continue;
+      }
+      const { row } = hits.reduce((a, b) => (specificity(b) > specificity(a) ? b : a));
+
+      if (blocked.has(url)) {
+        if (row.indexable) failures.push(`${raw} is disallowed by robots.txt, the matrix expects it indexable`);
+        continue;
+      }
+      const page = byUrl.get(url);
+      if (page === undefined || page.fetch.status === null) {
+        unreached.push(raw);
+        continue;
+      }
+      const first = page.fetch.redirectChain[0]?.status ?? page.fetch.status;
+      if (first !== row.status) failures.push(`${raw} answered ${first}, the matrix expects ${row.status}`);
+      if (page.extracted === null || page.fetch.status !== 200 || page.fetch.redirectChain.length > 0) continue;
+      const noindex = NOINDEX_DIRECTIVE.test(page.extracted.metaRobots ?? '') ||
+        NOINDEX_DIRECTIVE.test(page.fetch.headers['x-robots-tag'] ?? '');
+      if (row.indexable === noindex) {
+        failures.push(`${raw} is ${noindex ? 'noindex' : 'indexable'}, the matrix expects ${row.indexable ? 'indexable' : 'noindex'}`);
+      }
+      const canonical = page.extracted.canonical === null ? null : normalizeUrl(page.extracted.canonical);
+      const expected = row.canonical === 'self' ? url : row.canonical === 'none' ? null : normalizeUrl(row.canonical);
+      if (canonical !== expected) {
+        failures.push(`${raw} has canonical ${canonical ?? 'none'}, the matrix expects ${expected ?? 'none'}`);
+      }
+    }
+
+    const held: string[] = [];
+    if (unmatched.length > 0) held.push(`${unmatched.length} canary URL(s) match no URL matrix pattern: ${unmatched.slice(0, 3).join(', ')}`);
+    if (unreached.length > 0) held.push(`${unreached.length} canary URL(s) were not reached by the crawl: ${unreached.slice(0, 3).join(', ')}`);
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === ''
+      ? 'the canary record has no owner'
+      : at === null
+        ? "the crawl's time is unknown, so the canary record's review date cannot be judged"
+        : inputRecordProblem(record, new Date(at));
+    if (problem !== null) held.push(problem);
+
+    const data = { urls: record.urls, failures, unmatched, unreached, held };
+    if (failures.length > 0) {
+      return fail(`${failures.length} canary disagreement(s) with the URL matrix: ${failures.slice(0, 3).join('; ')}.`, data);
+    }
+    if (held.length > 0) return warn(`The indexability canary is held: ${held.slice(0, 3).join('; ')}.`, data);
+    return pass(`${record.urls.length} canary URL(s) match the URL matrix.`, data);
+  },
+};
+
+/** The inspection tool's word for a URL Google has no record of; nothing to compare, so no verdict. */
+const UNKNOWN_TO_GOOGLE = /unknown to google|not on google/i;
+
+/**
+ * 5.4: does what Google reports for an inspected URL agree with what the crawl
+ * calls indexable. Reads `searchConsole.urlInspection`; never fetches.
+ *
+ * Fails: an inspected URL the crawl calls indexable (200, no noindex, not
+ * disallowed) that Google reports as blocked by robots, noindexed, or
+ * canonicalised onto another URL than the declared one (the page's own address
+ * when it declares none). "URL is unknown to Google" is skipped as unavailable,
+ * not failed: a page can be new. Warns: an inspected URL the crawl did not
+ * reach, and a record with no owner or past its review.
+ */
+export const urlInspection: SiteProbe = {
+  id: 'url-inspection',
+  scope: 'site',
+  title: 'Google URL Inspection agrees with the crawl about robots, noindex and canonical',
+  run({ crawl, inputs }) {
+    const record = inputs?.searchConsole;
+    if (record === undefined) return notApplicable('No Search Console export was supplied.');
+    const inspections = record.urlInspection;
+    if (inspections === undefined) return notApplicable('The Search Console export holds no URL Inspection results.');
+
+    const byUrl = new Map<string, CrawledPage>();
+    for (const page of crawl.pages) byUrl.set(page.normalizedUrl, page);
+    const blocked = new Set(crawl.blockedByRobots.map((url) => normalizeUrl(url) ?? url));
+
+    const failures: string[] = [];
+    const unknown: string[] = [];
+    const unreached: string[] = [];
+    let compared = 0;
+    for (const row of inspections) {
+      if (UNKNOWN_TO_GOOGLE.test(row.coverage) || UNKNOWN_TO_GOOGLE.test(row.verdict)) {
+        unknown.push(row.url);
+        continue;
+      }
+      const url = normalizeUrl(row.url) ?? row.url;
+      const page = byUrl.get(url);
+      if (page === undefined || page.fetch.status === null) {
+        // A URL the crawl saw robots.txt disallow is not something the crawl calls indexable.
+        if (!blocked.has(url)) unreached.push(row.url);
+        continue;
+      }
+      const extracted = page.extracted;
+      if (page.fetch.status !== 200 || page.fetch.redirectChain.length > 0 || extracted === null) continue;
+      const noindex = NOINDEX_DIRECTIVE.test(extracted.metaRobots ?? '') ||
+        NOINDEX_DIRECTIVE.test(page.fetch.headers['x-robots-tag'] ?? '');
+      if (noindex) continue;
+
+      compared++;
+      const problems: string[] = [];
+      if (/blocked|disallowed/i.test(row.robots)) problems.push('robots.txt blocks it');
+      if (/noindex/i.test(row.indexing)) problems.push('it carries noindex');
+      if (row.googleCanonical !== undefined) {
+        const declared = extracted.canonical === null ? url : (normalizeUrl(extracted.canonical) ?? extracted.canonical);
+        const google = normalizeUrl(row.googleCanonical) ?? row.googleCanonical;
+        if (google !== declared) problems.push(`its Google canonical is ${row.googleCanonical}, the declared one is ${declared}`);
+      }
+      if (problems.length > 0) failures.push(`${row.url}: Google reports ${problems.join('; ')}, while the crawl calls it indexable`);
+    }
+
+    const held: string[] = [];
+    if (unreached.length > 0) held.push(`${unreached.length} inspected URL(s) were not reached by the crawl: ${unreached.slice(0, 3).join(', ')}`);
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'the Search Console record has no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) held.push(problem);
+
+    const data = { inspected: inspections.length, compared, unknown: unknown.slice(0, 10), unreached: unreached.slice(0, 10), failures: failures.slice(0, 10) };
+    if (failures.length > 0) {
+      return fail(`${failures.length} inspected URL(s) disagree with the crawl: ${failures.slice(0, 3).join(' | ')}.`, data);
+    }
+    if (inspections.length > 0 && inspections.length === unknown.length) {
+      return notApplicable('Every inspected URL is unknown to Google, so there is nothing to compare.');
+    }
+    if (held.length > 0) return warn(`URL Inspection is held: ${held.slice(0, 3).join('; ')}.`, data);
+    return pass(`${compared} inspected URL(s) agree with the crawl on robots, noindex and canonical.`, data);
+  },
+};
+
+/**
+ * 6.1: does the Page indexing report explain why a URL the crawl calls
+ * indexable is not in the index. Reads `searchConsole.pageIndexing`; never
+ * fetches. Only crawled pages that are indexable and self-canonical are judged
+ * (200, no redirect, no noindex, canonical absent or its own address): for any
+ * other page the report agreeing with the crawl is the expected outcome.
+ *
+ * Fails: such a page the report lists as excluded by noindex or blocked by
+ * robots.txt. Warns: one listed as "Crawled - currently not indexed", which is
+ * Google's judgement of the page and not a defect the crawl can name, and a
+ * record with no owner or past its review. Other reasons are not this
+ * detector's question. Without an export it is `not-applicable`, never a pass.
+ */
+export const indexationReview: SiteProbe = {
+  id: 'indexation-review',
+  scope: 'site',
+  title: 'The Page indexing report holds no indexable page as noindexed, blocked or crawled-not-indexed',
+  run({ crawl, inputs }) {
+    const record = inputs?.searchConsole;
+    if (record === undefined) return notApplicable('No Search Console export was supplied.');
+    const rows = record.pageIndexing;
+    if (rows === undefined) return notApplicable('The Search Console export holds no Page indexing report.');
+
+    const byUrl = new Map<string, CrawledPage>();
+    for (const page of crawl.pages) byUrl.set(page.normalizedUrl, page);
+
+    const failures: string[] = [];
+    const notIndexed: string[] = [];
+    let compared = 0;
+    for (const row of rows) {
+      const url = normalizeUrl(row.url) ?? row.url;
+      const page = byUrl.get(url);
+      if (page === undefined || page.fetch.status !== 200 || page.fetch.redirectChain.length > 0 || page.extracted === null) continue;
+      const noindex = NOINDEX_DIRECTIVE.test(page.extracted.metaRobots ?? '') ||
+        NOINDEX_DIRECTIVE.test(page.fetch.headers['x-robots-tag'] ?? '');
+      if (noindex) continue;
+      const canonical = page.extracted.canonical === null ? url : (normalizeUrl(page.extracted.canonical) ?? page.extracted.canonical);
+      if (canonical !== url) continue;
+
+      compared++;
+      if (/noindex/i.test(row.reason)) failures.push(`${row.url}: the report lists it as "${row.reason}", the crawl finds no noindex`);
+      else if (/blocked by robots|disallowed/i.test(row.reason)) failures.push(`${row.url}: the report lists it as "${row.reason}", the crawl fetched it`);
+      else if (/crawled\s*-\s*currently not indexed/i.test(row.reason)) notIndexed.push(row.url);
+    }
+
+    const held: string[] = [];
+    if (notIndexed.length > 0) held.push(`${notIndexed.length} indexable page(s) are "Crawled - currently not indexed": ${notIndexed.slice(0, 3).join(', ')}`);
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'the Search Console record has no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) held.push(problem);
+
+    const data = { listed: rows.length, compared, notIndexed: notIndexed.slice(0, 10), failures: failures.slice(0, 10) };
+    if (failures.length > 0) {
+      return fail(`${failures.length} indexable page(s) are reported as excluded: ${failures.slice(0, 3).join(' | ')}.`, data);
+    }
+    if (held.length > 0) return warn(`The indexation review is held: ${held.slice(0, 3).join('; ')}.`, data);
+    return pass(`The Page indexing report lists no indexable, self-canonical page as noindexed, blocked or crawled-not-indexed (${rows.length} row(s) read).`, data);
+  },
+};
+
 export const indexabilityProbes = [
+  indexationReview,
+  urlInspection,
+  experimentCloakingDivergence,
+  stagingProtection,
   internalSearchIndexability,
+  indexabilityCanary,
   localeCanonical,
+  rawRenderedParity,
   renderingStrategyClassifier,
   xRobotsTagNonHtml,
 ];

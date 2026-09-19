@@ -6,7 +6,7 @@
 
 import { extract, isAllowed, isSameSite, normalizeUrl, pathDepth } from '@seo/crawler';
 import type { CrawledPage } from '@seo/crawler';
-import { isProductToken, isUserDirectedAgent } from '@seo/core';
+import { DOMAIN_HISTORY_REQUIRED_CHECKS, inputRecordProblem, isProductToken, isUserDirectedAgent } from '@seo/core';
 import type { SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
 import { checkLanguageTag } from './language-tags.js';
@@ -17,6 +17,8 @@ const add = (index: Map<string, Set<string>>, key: string, value: string): void 
   if (existing === undefined) index.set(key, new Set([value]));
   else existing.add(value);
 };
+
+export const NOINDEX_DIRECTIVE = /\bnoindex\b|\bnone\b/i;
 
 const htmlPages = (pages: readonly CrawledPage[]): CrawledPage[] =>
   pages.filter((page) => page.extracted !== null && page.fetch.status === 200);
@@ -1260,7 +1262,414 @@ export const thirdPartyBudget: SiteProbe = {
   },
 };
 
+/** A `urlMatrix` pattern as a matcher: an exact URL or a glob (`*` in a segment, `**` across). */
+export const matrixMatcher = (pattern: string, origin: string): { test: (url: string) => boolean; exact: boolean } => {
+  const trimmed = pattern.trim();
+  const absolute = /^https?:\/\//i.test(trimmed) ? trimmed : new URL(trimmed.startsWith('/') ? trimmed : `/${trimmed}`, origin).toString();
+  if (!absolute.includes('*')) {
+    const target = normalizeUrl(absolute);
+    return { exact: true, test: (url) => url === target };
+  }
+  const source = absolute
+    .split(/(\*\*|\*)/)
+    .map((part) => (part === '**' ? '.*' : part === '*' ? '[^/?#]*' : part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')))
+    .join('');
+  const regex = new RegExp(`^${source}$`, 'i');
+  return {
+    exact: false,
+    test: (url) => regex.test(url) || (url.endsWith('/') ? regex.test(url.slice(0, -1)) : regex.test(`${url}/`)),
+  };
+};
+
+const MATRIX_SAMPLES = 10;
+
+/**
+ * Whether the crawl agrees with the URL matrix (0.3). The matrix is an input
+ * nobody can observe, so this is `not-applicable` without it. Rows naming an
+ * `environment` are set aside: the crawl has no declared environment to judge
+ * them against. Each crawled URL is judged by the most specific pattern that
+ * matches it (an exact URL beats a glob, a longer glob a shorter one).
+ *
+ * Fails: a priority pattern with no crawled URL, a priority URL answering other
+ * than its `status` (the first response, so a 301 the row expects is not lost to
+ * the redirect being followed), and a crawled page whose indexability or
+ * canonical disagrees with its pattern. Warns: a crawled URL no pattern covers,
+ * a non-priority pattern with no crawled example, and a row with no owner or
+ * past its review date.
+ */
+export const urlInventoryBuilder: SiteProbe = {
+  id: 'url-inventory-builder',
+  scope: 'site',
+  title: 'The crawl agrees with the URL matrix',
+  run({ crawl, inputs, origin }) {
+    const matrix = inputs?.urlMatrix;
+    if (matrix === undefined) return notApplicable('No URL matrix was supplied.');
+    const rows = matrix.filter((row) => row.environment === undefined);
+    if (rows.length === 0) {
+      return notApplicable(
+        matrix.length === 0 ? 'The URL matrix section is empty.' : 'Every URL matrix row names an environment.',
+      );
+    }
+
+    const matchers = rows.map((row) => ({ row, ...matrixMatcher(row.pattern, origin) }));
+    const specificity = (entry: (typeof matchers)[number]): number =>
+      entry.exact ? Number.MAX_SAFE_INTEGER : entry.row.pattern.replace(/\*/g, '').length;
+
+    const examples = new Map<(typeof matchers)[number], CrawledPage[]>(matchers.map((entry) => [entry, []]));
+    const unmatched: string[] = [];
+    for (const page of crawl.pages) {
+      if (page.fetch.status === null || !isSameSite(page.normalizedUrl, origin)) continue;
+      const hits = matchers.filter((entry) => entry.test(page.normalizedUrl));
+      if (hits.length === 0) {
+        unmatched.push(page.normalizedUrl);
+        continue;
+      }
+      const best = hits.reduce((a, b) => (specificity(b) > specificity(a) ? b : a));
+      examples.get(best)?.push(page);
+    }
+
+    const failures: string[] = [];
+    const warnings: string[] = [];
+    for (const [entry, pages] of examples) {
+      const { row } = entry;
+      if (pages.length === 0) {
+        const line = `${row.pattern} was not reached by the crawl`;
+        (row.priority === true ? failures : warnings).push(
+          row.priority === true ? line : `${row.pattern} has no crawled example`,
+        );
+        continue;
+      }
+      for (const page of pages) {
+        const url = page.normalizedUrl;
+        const first = page.fetch.redirectChain[0]?.status ?? page.fetch.status;
+        if (row.priority === true && first !== row.status) {
+          failures.push(`${url} answered ${first}, the matrix expects ${row.status}`);
+        }
+        if (page.extracted === null || page.fetch.status !== 200 || page.fetch.redirectChain.length > 0) continue;
+        const noindex = NOINDEX_DIRECTIVE.test(page.extracted.metaRobots ?? '') ||
+          NOINDEX_DIRECTIVE.test(page.fetch.headers['x-robots-tag'] ?? '');
+        if (row.indexable === noindex) {
+          failures.push(`${url} is ${noindex ? 'noindex' : 'indexable'}, the matrix expects ${row.indexable ? 'indexable' : 'noindex'}`);
+        }
+        const canonical = page.extracted.canonical === null ? null : normalizeUrl(page.extracted.canonical);
+        const expected = row.canonical === 'self' ? url : row.canonical === 'none' ? null : normalizeUrl(row.canonical);
+        if (canonical !== expected) {
+          failures.push(`${url} has canonical ${canonical ?? 'none'}, the matrix expects ${expected ?? 'none'}`);
+        }
+      }
+    }
+
+    const at = crawl.crawledAt ?? null;
+    const held = rows.flatMap((row) => {
+      const problem = row.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(row, new Date(at));
+      return problem === null ? [] : [`${row.pattern} (${problem})`];
+    });
+
+    const data = {
+      rows: rows.length,
+      setAside: matrix.length - rows.length,
+      failures: failures.slice(0, MATRIX_SAMPLES),
+      unmatched: unmatched.slice(0, MATRIX_SAMPLES),
+      unmatchedCount: unmatched.length,
+      warnings: warnings.slice(0, MATRIX_SAMPLES),
+      held,
+    };
+    if (failures.length > 0) {
+      return fail(
+        `${failures.length} disagreement(s) with the URL matrix: ${failures.slice(0, 3).join('; ')}.`,
+        { ...data, failureCount: failures.length },
+      );
+    }
+    const notes = [
+      unmatched.length > 0 ? `${unmatched.length} crawled URL(s) match no pattern` : '',
+      warnings.length > 0 ? `${warnings.length} pattern(s) have no crawled example` : '',
+      held.length > 0 ? `${held.length} row(s) held for review: ${held.slice(0, 3).join(', ')}` : '',
+    ].filter((note) => note !== '');
+    if (notes.length > 0) return warn(`${notes.join('; ')}.`, data);
+    return pass(`Every crawled URL matches a row of the URL matrix, and every row has a crawled example.`, data);
+  },
+};
+
+/** How many offending URLs `migration-map-builder` lists in its data. */
+const MIGRATION_SAMPLES = 10;
+
+/** A URL as the map's own spelling of it: absolute, normalized, or null when it cannot be one. */
+function mapKey(value: string, base: string | undefined): string | null {
+  try {
+    return normalizeUrl(new URL(value, base).toString());
+  } catch {
+    return null;
+  }
+}
+
+export const migrationMapBuilder: SiteProbe = {
+  id: 'migration-map-builder',
+  scope: 'site',
+  title: 'Every old URL has a redirect map entry, and none chains or loops',
+  run({ crawl, inputs, origin, previous }) {
+    const map = inputs?.redirectMap;
+    if (map === undefined) return notApplicable('No redirect map was supplied.');
+
+    const oldOrigin = map.oldOrigin;
+    const failures: string[] = [];
+
+    if (map.kind === 'move' && oldOrigin === undefined) {
+      failures.push('the map is a move but names no oldOrigin');
+    }
+
+    // Every entry, keyed by the absolute old URL it is for.
+    const base = oldOrigin ?? previous?.origin;
+    const mapped = new Map<string, string | null>();
+    for (const entry of map.entries) {
+      const from = mapKey(entry.from, base);
+      if (from === null) {
+        failures.push(`${entry.from} is not an address the map can resolve`);
+        continue;
+      }
+      mapped.set(from, entry.to === undefined ? null : mapKey(entry.to, origin));
+    }
+
+    // A chain is a target that is itself mapped; a loop is a chain that comes back.
+    const chains: string[] = [];
+    const loops: string[] = [];
+    for (const [from, to] of mapped) {
+      if (to === null) continue;
+      if (!mapped.has(to)) continue;
+      const seen = new Set([from]);
+      let at: string | null | undefined = to;
+      let looped = false;
+      while (at !== null && at !== undefined) {
+        if (seen.has(at)) {
+          looped = true;
+          break;
+        }
+        seen.add(at);
+        at = mapped.get(at);
+      }
+      (looped ? loops : chains).push(`${from} -> ${to}`);
+    }
+    if (loops.length > 0) failures.push(`${loops.length} entr${loops.length === 1 ? 'y loops' : 'ies loop'} back: ${loops.slice(0, 3).join('; ')}`);
+    if (chains.length > 0) failures.push(`${chains.length} entr${chains.length === 1 ? 'y targets' : 'ies target'} a URL that is itself mapped: ${chains.slice(0, 3).join('; ')}`);
+
+    // Old URLs: what the previous audit reached, and what the old origin's sitemap listed.
+    const unmapped: string[] = [];
+    if (map.kind === 'move') {
+      const old = new Set<string>();
+      for (const page of previous?.pages ?? []) if (page.status === 200) old.add(page.url);
+      if (oldOrigin !== undefined) {
+        for (const url of crawl.sitemapUrls) {
+          const key = mapKey(url, undefined);
+          if (key !== null && new URL(key).origin === oldOrigin) old.add(key);
+        }
+      }
+      for (const url of old) if (!mapped.has(url)) unmapped.push(url);
+      if (unmapped.length > 0) {
+        failures.push(`${unmapped.length} old URL(s) have no map entry: ${unmapped.slice(0, 3).join(', ')}`);
+      }
+    }
+
+    const at = crawl.crawledAt ?? null;
+    const problem = map.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(map, new Date(at));
+
+    const data = {
+      kind: map.kind,
+      entries: map.entries.length,
+      unmapped: unmapped.slice(0, MIGRATION_SAMPLES),
+      unmappedCount: unmapped.length,
+      chains: chains.slice(0, MIGRATION_SAMPLES),
+      loops: loops.slice(0, MIGRATION_SAMPLES),
+    };
+    if (failures.length > 0) return fail(`${failures.join('; ')}.`, data);
+    if (problem !== null) return warn(`The redirect map is held for review (${problem}).`, data);
+    if (map.kind === 'history-only') return pass('The site keeps its history only, so no redirect map entries are needed.', data);
+    return pass(`Every old URL known to the audit has a map entry, and none chains or loops (${map.entries.length} entries).`, data);
+  },
+};
+
+export const inheritedDomainHistory: SiteProbe = {
+  id: 'inherited-domain-history',
+  scope: 'site',
+  title: 'The history of an inherited domain was checked for manual actions and archived content, and nothing blocking is open',
+  run({ crawl, inputs }) {
+    const history = inputs?.domainHistory;
+    if (history === undefined) return notApplicable('No domain history was supplied.');
+
+    const failures: string[] = [];
+    const open = history.blockingIssues.filter((item) => !item.resolved).map((item) => item.issue);
+    if (open.length > 0) failures.push(`${open.length} blocking issue(s) unresolved: ${open.slice(0, 3).join('; ')}`);
+
+    const missing: string[] = [];
+    for (const required of DOMAIN_HISTORY_REQUIRED_CHECKS) {
+      const found = history.checks.some((check) => required.words.some((word) => check.name.toLowerCase().includes(word)));
+      if (!found) missing.push(required.label);
+    }
+    if (missing.length > 0) failures.push(`no ${missing.join(' or ')} check is recorded`);
+
+    const at = crawl.crawledAt ?? null;
+    const problem = history.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(history, new Date(at));
+
+    const data = {
+      checks: history.checks.map((check) => check.name),
+      blockingIssues: history.blockingIssues.length,
+      unresolved: open,
+      missingChecks: missing,
+    };
+    if (failures.length > 0) return fail(`${failures.join('; ')}.`, data);
+    if (problem !== null) return warn(`The domain history is held for review (${problem}).`, data);
+    return pass(`The domain history has a manual-action and an archive check, and every blocking issue is resolved (${history.blockingIssues.length} recorded).`, data);
+  },
+};
+
+/** Whether a Search Console property's address covers every page of `origin`; null when it cannot be read. */
+function propertyCovers(type: 'domain' | 'url-prefix', url: string, origin: string): boolean | null {
+  try {
+    const site = new URL(origin);
+    if (type === 'domain') {
+      const domain = url.trim().replace(/^sc-domain:/i, '').replace(/\.$/, '').toLowerCase();
+      if (domain === '' || /[/:\s]/.test(domain)) return null;
+      return site.hostname === domain || site.hostname.endsWith(`.${domain}`);
+    }
+    const prefix = new URL(url);
+    return prefix.protocol === site.protocol && prefix.host === site.host && (prefix.pathname === '/' || prefix.pathname === '');
+  } catch {
+    return null;
+  }
+}
+
+export const gscPropertyOwnership: SiteProbe = {
+  id: 'gsc-property-ownership',
+  scope: 'site',
+  title: 'A Search Console property covers the site, with more than one verified owner',
+  run({ crawl, inputs, origin }) {
+    const record = inputs?.searchConsole;
+    if (record === undefined) return notApplicable('No Search Console export was supplied.');
+
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    const property = record.property;
+    if (property === undefined) {
+      return warn('The Search Console export names no property, so setup is pending.', { property: null });
+    }
+
+    const failures: string[] = [];
+    const covers = propertyCovers(property.type, property.url, origin);
+    if (covers === false) failures.push(`the ${property.type} property ${property.url} does not cover ${origin}`);
+    if (covers === null) failures.push(`the property address ${property.url} cannot be read as a ${property.type} property`);
+    const owners = new Set(property.owners.map((owner) => owner.email.trim().toLowerCase()));
+    if (owners.size === 0) failures.push('the property has no verified owner');
+
+    const data = { type: property.type, url: property.url, owners: owners.size, covers };
+    if (failures.length > 0) return fail(`${failures.join('; ')}.`, data);
+    if (problem !== null) return warn(`The Search Console record is held for review (${problem}).`, data);
+    if (owners.size === 1) return warn('The property has a single verified owner; a second keeps access if that person leaves.', data);
+    return pass(`The ${property.type} property ${property.url} covers ${origin} with ${owners.size} verified owners.`, data);
+  },
+};
+
+/** A sitemap address as the crawl and the Sitemaps report would both spell it. */
+function sitemapKey(url: string): string {
+  return normalizeUrl(url) ?? url;
+}
+
+export const sitemapSubmit: SiteProbe = {
+  id: 'sitemap-submit',
+  scope: 'site',
+  title: 'Every sitemap the crawl found is submitted to Search Console without errors',
+  run({ crawl, inputs }) {
+    const record = inputs?.searchConsole;
+    if (record === undefined) return notApplicable('No Search Console export was supplied.');
+
+    // A file that did not answer is sitemap-validity's finding, not a submission question.
+    const found = [...new Set(crawl.sitemaps.filter((doc) => doc.status !== null && doc.status < 400).map((doc) => doc.url))];
+    if (found.length === 0) return notApplicable('The crawl found no sitemap to submit.');
+
+    // A record with no sitemaps report is account access that was not available: held, never failed.
+    if (record.sitemaps === undefined) {
+      return warn('The Search Console export holds no Sitemaps report, so submission is unverified.', { found: found.length });
+    }
+
+    const reported = new Map(record.sitemaps.map((row) => [sitemapKey(row.url), row]));
+    const withErrors: string[] = [];
+    const unreadable: string[] = [];
+    const pending: string[] = [];
+    for (const url of found) {
+      const row = reported.get(sitemapKey(url));
+      if (row === undefined) pending.push(url);
+      else if (row.errors > 0 || /\berrors?\b/i.test(row.status)) withErrors.push(url);
+      else if (/couldn.?t fetch|fail/i.test(row.status)) unreadable.push(url);
+    }
+
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    const data = {
+      found: found.length,
+      withErrors: withErrors.slice(0, 10),
+      unreadable: unreadable.slice(0, 10),
+      pending: pending.slice(0, 10),
+    };
+    if (withErrors.length > 0) {
+      return fail(`Search Console reports errors on ${withErrors.length} of ${found.length} sitemap(s): ${withErrors.slice(0, 3).join(', ')}.`, data);
+    }
+    if (pending.length > 0) {
+      return warn(`${pending.length} of ${found.length} sitemap(s) the crawl found have no submission record, so submission is pending.`, data);
+    }
+    if (unreadable.length > 0) {
+      return warn(`Search Console could not fetch ${unreadable.length} sitemap(s): ${unreadable.slice(0, 3).join(', ')}.`, data);
+    }
+    if (problem !== null) return warn(`The Search Console record is held for review (${problem}).`, data);
+    return pass(`All ${found.length} sitemap(s) the crawl found are submitted to Search Console without errors.`, data);
+  },
+};
+
+const STALE_EXPORT_DAYS = 30;
+
+export const securityManualActions: SiteProbe = {
+  id: 'security-manual-actions',
+  scope: 'site',
+  title: 'Search Console reports no open manual action or security issue',
+  run({ crawl, inputs }) {
+    const record = inputs?.searchConsole;
+    if (record === undefined) return notApplicable('No Search Console export was supplied.');
+
+    const actions = record.manualActions;
+    const issues = record.securityIssues;
+    const data = {
+      manualActions: (actions ?? []).slice(0, 10).map((action) => `${action.type} (${action.scope})`),
+      securityIssues: (issues ?? []).slice(0, 10).map((issue) => issue.type),
+    };
+
+    // Any open finding is a failure however old the export is: it can only have been resolved since.
+    const open = (actions?.length ?? 0) + (issues?.length ?? 0);
+    if (open > 0) {
+      const named = [...data.manualActions, ...data.securityIssues].slice(0, 3).join(', ');
+      return fail(`Search Console reports ${actions?.length ?? 0} manual action(s) and ${issues?.length ?? 0} security issue(s): ${named}.`, data);
+    }
+    if (actions === undefined || issues === undefined) {
+      const absent = [actions === undefined ? 'Manual actions' : null, issues === undefined ? 'Security issues' : null].filter((x) => x !== null).join(' and ');
+      return warn(`The Search Console export holds no ${absent} report, so it is unverified.`, data);
+    }
+
+    const at = crawl.crawledAt ?? null;
+    if (at !== null) {
+      const recorded = Date.parse(record.recordedAt);
+      const age = (new Date(at).getTime() - recorded) / 86_400_000;
+      if (Number.isFinite(age) && age > STALE_EXPORT_DAYS) {
+        return warn(`The Search Console export was recorded ${Math.floor(age)} days before the crawl, so it may not show what is open now.`, { ...data, ageDays: Math.floor(age) });
+      }
+    }
+    const problem = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) return warn(`The Search Console record is held for review (${problem}).`, data);
+    return pass('The Search Console export shows no manual action and no security issue.', data);
+  },
+};
+
 export const siteProbes = [
+  urlInventoryBuilder,
+  gscPropertyOwnership,
+  sitemapSubmit,
+  securityManualActions,
+  inheritedDomainHistory,
+  migrationMapBuilder,
   robotsTxt,
   sitemapValidity,
   sitemapCanonicalAgreement,

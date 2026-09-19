@@ -359,3 +359,401 @@ describe('metadata-completeness', () => {
     expect(meta([page('/', { status: 500 })]).outcome).toBe('not-applicable');
   });
 });
+
+// --- raw-rendered-crawl-diff -------------------------------------------------
+
+interface RenderSpec {
+  readonly finalPath?: string;
+  readonly status?: number;
+  readonly links?: readonly string[];
+  readonly error?: string;
+}
+
+/** A page with a render attached, as `crawl()` records one under `renderPages`. */
+const withRender = (base: CrawledPage, spec: RenderSpec = {}): CrawledPage => {
+  const finalUrl = spec.finalPath === undefined ? base.fetch.finalUrl : `${ORIGIN}${spec.finalPath}`;
+  const failed = spec.error !== undefined;
+  const html =
+    '<html><head><title>T</title></head><body><h1>H</h1>' +
+    (spec.links ?? []).map((href) => `<a href="${href}">link</a>`).join('') +
+    '</body></html>';
+  return {
+    ...base,
+    rendered: {
+      render: {
+        requestedUrl: base.url,
+        finalUrl,
+        status: failed ? null : (spec.status ?? base.fetch.status),
+        html: failed ? '' : html,
+        totalMs: 5,
+        error: spec.error ?? null,
+      },
+      extracted: failed ? null : extract(html, finalUrl),
+      comparison: null,
+    },
+  };
+};
+
+const diff = (pages: readonly CrawledPage[]): Observation => run('raw-rendered-crawl-diff', pages);
+
+describe('raw-rendered-crawl-diff', () => {
+  it('is not applicable when no page was rendered', () => {
+    expect(diff([page('/')]).outcome).toBe('not-applicable');
+  });
+
+  it('errors when every render failed', () => {
+    expect(diff([withRender(page('/'), { error: 'timeout' })]).outcome).toBe('error');
+  });
+
+  it('fails a client-side redirect the raw fetch never followed', () => {
+    const observation = diff([withRender(page('/old'), { finalPath: '/new' })]);
+    expect(observation.outcome).toBe('fail');
+    expect(samples(observation)).toContain('/new');
+  });
+
+  it('fails a rendered status that differs from the raw one', () => {
+    const observation = diff([withRender(page('/'), { status: 404 })]);
+    expect(observation.outcome).toBe('fail');
+    expect(samples(observation)).toContain('404');
+  });
+
+  it('warns on a same-site URL linked only from rendered DOM', () => {
+    const observation = diff([withRender(page('/', { links: ['/a'] }), { links: ['/a', '/hidden'] })]);
+    expect(observation.outcome).toBe('warn');
+    expect(observation.data?.['renderOnlyTargets']).toBe(1);
+  });
+
+  it('does not warn when another page carries the link in raw', () => {
+    const observation = diff([
+      withRender(page('/', { links: ['/a'] }), { links: ['/a', '/b'] }),
+      withRender(page('/a', { links: ['/b'] }), { links: ['/b'] }),
+    ]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('ignores external links only the render carries', () => {
+    const observation = diff([withRender(page('/'), { links: ['https://other.example/x'] })]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('passes a render that agrees, ignoring a failed one beside it', () => {
+    const observation = diff([withRender(page('/')), withRender(page('/b'), { error: 'boom' })]);
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data).toMatchObject({ pagesCompared: 1, renderFailures: 1 });
+  });
+});
+
+// --- experiment-cloaking-divergence -------------------------------------------
+
+describe('experiment-cloaking-divergence', () => {
+  const crawledAt = '2026-09-19T12:00:00.000Z';
+  const experiment = (over: Record<string, unknown> = {}) => ({
+    owner: 'Jane',
+    recordedAt: '2026-09-01T00:00:00.000Z',
+    controlUrl: `${ORIGIN}/pricing`,
+    variantUrls: [`${ORIGIN}/pricing-b`],
+    method: 'redirect',
+    retireBy: '2026-12-01T00:00:00.000Z',
+    ...over,
+  });
+  const check = (pages: readonly CrawledPage[], experiments?: unknown[]): Observation => {
+    return (probeById('experiment-cloaking-divergence') as SiteProbe).run({
+      origin: ORIGIN,
+      flags: [],
+      crawl: {
+        crawledAt,
+        seeds: [`${ORIGIN}/`],
+        pages,
+        robots: { groups: [], sitemaps: [], absent: true },
+        robotsTxt: null,
+        sitemapUrls: [],
+        sitemaps: [],
+        sitemapVideos: [],
+        sitemapNews: [],
+        blockedByRobots: [],
+        notReached: [],
+        auxiliary: [],
+      } satisfies CrawlResult,
+      ...(experiments === undefined ? {} : { inputs: { experiments } as never }),
+    });
+  };
+
+  it('is not applicable without the section', () => {
+    expect(check([]).outcome).toBe('not-applicable');
+  });
+
+  it('fails an indexable, self-canonical variant', () => {
+    expect(check([page('/pricing-b')], [experiment()]).outcome).toBe('fail');
+  });
+
+  it('leaves a noindexed or canonicalized-away variant alone', () => {
+    expect(check([page('/pricing-b', { metaRobots: 'noindex' })], [experiment()]).outcome).toBe('pass');
+    expect(check([page('/pricing-b', { canonical: '/pricing' })], [experiment()]).outcome).toBe('pass');
+    expect(check([page('/pricing-b', { redirectedTo: '/pricing' })], [experiment()]).outcome).toBe('pass');
+  });
+
+  it('fails an experiment past retireBy at crawl time', () => {
+    const observation = check([page('/pricing-b', { status: 404 })], [experiment({ retireBy: '2026-09-01T00:00:00.000Z' })]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/retireBy/);
+  });
+
+  it('warns a variant the crawl never reached', () => {
+    expect(check([], [experiment()]).outcome).toBe('warn');
+  });
+
+  it('holds a record with no owner', () => {
+    expect(check([page('/pricing-b', { canonical: '/pricing' })], [experiment({ owner: '' })]).outcome).toBe('warn');
+  });
+});
+
+// --- staging-protection -------------------------------------------------------
+
+describe('staging-protection', () => {
+  const crawledAt = '2026-09-19T12:00:00.000Z';
+  const STAGING = 'https://staging.example.com';
+  const record = (over: Record<string, unknown> = {}) => ({
+    owner: 'Jane',
+    recordedAt: '2026-09-01T00:00:00.000Z',
+    staging: STAGING,
+    ...over,
+  });
+  const environment = (
+    name: string,
+    over: Partial<FetchResult> = {},
+  ): AuxiliaryFetch => ({
+    reason: 'environment',
+    environment: name,
+    url: `${STAGING}/`,
+    fetch: {
+      requestedUrl: `${STAGING}/`,
+      finalUrl: `${STAGING}/`,
+      status: 200,
+      headers: {},
+      redirectChain: [],
+      body: '<html></html>',
+      byteLength: 13,
+      truncated: false,
+      contentType: 'text/html',
+      ttfbMs: 1,
+      totalMs: 1,
+      error: null,
+      ...over,
+    },
+  });
+  const check = (auxiliary: readonly AuxiliaryFetch[], environments?: unknown): Observation =>
+    (probeById('staging-protection') as SiteProbe).run({
+      origin: ORIGIN,
+      flags: [],
+      crawl: {
+        crawledAt,
+        seeds: [`${ORIGIN}/`],
+        pages: [],
+        robots: { groups: [], sitemaps: [], absent: true },
+        robotsTxt: null,
+        sitemapUrls: [],
+        sitemaps: [],
+        sitemapVideos: [],
+        sitemapNews: [],
+        blockedByRobots: [],
+        notReached: [],
+        auxiliary,
+      } satisfies CrawlResult,
+      ...(environments === undefined ? {} : { inputs: { environments } as never }),
+    });
+
+  it('is not applicable without the section', () => {
+    expect(check([]).outcome).toBe('not-applicable');
+  });
+
+  it('fails an environment answering 200 with HTML', () => {
+    expect(check([environment('staging')], record()).outcome).toBe('fail');
+  });
+
+  it('warns on a redirect to a login page', () => {
+    const login = environment('staging', {
+      finalUrl: 'https://sso.example.com/login?next=/',
+      redirectChain: [{ url: `${STAGING}/`, status: 302, location: 'https://sso.example.com/login?next=/' }],
+    });
+    expect(check([login], record()).outcome).toBe('warn');
+  });
+
+  it('passes a refusal, a missing page or no answer', () => {
+    expect(check([environment('staging', { status: 401 })], record()).outcome).toBe('pass');
+    expect(check([environment('staging', { status: 403 })], record()).outcome).toBe('pass');
+    expect(check([environment('staging', { status: null, error: 'ENOTFOUND' })], record()).outcome).toBe('pass');
+  });
+
+  it('holds an environment the crawl never requested, and a stale record', () => {
+    expect(check([], record()).outcome).toBe('warn');
+    expect(check([environment('staging', { status: 401 })], record({ owner: '' })).outcome).toBe('warn');
+  });
+});
+
+// --- ci-seo-guards ------------------------------------------------------------
+
+describe('ci-seo-guards', () => {
+  const crawledAt = '2026-09-19T12:00:00.000Z';
+  const guard = (over: Record<string, unknown> = {}) => ({
+    owner: 'Jane',
+    recordedAt: '2026-09-01T00:00:00.000Z',
+    build: 'ci-1',
+    ranAt: '2026-09-01T00:00:00.000Z',
+    seededDefectsCaught: ['noindex', 'canonical', 'crawler-access', 'critical-link'],
+    cleanRunPassed: true,
+    ...over,
+  });
+  const check = (ciGuard?: unknown): Observation =>
+    (probeById('ci-seo-guards') as SiteProbe).run({
+      origin: ORIGIN,
+      flags: [],
+      crawl: {
+        crawledAt,
+        seeds: [`${ORIGIN}/`],
+        pages: [],
+        robots: { groups: [], sitemaps: [], absent: true },
+        robotsTxt: null,
+        sitemapUrls: [],
+        sitemaps: [],
+        sitemapVideos: [],
+        sitemapNews: [],
+        blockedByRobots: [],
+        notReached: [],
+        auxiliary: [],
+      } satisfies CrawlResult,
+      ...(ciGuard === undefined ? {} : { inputs: { ciGuard } as never }),
+    });
+
+  it('is not applicable without the section', () => {
+    expect(check().outcome).toBe('not-applicable');
+  });
+
+  it('passes a guard that caught every kind and passed a clean run', () => {
+    expect(check(guard()).outcome).toBe('pass');
+  });
+
+  it('fails when a defect kind was never caught', () => {
+    expect(check(guard({ seededDefectsCaught: ['noindex', 'canonical', 'crawler-access'] })).outcome).toBe('fail');
+  });
+
+  it('fails when the clean run did not pass', () => {
+    expect(check(guard({ cleanRunPassed: false })).outcome).toBe('fail');
+  });
+
+  it('holds a record with no owner or past review', () => {
+    expect(check(guard({ owner: '' })).outcome).toBe('warn');
+    expect(check(guard({ nextReviewAt: '2026-09-10T00:00:00.000Z' })).outcome).toBe('warn');
+  });
+});
+
+// --- ci-extended-checks -------------------------------------------------------
+
+describe('ci-extended-checks', () => {
+  const rule = (over: Record<string, unknown> = {}) => ({
+    rule: 'no-orphan-pages',
+    owner: 'Jane',
+    recordedAt: '2026-09-01T00:00:00.000Z',
+    severity: 'block',
+    falsePositiveRate: 0.02,
+    ...over,
+  });
+  const check = (ciRules?: unknown): Observation =>
+    (probeById('ci-extended-checks') as SiteProbe).run({
+      origin: ORIGIN,
+      flags: [],
+      crawl: {
+        crawledAt: '2026-09-19T12:00:00.000Z',
+        seeds: [`${ORIGIN}/`],
+        pages: [],
+        robots: { groups: [], sitemaps: [], absent: true },
+        robotsTxt: null,
+        sitemapUrls: [],
+        sitemaps: [],
+        sitemapVideos: [],
+        sitemapNews: [],
+        blockedByRobots: [],
+        notReached: [],
+        auxiliary: [],
+      } satisfies CrawlResult,
+      ...(ciRules === undefined ? {} : { inputs: { ciRules } as never }),
+    });
+
+  it('is not applicable without the section', () => {
+    expect(check().outcome).toBe('not-applicable');
+  });
+
+  it('records rules that are owned, graded and quiet', () => {
+    expect(check([rule()]).outcome).toBe('pass');
+  });
+
+  it('warns a rule with no owner, no severity, a noisy rate or a lapsed review', () => {
+    expect(check([rule({ owner: '' })]).outcome).toBe('warn');
+    expect(check([rule({ severity: '' })]).outcome).toBe('warn');
+    expect(check([rule({ falsePositiveRate: 0.25 })]).outcome).toBe('warn');
+    expect(check([rule({ nextReviewAt: '2026-09-10T00:00:00.000Z' })]).outcome).toBe('warn');
+  });
+
+  it('holds the check for one bad rule among good ones', () => {
+    expect(check([rule(), rule({ rule: 'b', falsePositiveRate: 0.5 })]).outcome).toBe('warn');
+  });
+});
+
+// --- availability-canary ------------------------------------------------------
+
+describe('availability-canary', () => {
+  const canary = (over: Record<string, unknown> = {}) => ({
+    owner: 'Jane',
+    recordedAt: '2026-09-01T00:00:00.000Z',
+    urls: [`${ORIGIN}/`],
+    targetMinutes: 5,
+    recipient: 'oncall@example.com',
+    lastTestAlertAt: '2026-09-10T08:00:00.000Z',
+    deliveredAt: '2026-09-10T08:03:00.000Z',
+    ...over,
+  });
+  const check = (pages: readonly CrawledPage[], record?: unknown): Observation =>
+    (probeById('availability-canary') as SiteProbe).run({
+      origin: ORIGIN,
+      flags: [],
+      crawl: {
+        crawledAt: '2026-09-19T12:00:00.000Z',
+        seeds: [`${ORIGIN}/`],
+        pages,
+        robots: { groups: [], sitemaps: [], absent: true },
+        robotsTxt: null,
+        sitemapUrls: [],
+        sitemaps: [],
+        sitemapVideos: [],
+        sitemapNews: [],
+        blockedByRobots: [],
+        notReached: [],
+        auxiliary: [],
+      } satisfies CrawlResult,
+      ...(record === undefined ? {} : { inputs: { canary: record } as never }),
+    });
+
+  it('is not applicable without the section', () => {
+    expect(check([page('/')]).outcome).toBe('not-applicable');
+  });
+
+  it('passes a 200 canary and a timely alert', () => {
+    expect(check([page('/')], canary()).outcome).toBe('pass');
+  });
+
+  it('fails a canary URL that did not answer 200', () => {
+    expect(check([page('/', { status: 503 })], canary()).outcome).toBe('fail');
+  });
+
+  it('fails a late alert and a missing delivery', () => {
+    expect(check([page('/')], canary({ deliveredAt: '2026-09-10T08:20:00.000Z' })).outcome).toBe('fail');
+    expect(check([page('/')], canary({ deliveredAt: undefined })).outcome).toBe('fail');
+  });
+
+  it('holds an unreached URL, no test alert, no owner or a stale record', () => {
+    expect(check([], canary()).outcome).toBe('warn');
+    expect(check([page('/')], canary({ lastTestAlertAt: undefined, deliveredAt: undefined })).outcome).toBe('warn');
+    expect(check([page('/')], canary({ owner: '' })).outcome).toBe('warn');
+    expect(check([page('/')], canary({ nextReviewAt: '2026-09-10T00:00:00.000Z' })).outcome).toBe('warn');
+    expect(check([page('/')], canary({ recipient: '' })).outcome).toBe('warn');
+  });
+});

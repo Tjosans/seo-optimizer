@@ -716,3 +716,62 @@ describe('the asset auxiliary pass', () => {
     expect(assets.map((entry) => entry.url)).toEqual([`${ORIGIN}/app.css`, `${ORIGIN}/app.js`]);
   });
 });
+
+// --- the redirect-map auxiliary pass ----------------------------------------
+
+describe('the redirect-map auxiliary pass', () => {
+  const ORIGIN = 'https://old.example.test';
+  const urls = Array.from({ length: 502 }, (_, i) => `${ORIGIN}/p${i}`);
+  const requested: string[] = [];
+
+  const fetchImpl = async (url: string): Promise<FetchResult> => {
+    requested.push(url);
+    const moved = url === `${ORIGIN}/p0`;
+    return {
+      requestedUrl: url,
+      finalUrl: moved ? 'https://new.example.test/p0' : url,
+      status: moved ? 200 : 404,
+      headers: {},
+      redirectChain: moved ? [{ url, status: 301, location: 'https://new.example.test/p0' }] : [],
+      body: '',
+      byteLength: 0,
+      truncated: false,
+      contentType: 'text/html',
+      ttfbMs: 1,
+      totalMs: 1,
+      error: null,
+    };
+  };
+
+  it('requests each mapped URL once, capped at 500, recording the chain', async () => {
+    const crawled = await crawl({
+      seeds: ['https://new.example.test/'],
+      userAgent: 'seo-optimizer/0.1 (+test)',
+      maxPages: 1,
+      maxDepth: 0,
+      followSitemaps: false,
+      redirectMapUrls: [...urls, urls[0] as string],
+      fetchImpl: fetchImpl as unknown as typeof fetchPage,
+      negotiateImpl: async (origin) => ({ origin, alpn: null, tlsVersion: null, error: null }),
+      rdapImpl: async (domain) => ({ domain, expiresAt: null, registrar: null, statuses: [], fetchedAt: new Date().toISOString(), error: null }),
+    });
+    const mapped = crawled.auxiliary.filter((entry) => entry.reason === 'redirect-map');
+    expect(mapped).toHaveLength(500);
+    expect(mapped[0]?.fetch.redirectChain).toEqual([{ url: `${ORIGIN}/p0`, status: 301, location: 'https://new.example.test/p0' }]);
+    expect(requested.filter((url) => url === `${ORIGIN}/p0`)).toHaveLength(1);
+  });
+
+  it('makes none when no map is given', async () => {
+    const crawled = await crawl({
+      seeds: ['https://new.example.test/'],
+      userAgent: 'seo-optimizer/0.1 (+test)',
+      maxPages: 1,
+      maxDepth: 0,
+      followSitemaps: false,
+      fetchImpl: fetchImpl as unknown as typeof fetchPage,
+      negotiateImpl: async (origin) => ({ origin, alpn: null, tlsVersion: null, error: null }),
+      rdapImpl: async (domain) => ({ domain, expiresAt: null, registrar: null, statuses: [], fetchedAt: new Date().toISOString(), error: null }),
+    });
+    expect(crawled.auxiliary.filter((entry) => entry.reason === 'redirect-map')).toEqual([]);
+  });
+});

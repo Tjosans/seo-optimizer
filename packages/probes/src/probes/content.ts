@@ -27,9 +27,11 @@
  */
 
 import { isSameSite, normalizeUrl } from '@seo/crawler';
+import { inputRecordProblem } from '@seo/core';
 import type { CrawledPage, Extracted } from '@seo/crawler';
 import type { PageProbe, SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
+import { previousPage } from '../previous.js';
 import { isNoindex } from './commerce.js';
 import { jsonLdNodes, typesOf } from './metadata.js';
 
@@ -813,6 +815,127 @@ export const launchContentCompleteness: PageProbe = {
   },
 };
 
+// --- content-parity-diff -----------------------------------------------
+
+/** How many offending entries `content-parity-diff` lists in its data. */
+const PARITY_SAMPLES = 10;
+
+/** A destination with under this share of the old page's words lost most of its content in the move. */
+const PARITY_MIN_WORD_SHARE = 0.5;
+
+const tokensOf = (value: string | null | undefined): Set<string> =>
+  new Set((value ?? '').toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) ?? []);
+
+const resolveUrl = (value: string, base: string | undefined): string | null => {
+  try {
+    return normalizeUrl(new URL(value, base).toString());
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * 4.8 asks that a migrated URL land on the same content, not merely on a 200.
+ * For each map entry whose old page the previous audit reached, the crawled
+ * destination is compared with what the old page was: a destination whose h1
+ * shares no word with the old title or h1 is a different page, one with under
+ * half the old reading matter has lost most of it, and one canonicalizing
+ * elsewhere hands the ranking to some third URL. A changed title alone is a
+ * warning: retitling is routine, and only a person knows if it was meant.
+ *
+ * Old pages whose snapshot holds no h1 or word count (taken before those were
+ * recorded) are compared on what it does hold. A destination the crawl did not
+ * reach holds the check with a `warn` rather than passing it.
+ */
+export const contentParityDiff: SiteProbe = {
+  id: 'content-parity-diff',
+  scope: 'site',
+  title: 'Every migrated URL lands on content that matches what it replaced',
+  run({ crawl, inputs, origin, previous }) {
+    const map = inputs?.redirectMap;
+    if (map === undefined) return notApplicable('No redirect map was supplied.');
+    if (previous === undefined || previous === null) {
+      return notApplicable('There is no previous audit to compare against.');
+    }
+
+    const byUrl = new Map<string, CrawledPage>();
+    for (const page of crawl.pages) byUrl.set(page.normalizedUrl, page);
+
+    const base = map.oldOrigin ?? previous.origin;
+    const failures: string[] = [];
+    const titleChanges: string[] = [];
+    const unreached: string[] = [];
+    let compared = 0;
+
+    for (const entry of map.entries) {
+      if (entry.to === undefined) continue;
+      const from = resolveUrl(entry.from, base);
+      const to = resolveUrl(entry.to, origin);
+      if (from === null || to === null) continue;
+      const old = previousPage(previous, from);
+      if (old === undefined || old.status !== 200) continue;
+
+      const page = byUrl.get(to);
+      const extracted = page?.extracted ?? null;
+      if (page === undefined || extracted === null || page.fetch.status !== 200 || page.fetch.truncated) {
+        unreached.push(to);
+        continue;
+      }
+      compared++;
+
+      const problems: string[] = [];
+      const newH1 = firstH1(extracted);
+      const oldTokens = new Set([...tokensOf(old.title), ...tokensOf(old.h1)]);
+      if (oldTokens.size > 0 && newH1 !== null && ![...tokensOf(newH1)].some((token) => oldTokens.has(token))) {
+        problems.push(`h1 "${newH1}" shares nothing with the old title or h1`);
+      }
+      const newWords = extracted.content.sections.reduce((sum, section) => sum + section.words, 0);
+      if (old.words != null && old.words > 0 && newWords < old.words * PARITY_MIN_WORD_SHARE) {
+        problems.push(`${newWords} word(s) against ${old.words} before`);
+      }
+      const canonical = extracted.canonical === null ? null : resolveUrl(extracted.canonical, page.fetch.finalUrl);
+      if (canonical !== null && canonical !== to && canonical !== normalizeUrl(page.fetch.finalUrl)) {
+        problems.push(`canonicalizes to ${canonical}`);
+      }
+      if (problems.length > 0) {
+        failures.push(`${from} -> ${to}: ${problems.join(', ')}`);
+      } else if (old.title !== null && extracted.title !== null && fold(old.title) !== fold(extracted.title)) {
+        titleChanges.push(`${from} -> ${to}`);
+      }
+    }
+
+    const at = crawl.crawledAt ?? null;
+    const held = map.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(map, new Date(at));
+    const data = {
+      compared,
+      failures: failures.slice(0, PARITY_SAMPLES),
+      failureCount: failures.length,
+      titleChanges: titleChanges.slice(0, PARITY_SAMPLES),
+      titleChangeCount: titleChanges.length,
+      unreached: unreached.slice(0, PARITY_SAMPLES),
+      unreachedCount: unreached.length,
+    };
+
+    if (failures.length > 0) {
+      return fail(`${failures.length} migrated URL(s) lost their content: ${failures.slice(0, 3).join('; ')}.`, data);
+    }
+    if (compared === 0 && unreached.length === 0) {
+      return notApplicable('No map entry has an old URL the previous audit reached.');
+    }
+    const notes = [
+      titleChanges.length > 0
+        ? `${titleChanges.length} destination(s) changed their title: ${titleChanges.slice(0, 3).join('; ')}`
+        : '',
+      unreached.length > 0
+        ? `${unreached.length} destination(s) were not crawled: ${unreached.slice(0, 3).join(', ')}`
+        : '',
+      held === null ? '' : `the redirect map is held for review (${held})`,
+    ].filter((note) => note !== '');
+    if (notes.length > 0) return warn(`${notes.join('; ')}.`, data);
+    return pass(`${compared} migrated URL(s) land on content that matches the old page.`, data);
+  },
+};
+
 export const contentProbes = [
   answerFirstStructure,
   authorDateSignals,
@@ -821,4 +944,5 @@ export const contentProbes = [
   batchPageQuality,
   cannibalization,
   launchContentCompleteness,
+  contentParityDiff,
 ];

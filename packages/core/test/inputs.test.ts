@@ -175,3 +175,27 @@ describe('urlMatrix', () => {
     expect(problemsOf([row, { ...row, environment: 'staging' }])).toEqual([]);
   });
 });
+
+describe('parseInputs canary', () => {
+  const base = {
+    owner: 'Jane',
+    recordedAt: '2026-09-01T00:00:00Z',
+    urls: ['https://example.com/'],
+    targetMinutes: 5,
+    recipient: 'oncall@example.com',
+    lastTestAlertAt: '2026-09-10T08:00:00Z',
+    deliveredAt: '2026-09-10T08:03:00Z',
+  };
+
+  it('parses a record, with the alert times optional', () => {
+    expect(parseInputs({ canary: base }).canary?.deliveredAt).toBe('2026-09-10T08:03:00.000Z');
+    const { canary } = parseInputs({ canary: { ...base, lastTestAlertAt: undefined, deliveredAt: undefined } });
+    expect(canary?.lastTestAlertAt).toBeUndefined();
+  });
+
+  it('refuses no URLs, a bad target and a bad date', () => {
+    expect(() => parseInputs({ canary: { ...base, urls: [] } })).toThrow(/canary.urls/);
+    expect(() => parseInputs({ canary: { ...base, targetMinutes: 0 } })).toThrow(/targetMinutes/);
+    expect(() => parseInputs({ canary: { ...base, deliveredAt: 'soon' } })).toThrow(/deliveredAt/);
+  });
+});

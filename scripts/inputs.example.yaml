@@ -81,3 +81,17 @@ urlMatrix:
     environment: production
     owner: Jane Doe
     recordedAt: 2026-09-01T09:00:00Z
+
+# canary (5.5, availability-canary): the URLs watched after launch and the alert
+# that watches them. Fails a canary URL the crawl got a non-200 from, a test
+# alert delivered later than targetMinutes after lastTestAlertAt, and an alert
+# with no deliveredAt. lastTestAlertAt and deliveredAt are optional; without a
+# test alert the check is held.
+canary:
+  urls: [https://example.com/]
+  targetMinutes: 5
+  recipient: oncall@example.com
+  lastTestAlertAt: 2026-09-10T08:00:00Z
+  deliveredAt: 2026-09-10T08:03:00Z
+  owner: Jane Doe
+  recordedAt: 2026-09-10T09:00:00Z

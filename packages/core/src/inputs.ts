@@ -111,8 +111,26 @@ export interface UrlMatrixEntry extends InputRecord {
 /** The values `UrlMatrixEntry.access` takes. */
 export const URL_MATRIX_ACCESS = ['public', 'private'] as const;
 
+/**
+ * The availability canary and its alert (5.5). `urls` are the pages watched;
+ * `targetMinutes` is how quickly an alert must reach `recipient`.
+ * `lastTestAlertAt` is when a test alert was raised, `deliveredAt` when the
+ * recipient got it; either is absent when it has not happened.
+ */
+export interface CanaryRecord extends InputRecord {
+  readonly urls: readonly string[];
+  readonly targetMinutes: number;
+  readonly recipient: string;
+  /** ISO 8601 instant. */
+  readonly lastTestAlertAt?: string;
+  /** ISO 8601 instant. */
+  readonly deliveredAt?: string;
+}
+
 /** Every section an audit can be given. */
 export interface AuditInputs {
+  /** The availability canary and its alert delivery (5.5). */
+  readonly canary?: CanaryRecord;
   /** The URL matrix: expected status, indexability, canonical and sitemap membership per pattern (0.3). */
   readonly urlMatrix?: readonly UrlMatrixEntry[];
   /** The extended CI rules and who answers for each (1.11). */
@@ -126,7 +144,7 @@ export interface AuditInputs {
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -478,6 +496,54 @@ function parseUrlMatrix(value: unknown, problem: (path: string, text: string) =>
   return ok ? out : null;
 }
 
+const CANARY_KEYS = ['urls', 'targetMinutes', 'recipient', 'lastTestAlertAt', 'deliveredAt'];
+
+function parseCanary(value: unknown, problem: (path: string, text: string) => void): CanaryRecord | null {
+  const record = parseInputRecord('canary', value, problem, CANARY_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (key: string, text: string): void => {
+    problem(`canary.${key}`, text);
+    ok = false;
+  };
+  const missing = (raw: unknown): boolean => raw === undefined || raw === null || raw === '';
+
+  const urlsRaw = value['urls'];
+  const urls: string[] = [];
+  if (!Array.isArray(urlsRaw) || urlsRaw.length === 0) {
+    fail('urls', 'expected a non-empty list of URLs');
+  } else {
+    urlsRaw.forEach((url, index) => {
+      if (typeof url !== 'string' || !isHttpUrl(url.trim())) fail(`urls[${index}]`, 'expected an http(s) URL');
+      else urls.push(url.trim());
+    });
+  }
+  const target = value['targetMinutes'];
+  if (typeof target !== 'number' || !Number.isFinite(target) || target <= 0) {
+    fail('targetMinutes', missing(target) ? 'required' : 'expected a positive number of minutes');
+  }
+  const recipientRaw = value['recipient'];
+  if (!missing(recipientRaw) && typeof recipientRaw !== 'string') {
+    fail('recipient', `expected text, got ${typeof recipientRaw} (quote it)`);
+  }
+  const times: { lastTestAlertAt?: string; deliveredAt?: string } = {};
+  for (const key of ['lastTestAlertAt', 'deliveredAt'] as const) {
+    const raw = value[key];
+    if (missing(raw)) continue;
+    const ms = typeof raw === 'string' ? instant(raw) : null;
+    if (ms === null) fail(key, typeof raw === 'string' ? `not a date and time: ${raw}` : `expected text, got ${typeof raw} (quote it)`);
+    else times[key] = new Date(ms).toISOString();
+  }
+  if (!ok || typeof target !== 'number') return null;
+  return {
+    ...record,
+    urls,
+    targetMinutes: target,
+    recipient: typeof recipientRaw === 'string' ? recipientRaw.trim() : '',
+    ...times,
+  };
+}
+
 /**
  * Check a parsed inputs value's shape and return it typed. `undefined` and
  * `null` are no inputs. Throws `InputsError` listing every problem found:
@@ -499,7 +565,12 @@ export function parseInputs(value: unknown): AuditInputs {
     ciGuard?: CiGuardRecord;
     ciRules?: readonly CiRuleRecord[];
     urlMatrix?: readonly UrlMatrixEntry[];
+    canary?: CanaryRecord;
   } = {};
+  if (value['canary'] !== undefined && value['canary'] !== null) {
+    const canary = parseCanary(value['canary'], problem);
+    if (canary !== null) inputs.canary = canary;
+  }
   if (value['urlMatrix'] !== undefined && value['urlMatrix'] !== null) {
     const urlMatrix = parseUrlMatrix(value['urlMatrix'], problem);
     if (urlMatrix !== null) inputs.urlMatrix = urlMatrix;

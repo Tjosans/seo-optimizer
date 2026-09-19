@@ -697,3 +697,63 @@ describe('ci-extended-checks', () => {
     expect(check([rule(), rule({ rule: 'b', falsePositiveRate: 0.5 })]).outcome).toBe('warn');
   });
 });
+
+// --- availability-canary ------------------------------------------------------
+
+describe('availability-canary', () => {
+  const canary = (over: Record<string, unknown> = {}) => ({
+    owner: 'Jane',
+    recordedAt: '2026-09-01T00:00:00.000Z',
+    urls: [`${ORIGIN}/`],
+    targetMinutes: 5,
+    recipient: 'oncall@example.com',
+    lastTestAlertAt: '2026-09-10T08:00:00.000Z',
+    deliveredAt: '2026-09-10T08:03:00.000Z',
+    ...over,
+  });
+  const check = (pages: readonly CrawledPage[], record?: unknown): Observation =>
+    (probeById('availability-canary') as SiteProbe).run({
+      origin: ORIGIN,
+      flags: [],
+      crawl: {
+        crawledAt: '2026-09-19T12:00:00.000Z',
+        seeds: [`${ORIGIN}/`],
+        pages,
+        robots: { groups: [], sitemaps: [], absent: true },
+        robotsTxt: null,
+        sitemapUrls: [],
+        sitemaps: [],
+        sitemapVideos: [],
+        sitemapNews: [],
+        blockedByRobots: [],
+        notReached: [],
+        auxiliary: [],
+      } satisfies CrawlResult,
+      ...(record === undefined ? {} : { inputs: { canary: record } as never }),
+    });
+
+  it('is not applicable without the section', () => {
+    expect(check([page('/')]).outcome).toBe('not-applicable');
+  });
+
+  it('passes a 200 canary and a timely alert', () => {
+    expect(check([page('/')], canary()).outcome).toBe('pass');
+  });
+
+  it('fails a canary URL that did not answer 200', () => {
+    expect(check([page('/', { status: 503 })], canary()).outcome).toBe('fail');
+  });
+
+  it('fails a late alert and a missing delivery', () => {
+    expect(check([page('/')], canary({ deliveredAt: '2026-09-10T08:20:00.000Z' })).outcome).toBe('fail');
+    expect(check([page('/')], canary({ deliveredAt: undefined })).outcome).toBe('fail');
+  });
+
+  it('holds an unreached URL, no test alert, no owner or a stale record', () => {
+    expect(check([], canary()).outcome).toBe('warn');
+    expect(check([page('/')], canary({ lastTestAlertAt: undefined, deliveredAt: undefined })).outcome).toBe('warn');
+    expect(check([page('/')], canary({ owner: '' })).outcome).toBe('warn');
+    expect(check([page('/')], canary({ nextReviewAt: '2026-09-10T00:00:00.000Z' })).outcome).toBe('warn');
+    expect(check([page('/')], canary({ recipient: '' })).outcome).toBe('warn');
+  });
+});

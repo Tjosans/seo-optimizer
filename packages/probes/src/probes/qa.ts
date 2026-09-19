@@ -705,4 +705,86 @@ export const productionSmokeTest: SiteProbe = {
   },
 };
 
-export const qaProbes = [brokenLinks, metadataCompleteness, rawRenderedCrawlDiff, ciSeoGuards, ciExtendedChecks, productionSmokeTest];
+/**
+ * The availability canary and the alert that watches it (5.5). Reads the
+ * `canary` input and is `not-applicable` without it.
+ *
+ * Fails: a canary URL the crawl fetched and got a non-200 from, a test alert
+ * delivered later than `targetMinutes` after it was raised, and an alert
+ * raised that was never delivered. Holds with a `warn`: no test alert on
+ * record, no recipient, a canary URL the crawl did not reach, and a record with
+ * no owner or past review. Whether the canary keeps its URLs indexable belongs
+ * to `indexability-canary`.
+ */
+export const availabilityCanary: SiteProbe = {
+  id: 'availability-canary',
+  scope: 'site',
+  title: 'Canary URLs answer 200 and a test alert reaches its recipient within the target',
+  run({ crawl, inputs }) {
+    const record = inputs?.canary;
+    if (record === undefined) return notApplicable('No canary record was supplied.');
+
+    const failures: string[] = [];
+    const held: string[] = [];
+
+    const byUrl = new Map<string, CrawledPage>();
+    for (const page of crawl.pages) byUrl.set(page.normalizedUrl, page);
+    const unreached: string[] = [];
+    for (const url of record.urls) {
+      const page = byUrl.get(normalizeUrl(url) ?? url);
+      const status = page?.fetch.status ?? null;
+      if (page === undefined || status === null) unreached.push(url);
+      else if (status !== 200) failures.push(`${url} answered ${status}, a canary URL must answer 200`);
+    }
+    if (unreached.length > 0) {
+      held.push(`${unreached.length} canary URL(s) were not reached by the crawl: ${unreached.slice(0, 3).join(', ')}`);
+    }
+
+    const raised = record.lastTestAlertAt === undefined ? null : Date.parse(record.lastTestAlertAt);
+    const delivered = record.deliveredAt === undefined ? null : Date.parse(record.deliveredAt);
+    let minutes: number | null = null;
+    if (raised === null) {
+      held.push('no test alert is on record');
+    } else if (delivered === null || delivered < raised) {
+      failures.push(`the test alert raised ${record.lastTestAlertAt} was never delivered`);
+    } else {
+      minutes = Math.round(((delivered - raised) / 60_000) * 10) / 10;
+      if (minutes > record.targetMinutes) {
+        failures.push(`the test alert took ${minutes} minutes to arrive, the target is ${record.targetMinutes}`);
+      }
+    }
+    if (record.recipient === '') held.push('no alert recipient is recorded');
+
+    const at = crawl.crawledAt ?? null;
+    const problem = at === null
+      ? "the crawl's time is unknown, so the record's review date cannot be judged"
+      : inputRecordProblem(record, new Date(at));
+    if (problem !== null) held.push(problem);
+
+    const data = {
+      urls: record.urls,
+      failures,
+      held,
+      targetMinutes: record.targetMinutes,
+      deliveryMinutes: minutes,
+    };
+    if (failures.length > 0) {
+      return fail(`${failures.length} canary failure(s): ${failures.slice(0, 3).join('; ')}.`, data);
+    }
+    if (held.length > 0) return warn(`The canary is held: ${held.slice(0, 3).join('; ')}.`, data);
+    return pass(
+      `${record.urls.length} canary URL(s) answered 200 and a test alert reached ${record.recipient} in ${minutes} minutes (target ${record.targetMinutes}).`,
+      data,
+    );
+  },
+};
+
+export const qaProbes = [
+  brokenLinks,
+  metadataCompleteness,
+  rawRenderedCrawlDiff,
+  ciSeoGuards,
+  ciExtendedChecks,
+  productionSmokeTest,
+  availabilityCanary,
+];

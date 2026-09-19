@@ -1390,8 +1390,105 @@ export const urlInventoryBuilder: SiteProbe = {
   },
 };
 
+/** How many offending URLs `migration-map-builder` lists in its data. */
+const MIGRATION_SAMPLES = 10;
+
+/** A URL as the map's own spelling of it: absolute, normalized, or null when it cannot be one. */
+function mapKey(value: string, base: string | undefined): string | null {
+  try {
+    return normalizeUrl(new URL(value, base).toString());
+  } catch {
+    return null;
+  }
+}
+
+export const migrationMapBuilder: SiteProbe = {
+  id: 'migration-map-builder',
+  scope: 'site',
+  title: 'Every old URL has a redirect map entry, and none chains or loops',
+  run({ crawl, inputs, origin, previous }) {
+    const map = inputs?.redirectMap;
+    if (map === undefined) return notApplicable('No redirect map was supplied.');
+
+    const oldOrigin = map.oldOrigin;
+    const failures: string[] = [];
+
+    if (map.kind === 'move' && oldOrigin === undefined) {
+      failures.push('the map is a move but names no oldOrigin');
+    }
+
+    // Every entry, keyed by the absolute old URL it is for.
+    const base = oldOrigin ?? previous?.origin;
+    const mapped = new Map<string, string | null>();
+    for (const entry of map.entries) {
+      const from = mapKey(entry.from, base);
+      if (from === null) {
+        failures.push(`${entry.from} is not an address the map can resolve`);
+        continue;
+      }
+      mapped.set(from, entry.to === undefined ? null : mapKey(entry.to, origin));
+    }
+
+    // A chain is a target that is itself mapped; a loop is a chain that comes back.
+    const chains: string[] = [];
+    const loops: string[] = [];
+    for (const [from, to] of mapped) {
+      if (to === null) continue;
+      if (!mapped.has(to)) continue;
+      const seen = new Set([from]);
+      let at: string | null | undefined = to;
+      let looped = false;
+      while (at !== null && at !== undefined) {
+        if (seen.has(at)) {
+          looped = true;
+          break;
+        }
+        seen.add(at);
+        at = mapped.get(at);
+      }
+      (looped ? loops : chains).push(`${from} -> ${to}`);
+    }
+    if (loops.length > 0) failures.push(`${loops.length} entr${loops.length === 1 ? 'y loops' : 'ies loop'} back: ${loops.slice(0, 3).join('; ')}`);
+    if (chains.length > 0) failures.push(`${chains.length} entr${chains.length === 1 ? 'y targets' : 'ies target'} a URL that is itself mapped: ${chains.slice(0, 3).join('; ')}`);
+
+    // Old URLs: what the previous audit reached, and what the old origin's sitemap listed.
+    const unmapped: string[] = [];
+    if (map.kind === 'move') {
+      const old = new Set<string>();
+      for (const page of previous?.pages ?? []) if (page.status === 200) old.add(page.url);
+      if (oldOrigin !== undefined) {
+        for (const url of crawl.sitemapUrls) {
+          const key = mapKey(url, undefined);
+          if (key !== null && new URL(key).origin === oldOrigin) old.add(key);
+        }
+      }
+      for (const url of old) if (!mapped.has(url)) unmapped.push(url);
+      if (unmapped.length > 0) {
+        failures.push(`${unmapped.length} old URL(s) have no map entry: ${unmapped.slice(0, 3).join(', ')}`);
+      }
+    }
+
+    const at = crawl.crawledAt ?? null;
+    const problem = map.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(map, new Date(at));
+
+    const data = {
+      kind: map.kind,
+      entries: map.entries.length,
+      unmapped: unmapped.slice(0, MIGRATION_SAMPLES),
+      unmappedCount: unmapped.length,
+      chains: chains.slice(0, MIGRATION_SAMPLES),
+      loops: loops.slice(0, MIGRATION_SAMPLES),
+    };
+    if (failures.length > 0) return fail(`${failures.join('; ')}.`, data);
+    if (problem !== null) return warn(`The redirect map is held for review (${problem}).`, data);
+    if (map.kind === 'history-only') return pass('The site keeps its history only, so no redirect map entries are needed.', data);
+    return pass(`Every old URL known to the audit has a map entry, and none chains or loops (${map.entries.length} entries).`, data);
+  },
+};
+
 export const siteProbes = [
   urlInventoryBuilder,
+  migrationMapBuilder,
   robotsTxt,
   sitemapValidity,
   sitemapCanonicalAgreement,

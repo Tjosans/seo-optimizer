@@ -5,6 +5,7 @@
  */
 
 import { isAllowed, isSameSite, registrableDomain } from '@seo/crawler';
+import { inputRecordProblem } from '@seo/core';
 import type { AuxiliaryFetch, FetchResult } from '@seo/crawler';
 import type { PageProbe, SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
@@ -537,6 +538,66 @@ export const indexabilityMatrixReconciliation: PageProbe = {
   },
 };
 
+/**
+ * v5.0 1.5 asks that lab performance stays inside a budget a person set. The
+ * `perfPolicy` supplied with the Lighthouse reports is that budget, and no
+ * crawl can stand in for it. A report over any threshold fails, and so does a
+ * report run under another test profile: a desktop run judged against a mobile
+ * budget says nothing about mobile. Nothing in the policy waives a threshold,
+ * so a failure is never passed. What cannot be judged (no report, a missing
+ * metric, a report older than the policy's revision, an unowned or overdue
+ * record) holds the check with a `warn`.
+ */
+export const labPerfBudget: SiteProbe = {
+  id: 'lab-perf-budget',
+  scope: 'site',
+  title: 'Lighthouse lab results stay inside the performance budget',
+  run({ crawl, inputs }) {
+    const record = inputs?.lighthouse;
+    const policy = record?.perfPolicy;
+    if (record === undefined || policy === undefined) return notApplicable('No performance policy was supplied.');
+
+    const failures: string[] = [];
+    const held: string[] = [];
+    const limits = Object.entries(policy.thresholds) as [keyof typeof policy.thresholds, number][];
+    for (const report of record.reports) {
+      const metrics = report.metrics;
+      if (metrics === undefined) {
+        held.push(`${report.url}: the report has not been read`);
+        continue;
+      }
+      if (metrics.testProfile !== policy.testProfile) {
+        failures.push(`${report.url}: run as ${metrics.testProfile ?? 'an unknown profile'}, the policy is ${policy.testProfile}`);
+        continue;
+      }
+      const over: string[] = [];
+      const missing: string[] = [];
+      for (const [key, limit] of limits) {
+        const value = metrics[key];
+        if (value === undefined) missing.push(key);
+        else if (value > limit) over.push(`${key} ${value} over ${limit}`);
+      }
+      if (over.length > 0) failures.push(`${report.url}: ${over.join(', ')}`);
+      else if (missing.length > 0) held.push(`${report.url}: the report holds no ${missing.join(', ')}`);
+      else if (metrics.fetchedAt !== undefined && Date.parse(metrics.fetchedAt) < Date.parse(policy.revision)) {
+        held.push(`${report.url}: the report predates the policy revision ${policy.revision}`);
+      }
+    }
+
+    const data = { reports: record.reports.length, failures: failures.slice(0, 10), held: held.slice(0, 10) };
+    if (failures.length > 0) return fail(`${failures.length} report(s) break the performance policy: ${failures.slice(0, 3).join(' | ')}.`, data);
+
+    if (record.reports.length === 0) held.push('the policy has no report to judge');
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' || policy.owner.trim() === ''
+      ? 'the performance policy has no owner'
+      : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) held.push(problem);
+    if (held.length > 0) return warn(`The performance budget is not settled: ${held.slice(0, 3).join('; ')}.`, data);
+    return pass(`${record.reports.length} report(s) run under ${policy.testProfile} stay inside the policy.`, data);
+  },
+};
+
 export const deliveryProbes = [
   httpStatus,
   redirectChain,
@@ -549,4 +610,5 @@ export const deliveryProbes = [
   crawlerFetchLimit,
   privateResponseCaching,
   indexabilityMatrixReconciliation,
+  labPerfBudget,
 ];

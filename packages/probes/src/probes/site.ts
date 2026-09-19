@@ -1761,7 +1761,57 @@ export const backlinkMonitor: SiteProbe = {
   },
 };
 
+export const bingOnboarding: SiteProbe = {
+  id: 'bing-onboarding',
+  scope: 'site',
+  title: 'The site is a verified Bing Webmaster property and its sitemaps reached Bing',
+  run({ crawl, inputs }) {
+    const record = inputs?.bingWebmaster;
+    if (record === undefined) return notApplicable('No Bing Webmaster export was supplied.');
+
+    const property = record.property;
+    const found = [...new Set(crawl.sitemaps.filter((doc) => doc.status !== null && doc.status < 400).map((doc) => doc.url))];
+    const reported = new Map((record.sitemaps ?? []).map((row) => [sitemapKey(row.url), row]));
+    const failed: string[] = [];
+    const missing: string[] = [];
+    for (const url of found) {
+      const row = reported.get(sitemapKey(url));
+      if (row === undefined) missing.push(url);
+    }
+    for (const row of record.sitemaps ?? []) {
+      if (/\b(error|errors|failed|fail)\b|couldn.?t fetch/i.test(row.status)) failed.push(row.url);
+    }
+    const data = {
+      verified: property?.verified ?? null,
+      found: found.length,
+      submitted: record.sitemaps?.length ?? null,
+      failed: failed.slice(0, 10),
+      missing: missing.slice(0, 10),
+    };
+
+    if (property !== undefined && !property.verified) {
+      return fail(`The Bing Webmaster property ${property.url} is not verified.`, data);
+    }
+    if (failed.length > 0) {
+      return fail(`Bing reports ${failed.length} submitted sitemap(s) as failed: ${failed.slice(0, 3).join(', ')}.`, data);
+    }
+    // Missing subsections are access that was not available: held, never failed.
+    if (property === undefined) return warn('The Bing Webmaster export holds no property, so verification is unconfirmed.', data);
+    if (record.sitemaps === undefined && found.length > 0) {
+      return warn('The Bing Webmaster export holds no Sitemaps report, so submission is unverified.', data);
+    }
+    if (missing.length > 0) {
+      return warn(`${missing.length} of ${found.length} sitemap(s) the crawl found have not been received by Bing: ${missing.slice(0, 3).join(', ')}.`, data);
+    }
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) return warn(`The Bing Webmaster record is held for review (${problem}).`, data);
+    return pass(`The Bing Webmaster property is verified and all ${found.length} sitemap(s) the crawl found reached Bing.`, data);
+  },
+};
+
 export const siteProbes = [
+  bingOnboarding,
   backlinkMonitor,
   reportingAnomalyThresholds,
   urlInventoryBuilder,

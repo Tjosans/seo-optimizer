@@ -78,3 +78,20 @@ describe('experiments section', () => {
     expect(() => parseInputs({ experiments: [{ ...entry, extra: 1 }] })).toThrow(/unknown field/);
   });
 });
+
+describe('environments section', () => {
+  const base = { owner: 'Jane', recordedAt: '2026-09-01T09:00:00Z' };
+
+  it('parses origins and reduces them to origins', () => {
+    const inputs = parseInputs({ environments: { ...base, staging: 'https://staging.example.com/path', preview: 'http://p.example.com' } });
+    expect(inputs.environments?.staging).toBe('https://staging.example.com');
+    expect(inputs.environments?.preview).toBe('http://p.example.com');
+  });
+
+  it('refuses an empty section, a bad origin and an unknown field', () => {
+    expect(() => parseInputs({ environments: base })).toThrow(/at least one/);
+    expect(() => parseInputs({ environments: { ...base, staging: 'staging' } })).toThrow(/not an http\(s\) origin/);
+    expect(() => parseInputs({ environments: { ...base, staging: 'ftp://x.example.com' } })).toThrow(/not an http\(s\) origin/);
+    expect(() => parseInputs({ environments: { ...base, staging: 'https://s.example.com', qa: 'x' } })).toThrow(/unknown field/);
+  });
+});

@@ -147,6 +147,14 @@ export interface CrawlOptions {
    * really does get to decide what to do about it.
    */
   readonly userAgentTests?: readonly string[];
+  /**
+   * Root URLs of the site's staging and preview environments, each requested
+   * once, as any visitor arrives: no credentials, no cookies. Whether an
+   * environment answers a stranger is only observable by being one, which is
+   * what corpus check 1.8 means by protected. `name` says which environment
+   * the URL is, for the report; the list comes from the `environments` input.
+   */
+  readonly environments?: readonly { readonly name: string; readonly url: string }[];
   /** Injection seam for tests and for replaying a stored crawl. */
   readonly fetchImpl?: typeof fetchPage;
   /** Injection seam for the TLS handshake, like `fetchImpl` for requests. */
@@ -208,9 +216,14 @@ export interface AuxiliaryFetch {
    * `asset` — a stylesheet or script a page declared, fetched to weigh it
    *   against Googlebot's per-file fetch limit; `crawler-fetch-limit`
    *   (corpus 1.5) is the reader.
+   * `environment` — the root of a staging or preview environment the site
+   *   named, requested without credentials; `staging-protection` (corpus 1.8)
+   *   is the reader. `environment` carries which one.
    */
-  readonly reason: 'host-variant' | 'icon' | 'user-agent-test' | 'external-link' | 'asset';
+  readonly reason: 'host-variant' | 'icon' | 'user-agent-test' | 'external-link' | 'asset' | 'environment';
   readonly url: string;
+  /** Which environment (`staging`, `preview`) an `environment` fetch was of. */
+  readonly environment?: string;
   /** The `user-agent` sent, when it was not the crawl's own. */
   readonly userAgent?: string;
   readonly fetch: FetchResult;
@@ -584,7 +597,7 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
   const aside = async (
     reason: AuxiliaryFetch['reason'],
     target: string,
-    extra: { readonly keepBytes?: boolean; readonly userAgent?: string } = {},
+    extra: { readonly keepBytes?: boolean; readonly userAgent?: string; readonly environment?: string } = {},
   ): Promise<void> => {
     if (!first) await sleep(delayMs, options.signal);
     first = false;
@@ -593,6 +606,7 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
       reason,
       url: target,
       ...(extra.userAgent === undefined ? {} : { userAgent: extra.userAgent }),
+      ...(extra.environment === undefined ? {} : { environment: extra.environment }),
       fetch: await request(target, {
         userAgent,
         ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
@@ -609,6 +623,10 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
     for (const agent of [...new Set(options.userAgentTests ?? [])].slice(0, MAX_UA_TESTS)) {
       stopIfCancelled(options.signal);
       await aside('user-agent-test', firstSeed, { userAgent: agent });
+    }
+    for (const environment of (options.environments ?? []).slice(0, MAX_ENVIRONMENTS)) {
+      stopIfCancelled(options.signal);
+      await aside('environment', environment.url, { environment: environment.name });
     }
   }
 
@@ -849,6 +867,9 @@ const MAX_ICON_FETCHES = 3;
  * origin and a policy naming forty crawlers should not cost forty visits.
  */
 const MAX_UA_TESTS = 12;
+
+/** Staging and preview: the two an `environments` input can name. */
+const MAX_ENVIRONMENTS = 2;
 
 /** How many external link targets one crawl will fetch, across every host. */
 const MAX_EXTERNAL_LINK_FETCHES = 30;

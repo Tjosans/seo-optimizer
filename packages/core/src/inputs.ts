@@ -46,14 +46,40 @@ export interface ExperimentRecord extends InputRecord {
   readonly retireBy: string;
 }
 
+/**
+ * The non-production environments of the site (1.8): origins a person names,
+ * because no crawl of production can discover where staging lives. The record
+ * fields say who vouches for the list and when it was last true.
+ */
+export interface EnvironmentsRecord extends InputRecord {
+  readonly staging?: string;
+  readonly preview?: string;
+}
+
 /** Every section an audit can be given. */
 export interface AuditInputs {
   /** Experiments the site runs on separate URLs (1.19). */
   readonly experiments?: readonly ExperimentRecord[];
+  /** Staging and preview origins the site keeps (1.8). */
+  readonly environments?: EnvironmentsRecord;
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments'];
+
+/** The environment names an `EnvironmentsRecord` can hold an origin for. */
+export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
+
+/** The origins an `environments` section names, in `ENVIRONMENT_NAMES` order. */
+export function environmentOrigins(record: EnvironmentsRecord | undefined): { name: string; origin: string }[] {
+  if (record === undefined) return [];
+  const out: { name: string; origin: string }[] = [];
+  for (const name of ENVIRONMENT_NAMES) {
+    const origin = record[name];
+    if (origin !== undefined) out.push({ name, origin });
+  }
+  return out;
+}
 
 /** A value that is not valid inputs. Every problem is listed, by path. */
 export class InputsError extends Error {
@@ -182,6 +208,40 @@ function parseExperiments(value: unknown, problem: (path: string, text: string) 
   return ok ? out : null;
 }
 
+function parseEnvironments(value: unknown, problem: (path: string, text: string) => void): EnvironmentsRecord | null {
+  const record = parseInputRecord('environments', value, problem, ENVIRONMENT_NAMES);
+  if (record === null || !isNode(value)) return null;
+  const out: { -readonly [K in keyof EnvironmentsRecord]: EnvironmentsRecord[K] } = { ...record };
+  let ok = true;
+  for (const name of ENVIRONMENT_NAMES) {
+    const raw = value[name];
+    if (raw === undefined || raw === null) continue;
+    if (typeof raw !== 'string') {
+      problem(`environments.${name}`, `expected text, got ${typeof raw} (quote it)`);
+      ok = false;
+      continue;
+    }
+    let origin: string | null = null;
+    try {
+      const url = new URL(raw.trim());
+      if (url.protocol === 'http:' || url.protocol === 'https:') origin = url.origin;
+    } catch {
+      // reported below
+    }
+    if (origin === null) {
+      problem(`environments.${name}`, `not an http(s) origin: ${raw}`);
+      ok = false;
+      continue;
+    }
+    out[name] = origin;
+  }
+  if (ok && out.staging === undefined && out.preview === undefined) {
+    problem('environments', 'expected at least one of staging, preview');
+    ok = false;
+  }
+  return ok ? out : null;
+}
+
 /**
  * Check a parsed inputs value's shape and return it typed. `undefined` and
  * `null` are no inputs. Throws `InputsError` listing every problem found:
@@ -197,10 +257,14 @@ export function parseInputs(value: unknown): AuditInputs {
   const problem = (path: string, text: string): void => {
     problems.push(`${path}: ${text}`);
   };
-  const inputs: { experiments?: readonly ExperimentRecord[] } = {};
+  const inputs: { experiments?: readonly ExperimentRecord[]; environments?: EnvironmentsRecord } = {};
   if (value['experiments'] !== undefined && value['experiments'] !== null) {
     const experiments = parseExperiments(value['experiments'], problem);
     if (experiments !== null) inputs.experiments = experiments;
+  }
+  if (value['environments'] !== undefined && value['environments'] !== null) {
+    const environments = parseEnvironments(value['environments'], problem);
+    if (environments !== null) inputs.environments = environments;
   }
   if (problems.length > 0) throw new InputsError(problems);
   return inputs;

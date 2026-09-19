@@ -19,7 +19,7 @@ import { eq } from 'drizzle-orm';
 import { audits } from '@seo/db';
 import type { Database } from '@seo/db';
 import { CorpusVersionMismatchError, gradeAudit, recordGrade, toEvidence } from '@seo/grader';
-import { simulatableAgents } from '@seo/core';
+import { environmentOrigins, simulatableAgents } from '@seo/core';
 import { unknownFlags } from '@seo/corpus';
 import { CrawlCancelledError } from '@seo/crawler';
 import { crawlToDatabase, persistProbeRuns } from '@seo/persistence';
@@ -127,6 +127,16 @@ export async function runAudit(
         ...(job.aiPolicy === null
           ? {}
           : { userAgentTests: simulatableAgents(job.aiPolicy) }),
+        // The environments a person named are the only ones worth asking a
+        // stranger's question of.
+        ...(environmentOrigins(job.inputs?.environments).length === 0
+          ? {}
+          : {
+              environments: environmentOrigins(job.inputs?.environments).map(({ name, origin }) => ({
+                name,
+                url: `${origin}/`,
+              })),
+            }),
         ...(signal === undefined ? {} : { signal }),
       },
       ...(blobStore === undefined ? {} : { blobStore }),

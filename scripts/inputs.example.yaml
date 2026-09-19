@@ -23,3 +23,14 @@ experiments:
     retireBy: 2026-12-01T00:00:00Z
     owner: Jane Doe
     recordedAt: 2026-09-01T09:00:00Z
+
+# environments (1.8, staging-protection): the origins of the site's staging and
+# preview environments. The crawl requests each root once, with no credentials.
+# An answer of 200 with HTML fails; a redirect to a login page warns (protected,
+# but by a page rather than a refusal); 401, 403, 404 or no answer passes.
+# At least one of staging, preview is required.
+environments:
+  staging: https://staging.example.com
+  preview: https://preview.example.com
+  owner: Jane Doe
+  recordedAt: 2026-09-01T09:00:00Z

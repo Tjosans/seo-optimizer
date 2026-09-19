@@ -506,3 +506,86 @@ describe('experiment-cloaking-divergence', () => {
     expect(check([page('/pricing-b', { canonical: '/pricing' })], [experiment({ owner: '' })]).outcome).toBe('warn');
   });
 });
+
+// --- staging-protection -------------------------------------------------------
+
+describe('staging-protection', () => {
+  const crawledAt = '2026-09-19T12:00:00.000Z';
+  const STAGING = 'https://staging.example.com';
+  const record = (over: Record<string, unknown> = {}) => ({
+    owner: 'Jane',
+    recordedAt: '2026-09-01T00:00:00.000Z',
+    staging: STAGING,
+    ...over,
+  });
+  const environment = (
+    name: string,
+    over: Partial<FetchResult> = {},
+  ): AuxiliaryFetch => ({
+    reason: 'environment',
+    environment: name,
+    url: `${STAGING}/`,
+    fetch: {
+      requestedUrl: `${STAGING}/`,
+      finalUrl: `${STAGING}/`,
+      status: 200,
+      headers: {},
+      redirectChain: [],
+      body: '<html></html>',
+      byteLength: 13,
+      truncated: false,
+      contentType: 'text/html',
+      ttfbMs: 1,
+      totalMs: 1,
+      error: null,
+      ...over,
+    },
+  });
+  const check = (auxiliary: readonly AuxiliaryFetch[], environments?: unknown): Observation =>
+    (probeById('staging-protection') as SiteProbe).run({
+      origin: ORIGIN,
+      flags: [],
+      crawl: {
+        crawledAt,
+        seeds: [`${ORIGIN}/`],
+        pages: [],
+        robots: { groups: [], sitemaps: [], absent: true },
+        robotsTxt: null,
+        sitemapUrls: [],
+        sitemaps: [],
+        sitemapVideos: [],
+        sitemapNews: [],
+        blockedByRobots: [],
+        notReached: [],
+        auxiliary,
+      } satisfies CrawlResult,
+      ...(environments === undefined ? {} : { inputs: { environments } as never }),
+    });
+
+  it('is not applicable without the section', () => {
+    expect(check([]).outcome).toBe('not-applicable');
+  });
+
+  it('fails an environment answering 200 with HTML', () => {
+    expect(check([environment('staging')], record()).outcome).toBe('fail');
+  });
+
+  it('warns on a redirect to a login page', () => {
+    const login = environment('staging', {
+      finalUrl: 'https://sso.example.com/login?next=/',
+      redirectChain: [{ url: `${STAGING}/`, status: 302, location: 'https://sso.example.com/login?next=/' }],
+    });
+    expect(check([login], record()).outcome).toBe('warn');
+  });
+
+  it('passes a refusal, a missing page or no answer', () => {
+    expect(check([environment('staging', { status: 401 })], record()).outcome).toBe('pass');
+    expect(check([environment('staging', { status: 403 })], record()).outcome).toBe('pass');
+    expect(check([environment('staging', { status: null, error: 'ENOTFOUND' })], record()).outcome).toBe('pass');
+  });
+
+  it('holds an environment the crawl never requested, and a stale record', () => {
+    expect(check([], record()).outcome).toBe('warn');
+    expect(check([environment('staging', { status: 401 })], record({ owner: '' })).outcome).toBe('warn');
+  });
+});

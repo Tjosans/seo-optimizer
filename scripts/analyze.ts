@@ -17,7 +17,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import { parseInputs } from '@seo/core';
+import { environmentOrigins, parseInputs } from '@seo/core';
 import type { AuditInputs, Corpus } from '@seo/core';
 import { CURRENT_CORPUS_VERSION, loadCorpus } from '@seo/corpus';
 import { crawl } from '@seo/crawler';
@@ -309,6 +309,10 @@ async function analyze(
       maxDepth: settings.maxDepth,
       requestDelayMs: settings.requestDelayMs,
       timeoutMs: settings.timeoutMs,
+      environments: environmentOrigins(inputs.environments).map(({ name, origin: root }) => ({
+        name,
+        url: `${root}/`,
+      })),
     });
   } catch (cause) {
     return {

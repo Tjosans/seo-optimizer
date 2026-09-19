@@ -5,7 +5,7 @@
 
 import { isSameSite, normalizeUrl } from '@seo/crawler';
 import type { CrawledPage, Extracted } from '@seo/crawler';
-import { inputRecordProblem } from '@seo/core';
+import { environmentOrigins, inputRecordProblem } from '@seo/core';
 import type { PageProbe, SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
 
@@ -445,7 +445,8 @@ export const experimentCloakingDivergence: SiteProbe = {
     const byUrl = new Map<string, CrawledPage>();
     for (const page of crawl.pages) {
       byUrl.set(page.normalizedUrl, page);
-      if (!byUrl.has(normalizeUrl(page.fetch.requestedUrl))) byUrl.set(normalizeUrl(page.fetch.requestedUrl), page);
+      const requested = normalizeUrl(page.fetch.requestedUrl) ?? page.fetch.requestedUrl;
+      if (!byUrl.has(requested)) byUrl.set(requested, page);
     }
 
     const duplicates: string[] = [];
@@ -466,7 +467,7 @@ export const experimentCloakingDivergence: SiteProbe = {
       }
 
       for (const variantUrl of experiment.variantUrls) {
-        const page = byUrl.get(normalizeUrl(variantUrl));
+        const page = byUrl.get(normalizeUrl(variantUrl) ?? variantUrl);
         if (page === undefined || page.fetch.status === null || page.fetch.truncated) {
           unreached.push(variantUrl);
           continue;
@@ -500,8 +501,99 @@ export const experimentCloakingDivergence: SiteProbe = {
   },
 };
 
+const LOGIN_PAGE = /(^|[/._-])(log-?in|sign-?in|sso|auth(enticate)?|account\/login|session)([/._?-]|$)/i;
+
+const looksLikeLogin = (url: string): boolean => {
+  try {
+    const parsed = new URL(url);
+    return LOGIN_PAGE.test(`${parsed.hostname}${parsed.pathname}`);
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Whether the site's staging and preview environments turn a stranger away.
+ *
+ * A staging copy answering the public is duplicate content under another host
+ * and a leak of unreleased work. Only the site's own list of environments says
+ * where they live, so this reads the `environments` input and is
+ * `not-applicable` without it; the crawl requested each root once, with no
+ * credentials (@seo/crawler `environment` auxiliary fetch). A 200 with HTML
+ * fails. A redirect that ends at a login page warns: protected, but by a page
+ * a crawler can index rather than by a refusal. 401, 403, a missing page or a
+ * host that does not answer at all pass — nothing public is served. An
+ * environment the crawl did not request, or a record nobody answers for or past
+ * review, holds the check.
+ */
+export const stagingProtection: SiteProbe = {
+  id: 'staging-protection',
+  scope: 'site',
+  title: 'Staging and preview environments are not open to the public',
+  run({ crawl, inputs }) {
+    const record = inputs?.environments;
+    const named = environmentOrigins(record);
+    if (record === undefined || named.length === 0) {
+      return notApplicable('No staging or preview environments were supplied.');
+    }
+
+    const open: string[] = [];
+    const login: string[] = [];
+    const protectedNames: string[] = [];
+    const unrequested: string[] = [];
+    const held: string[] = [];
+
+    const at = crawl.crawledAt ?? null;
+    if (at === null) {
+      held.push("the crawl's time is unknown, so the record's review date cannot be judged");
+    } else {
+      const problem = inputRecordProblem(record, new Date(at));
+      if (problem !== null) held.push(problem);
+    }
+
+    for (const { name, origin } of named) {
+      const entry = crawl.auxiliary.find((item) => item.reason === 'environment' && item.environment === name);
+      if (entry === undefined) {
+        unrequested.push(`${name} (${origin})`);
+        continue;
+      }
+      const { fetch } = entry;
+      const label = `${name} (${origin})`;
+      if (fetch.status === null) {
+        // No answer is not a public answer, but it is not a refusal either:
+        // a typo in the origin looks the same.
+        protectedNames.push(`${label}: no response (${fetch.error ?? 'unknown error'})`);
+        continue;
+      }
+      const html = fetch.contentType !== null && /html/i.test(fetch.contentType);
+      if (fetch.redirectChain.length > 0 && looksLikeLogin(fetch.finalUrl)) {
+        login.push(`${label} redirects to ${fetch.finalUrl}`);
+      } else if (fetch.status === 200 && html) {
+        open.push(label);
+      } else {
+        protectedNames.push(`${label}: ${fetch.status}`);
+      }
+    }
+
+    const data = { environments: named.length, open, login, protected: protectedNames, unrequested, held };
+    if (open.length > 0) {
+      return fail(`${open.join(', ')} answered 200 with HTML to a visitor with no credentials.`, data);
+    }
+    if (login.length > 0 || unrequested.length > 0 || held.length > 0) {
+      const parts = [
+        login.length > 0 ? `${login.join('; ')} — protected by a login page, not a refusal` : '',
+        unrequested.length > 0 ? `${unrequested.join(', ')} not requested by the crawl` : '',
+        held.length > 0 ? `the environments record is held for review: ${held.join('; ')}` : '',
+      ].filter((part) => part !== '');
+      return warn(`${parts.join('; ')}.`, data);
+    }
+    return pass('Every named environment turned a visitor with no credentials away.', data);
+  },
+};
+
 export const indexabilityProbes = [
   experimentCloakingDivergence,
+  stagingProtection,
   internalSearchIndexability,
   localeCanonical,
   rawRenderedParity,

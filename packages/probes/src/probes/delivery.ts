@@ -4,7 +4,7 @@
  * markup, so they apply to every response, not just HTML.
  */
 
-import { isAllowed, isSameSite, registrableDomain } from '@seo/crawler';
+import { isAllowed, isSameSite, normalizeUrl, registrableDomain } from '@seo/crawler';
 import { inputRecordProblem } from '@seo/core';
 import type { AuxiliaryFetch, FetchResult } from '@seo/crawler';
 import type { PageProbe, SiteProbe } from '../types.js';
@@ -598,6 +598,85 @@ export const labPerfBudget: SiteProbe = {
   },
 };
 
+const MEDIA_LCP_TAGS = new Set(['img', 'image', 'video', 'picture', 'source']);
+
+/** The `@font-face` rules in the page's own `<style>` blocks that name no `font-display`. */
+function fontFacesWithoutDisplay(html: string): { total: number; without: number } {
+  let total = 0;
+  let without = 0;
+  for (const style of html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)) {
+    for (const rule of (style[1] ?? '').matchAll(/@font-face\s*\{([^}]*)\}/gi)) {
+      total += 1;
+      if (!/font-display\s*:/i.test(rule[1] ?? '')) without += 1;
+    }
+  }
+  return { total, without };
+}
+
+/** Whether the raw markup names the image the LCP element loaded, as written or by its path. */
+function rawHtmlNamesSource(html: string, src: string): boolean {
+  if (html.includes(src)) return true;
+  try {
+    const url = new URL(src, 'https://placeholder.invalid');
+    return html.includes(url.pathname + url.search);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * v5.0 1.5 asks that the element the browser paints largest is not held back by
+ * how the page loads it. The element comes from a supplied Lighthouse report,
+ * because only a browser knows which element that was; the raw HTML is what the
+ * crawl fetched. An LCP image marked `loading="lazy"` or `fetchpriority="low"`
+ * fails, and so does one the raw HTML never names (a script builds it, so the
+ * preload scanner cannot find it). A text LCP warns when an inline `@font-face`
+ * has no `font-display`. Linked stylesheets are not read, so a text LCP whose
+ * fonts sit in one is `not-applicable` rather than passed: absence of evidence.
+ */
+export const lcpElementStrategy: PageProbe = {
+  id: 'lcp-element-strategy',
+  scope: 'page',
+  htmlOnly: true,
+  title: 'The LCP element is discoverable and prioritised',
+  run({ page, site }) {
+    const reports = site.inputs?.lighthouse?.reports;
+    if (reports === undefined) return notApplicable('No Lighthouse report was supplied.');
+    const selves = new Set([page.normalizedUrl, normalizeUrl(page.fetch.finalUrl)]);
+    const report = reports.find((r) => selves.has(normalizeUrl(r.url)));
+    if (report === undefined) return notApplicable('No Lighthouse report covers this page.');
+
+    const element = report.metrics?.lcpElement;
+    if (element === undefined) {
+      return warn('The Lighthouse report names no LCP element, so how the page loads it is unchecked.', { report: report.url });
+    }
+
+    if (MEDIA_LCP_TAGS.has(element.tag)) {
+      const problems: string[] = [];
+      if (element.loading?.toLowerCase() === 'lazy') problems.push('it is loading="lazy"');
+      if (element.fetchPriority?.toLowerCase() === 'low') problems.push('it is fetchpriority="low"');
+      const data = { tag: element.tag, src: element.src ?? null, loading: element.loading ?? null, fetchPriority: element.fetchPriority ?? null };
+      if (element.src !== undefined && !element.src.startsWith('data:')) {
+        if (page.fetch.truncated) {
+          if (problems.length === 0) return errored('The page body was cut at the size limit, so the LCP image could not be looked for in the raw HTML.', data);
+        } else if (!rawHtmlNamesSource(page.fetch.body, element.src)) {
+          problems.push('the raw HTML never names it, so a script must build it');
+        }
+      }
+      if (problems.length > 0) return fail(`The LCP ${element.tag} is held back: ${problems.join('; ')}.`, data);
+      return pass(`The LCP ${element.tag} is in the raw HTML and is not lazy or low priority.`, data);
+    }
+
+    const faces = fontFacesWithoutDisplay(page.fetch.body);
+    const data = { tag: element.tag, fontFaces: faces.total, withoutFontDisplay: faces.without };
+    if (faces.without > 0) {
+      return warn(`The LCP is text (<${element.tag}>) and ${faces.without} of ${faces.total} inline @font-face rule(s) set no font-display.`, data);
+    }
+    if (faces.total === 0) return notApplicable(`The LCP is text (<${element.tag}>) and the page's own markup declares no web font; linked stylesheets are not read.`);
+    return pass(`The LCP is text (<${element.tag}>) and every inline @font-face sets font-display.`, data);
+  },
+};
+
 export const deliveryProbes = [
   httpStatus,
   redirectChain,
@@ -611,4 +690,5 @@ export const deliveryProbes = [
   privateResponseCaching,
   indexabilityMatrixReconciliation,
   labPerfBudget,
+  lcpElementStrategy,
 ];

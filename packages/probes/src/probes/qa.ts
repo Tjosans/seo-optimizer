@@ -904,7 +904,113 @@ export const productionCrawlVerify: SiteProbe = {
   },
 };
 
+/**
+ * `migration-redirect-test` (4.8, a launch gate): the `redirect-map` pass
+ * requested every old URL the map names, and this reads what came back. An entry
+ * fails on an outcome other than the one it expects, a final URL other than
+ * `to`, more than one hop, and a loop. An entry the crawl never requested (past
+ * its request cap) or could not get an answer for holds the check with a `warn`.
+ */
+export const migrationRedirectTest: SiteProbe = {
+  id: 'migration-redirect-test',
+  scope: 'site',
+  title: 'Every mapped old URL redirects, in one hop, to the URL the map names',
+  run({ crawl, inputs, origin }) {
+    const map = inputs?.redirectMap;
+    if (map === undefined) return notApplicable('No redirect map was supplied.');
+    if (map.entries.length === 0) return notApplicable('The redirect map has no entries to test.');
+
+    const requested = new Map<string, FetchResult>();
+    for (const aside of crawl.auxiliary) {
+      if (aside.reason === 'redirect-map') requested.set(aside.url, aside.fetch);
+    }
+
+    const failures: string[] = [];
+    const unrequested: string[] = [];
+    const unanswered: string[] = [];
+    let tested = 0;
+    for (const entry of map.entries) {
+      let from: string;
+      try {
+        from = new URL(entry.from, map.oldOrigin).toString();
+      } catch {
+        continue; // `migration-map-builder` reports an unresolvable entry.
+      }
+      const result = requested.get(from);
+      if (result === undefined) {
+        unrequested.push(from);
+        continue;
+      }
+      const chain = result.redirectChain;
+      const urls = chain.map((hop) => hop.url);
+      const looped = new Set(urls).size < urls.length || (result.error !== null && /loop|too many redirects/i.test(result.error));
+      if (looped) {
+        tested += 1;
+        failures.push(`${from} loops`);
+        continue;
+      }
+      if (result.status === null) {
+        unanswered.push(from);
+        continue;
+      }
+      tested += 1;
+
+      if (entry.expect === 404 || entry.expect === 410) {
+        if (chain.length > 0) failures.push(`${from} redirects but the map expects ${entry.expect}`);
+        else if (result.status !== entry.expect) failures.push(`${from} answers ${result.status}, the map expects ${entry.expect}`);
+        continue;
+      }
+
+      if (chain.length === 0) {
+        failures.push(`${from} answers ${result.status}, the map expects a ${entry.expect} redirect`);
+        continue;
+      }
+      if (chain.length > 1) failures.push(`${from} takes ${chain.length} hops`);
+      const first = chain[0]!.status;
+      if (first !== entry.expect) failures.push(`${from} redirects with ${first}, the map expects ${entry.expect}`);
+      if (entry.to !== undefined) {
+        const want = mapTarget(entry.to, origin);
+        const got = normalizeUrl(result.finalUrl) ?? result.finalUrl;
+        if (want !== null && want !== got) failures.push(`${from} ends at ${got}, the map names ${want}`);
+      }
+      if (result.status >= 400) failures.push(`${from} ends in a ${result.status}`);
+    }
+
+    const data = {
+      entries: map.entries.length,
+      tested,
+      failures: failures.slice(0, SAMPLES),
+      failureCount: failures.length,
+      unrequested: unrequested.slice(0, SAMPLES),
+      unrequestedCount: unrequested.length,
+      unanswered: unanswered.slice(0, SAMPLES),
+      unansweredCount: unanswered.length,
+    };
+    if (failures.length > 0) {
+      return fail(`${failures.length} redirect map problem(s): ${failures.slice(0, 3).join('; ')}.`, data);
+    }
+    if (unrequested.length > 0 || unanswered.length > 0) {
+      const notes = [
+        unrequested.length > 0 ? `${unrequested.length} entr${unrequested.length === 1 ? 'y was' : 'ies were'} past the request cap` : '',
+        unanswered.length > 0 ? `${unanswered.length} old URL(s) got no answer` : '',
+      ].filter((note) => note !== '');
+      return warn(`${notes.join('; ')}, so they are unverified.`, data);
+    }
+    return pass(`All ${tested} mapped old URL(s) answer as the map expects, in one hop.`, data);
+  },
+};
+
+/** A map target as the crawl spells it: resolved against the audited origin. */
+function mapTarget(value: string, origin: string): string | null {
+  try {
+    return normalizeUrl(new URL(value, origin).toString());
+  } catch {
+    return null;
+  }
+}
+
 export const qaProbes = [
+  migrationRedirectTest,
   brokenLinks,
   metadataCompleteness,
   rawRenderedCrawlDiff,

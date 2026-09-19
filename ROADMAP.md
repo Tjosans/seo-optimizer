@@ -134,7 +134,7 @@ Every v5.0 detector not yet implemented has its own line below, preceded by the 
 - [x] Implement detector `production-crawl-verify` (5.3, a launch gate, @seo/probes `qa.ts`, site scope): against `SiteContext.previous` (the preflight audit), fail a URL indexable before and now noindex, robots-blocked, 4xx or 5xx, and a changed canonical; fail a `urlMatrix` priority URL not reached. No previous audit: `not-applicable`
 
 #### Migration: the redirect map (0.8), and what reads it
-- [ ] Add the `redirectMap` input section (0.8): `{ kind: 'move'|'history-only', oldOrigin?, entries: [{ from, expect: 301|308|404|410, to? }] }`, strict like every section, with an example
+- [x] Add the `redirectMap` input section (0.8): `{ kind: 'move'|'history-only', oldOrigin?, entries: [{ from, expect: 301|308|404|410, to? }] }`, strict like every section, with an example
 - [ ] Request the mapped old URLs (@seo/crawler: a `redirect-map` auxiliary pass over `redirectMap.entries`, following each redirect hop by hop, at most 500 requests, paced like the other passes, recording every hop). Evidence only, no probe
 - [ ] Implement detector `migration-map-builder` (0.8, a launch gate, @seo/probes `site.ts`, site scope): fail an old URL in `previous` or the old sitemap with no map entry, an entry whose target is itself mapped (a chain) or loops back, and a `move` with no `oldOrigin`; `history-only` needs no entries
 - [ ] Implement detector `migration-redirect-test` (4.8, a launch gate, @seo/probes `qa.ts`, site scope): from the `redirect-map` pass, fail an outcome other than the entry's `expect`, a final URL other than `to`, more than one hop, and a loop; warn on entries past the request cap
@@ -227,6 +227,7 @@ Every v5.0 detector not yet implemented has its own line below, preceded by the 
 - 2026-09-19: "Carry `AuditInputs` through a real audit" waits on "Add supplied evidence to the probe context" (itself blocked after 3 attempts): `AuditInputs`, `parseInputs` and `SiteContext.inputs` do not exist yet, and this task only wires them through `audits.inputs`, `submit`, `runAudit` and `POST /audits`. Unblock the first task, then retry this one (superseded the same day: the first task was never genuinely blocked, see the entry above on truncated prompts; both are open again)
 
 ## Decisions
+- 2026-09-19: `redirectMap` requires `to` on a 301/308 entry and refuses it on a 404/410; `entries` may be empty for any kind (a `move` with none is for `migration-map-builder` to fail, not the parser); `oldOrigin` is normalised to an origin.
 - 2026-09-19: `production-crawl-verify` rebases the previous audit's URLs onto the audited origin before comparing, so a staging preflight audit is judged against the same paths on production; a previously indexable URL the crawl did not reach is a `warn`, not a `fail`, since nothing was observed.
 - 2026-09-19: `indexability-canary` reads "robots" as robots.txt access (`crawl.blockedByRobots`): blocked fails only where the matrix row says indexable, since the matrix has no robots column; an unmatched or unreached canary URL warns rather than fails.
 - 2026-09-19: `canary.lastTestAlertAt` and `deliveredAt` are optional in the input; no test alert on record holds the check (`warn`), an alert raised but never delivered fails — absence of an alert is unknown, absence of a delivery is a finding.

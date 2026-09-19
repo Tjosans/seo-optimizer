@@ -95,3 +95,24 @@ canary:
   deliveredAt: 2026-09-10T08:03:00Z
   owner: Jane Doe
   recordedAt: 2026-09-10T09:00:00Z
+
+# redirectMap (0.8, migration): what each old URL must do after the move.
+# kind is move (the site changes address or structure: name oldOrigin, list an
+# entry per old URL) or history-only (nothing to carry over; entries may be
+# left out). from is an absolute URL or a path from the old origin. expect is
+# 301, 308, 404 or 410; a 301 or 308 needs to (a URL or path), a 404 or 410
+# takes none. A repeated from is refused.
+redirectMap:
+  kind: move
+  oldOrigin: https://old.example.com
+  entries:
+    - from: /products/blue-widget
+      expect: 301
+      to: https://example.com/products/blue-widget
+    - from: /about-us
+      expect: 308
+      to: /about
+    - from: /discontinued/widget
+      expect: 410
+  owner: Jane Doe
+  recordedAt: 2026-09-10T09:00:00Z

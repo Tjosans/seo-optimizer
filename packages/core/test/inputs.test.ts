@@ -199,3 +199,48 @@ describe('parseInputs canary', () => {
     expect(() => parseInputs({ canary: { ...base, deliveredAt: 'soon' } })).toThrow(/deliveredAt/);
   });
 });
+
+describe('parseInputs redirectMap', () => {
+  const base = {
+    owner: 'Jane',
+    recordedAt: '2026-09-01T00:00:00Z',
+    kind: 'move',
+    oldOrigin: 'https://old.example.com/',
+    entries: [
+      { from: '/a', expect: 301, to: 'https://example.com/a' },
+      { from: '/gone', expect: 410 },
+    ],
+  };
+  const problemsOf = (redirectMap: unknown): string[] => {
+    try {
+      parseInputs({ redirectMap });
+      return [];
+    } catch (error) {
+      return [...(error as InputsError).problems];
+    }
+  };
+
+  it('parses a move, normalising the old origin', () => {
+    const { redirectMap } = parseInputs({ redirectMap: base });
+    expect(redirectMap?.oldOrigin).toBe('https://old.example.com');
+    expect(redirectMap?.entries).toHaveLength(2);
+    expect(redirectMap?.entries[1]).toEqual({ from: '/gone', expect: 410 });
+  });
+
+  it('allows history-only with no entries', () => {
+    expect(parseInputs({ redirectMap: { owner: 'Jane', recordedAt: base.recordedAt, kind: 'history-only' } }).redirectMap?.entries).toEqual([]);
+  });
+
+  it('refuses a bad kind, status, target and unknown field', () => {
+    expect(problemsOf({ ...base, kind: 'copy' })).toEqual([expect.stringContaining('redirectMap.kind')]);
+    expect(problemsOf({ ...base, entries: [{ from: '/a', expect: 302, to: '/b' }] })).toEqual([expect.stringContaining('entries[0].expect')]);
+    expect(problemsOf({ ...base, entries: [{ from: '/a', expect: 301 }] })).toEqual([expect.stringContaining('entries[0].to')]);
+    expect(problemsOf({ ...base, entries: [{ from: '/a', expect: 404, to: '/b' }] })).toEqual([expect.stringContaining('not allowed')]);
+    expect(problemsOf({ ...base, entries: [{ from: '/a', expect: 404, why: 'x' }] })).toEqual([expect.stringContaining('unknown field')]);
+    expect(problemsOf({ ...base, oldOrigin: 'ftp://x' })).toEqual([expect.stringContaining('oldOrigin')]);
+  });
+
+  it('refuses a duplicate from', () => {
+    expect(problemsOf({ ...base, entries: [{ from: '/a', expect: 410 }, { from: '/a', expect: 404 }] })).toEqual([expect.stringContaining('duplicate entry')]);
+  });
+});

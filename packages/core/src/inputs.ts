@@ -127,8 +127,39 @@ export interface CanaryRecord extends InputRecord {
   readonly deliveredAt?: string;
 }
 
+/**
+ * One old URL and what the migration promises for it (0.8). `from` is an
+ * absolute URL or a path from the old origin's root. A 301 or 308 names its
+ * destination in `to`; a 404 or 410 (a page retired on purpose) has none.
+ */
+export interface RedirectMapEntry {
+  readonly from: string;
+  readonly expect: 301 | 308 | 404 | 410;
+  readonly to?: string;
+}
+
+/** The statuses a `RedirectMapEntry` can expect. */
+export const REDIRECT_MAP_EXPECT = [301, 308, 404, 410] as const;
+
+/** The kinds of migration a `redirectMap` can describe. */
+export const REDIRECT_MAP_KINDS = ['move', 'history-only'] as const;
+
+/**
+ * The redirect map of a migration (0.8). `move` is a site changing address or
+ * structure: `oldOrigin` names where the old URLs lived and every one needs an
+ * entry. `history-only` is a site with history worth keeping but no URLs to
+ * carry over, so `entries` may be empty.
+ */
+export interface RedirectMapRecord extends InputRecord {
+  readonly kind: (typeof REDIRECT_MAP_KINDS)[number];
+  readonly oldOrigin?: string;
+  readonly entries: readonly RedirectMapEntry[];
+}
+
 /** Every section an audit can be given. */
 export interface AuditInputs {
+  /** The migration's redirect map (0.8). */
+  readonly redirectMap?: RedirectMapRecord;
   /** The availability canary and its alert delivery (5.5). */
   readonly canary?: CanaryRecord;
   /** The URL matrix: expected status, indexability, canonical and sitemap membership per pattern (0.3). */
@@ -144,7 +175,7 @@ export interface AuditInputs {
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -544,6 +575,95 @@ function parseCanary(value: unknown, problem: (path: string, text: string) => vo
   };
 }
 
+const REDIRECT_MAP_KEYS = ['kind', 'oldOrigin', 'entries'];
+const REDIRECT_ENTRY_KEYS = ['from', 'expect', 'to'];
+
+function parseRedirectMap(value: unknown, problem: (path: string, text: string) => void): RedirectMapRecord | null {
+  const record = parseInputRecord('redirectMap', value, problem, REDIRECT_MAP_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`redirectMap${path}`, text);
+    ok = false;
+  };
+  const missing = (raw: unknown): boolean => raw === undefined || raw === null || raw === '';
+
+  const kind = value['kind'];
+  if (typeof kind !== 'string' || !(REDIRECT_MAP_KINDS as readonly string[]).includes(kind)) {
+    fail('.kind', missing(kind) ? 'required' : `expected move or history-only: ${String(kind)}`);
+  }
+  const oldRaw = value['oldOrigin'];
+  let oldOrigin: string | undefined;
+  if (!missing(oldRaw)) {
+    let origin: string | null = null;
+    if (typeof oldRaw === 'string') {
+      try {
+        const url = new URL(oldRaw.trim());
+        if (url.protocol === 'http:' || url.protocol === 'https:') origin = url.origin;
+      } catch {
+        // reported below
+      }
+    }
+    if (origin === null) fail('.oldOrigin', typeof oldRaw === 'string' ? `not an http(s) origin: ${oldRaw}` : `expected text, got ${typeof oldRaw} (quote it)`);
+    else oldOrigin = origin;
+  }
+
+  const entriesRaw = value['entries'];
+  const entries: RedirectMapEntry[] = [];
+  if (!missing(entriesRaw) && !Array.isArray(entriesRaw)) {
+    fail('.entries', 'expected a list');
+  } else if (Array.isArray(entriesRaw)) {
+    const seen = new Set<string>();
+    entriesRaw.forEach((node, index) => {
+      const path = `.entries[${index}]`;
+      if (!isNode(node)) {
+        fail(path, 'expected a mapping');
+        return;
+      }
+      for (const key of Object.keys(node)) {
+        if (!REDIRECT_ENTRY_KEYS.includes(key)) fail(`${path}.${key}`, 'unknown field');
+      }
+      const from = node['from'];
+      let fromText: string | null = null;
+      if (typeof from === 'string' && from.trim() !== '') {
+        fromText = from.trim();
+        if (!(fromText.startsWith('/') || isHttpUrl(fromText))) {
+          fail(`${path}.from`, `expected an http(s) URL or a path starting with /: ${fromText}`);
+          fromText = null;
+        } else if (seen.has(fromText)) {
+          fail(`${path}.from`, `duplicate entry: ${fromText}`);
+        } else {
+          seen.add(fromText);
+        }
+      } else {
+        fail(`${path}.from`, missing(from) ? 'required' : `expected text, got ${typeof from} (quote it)`);
+      }
+      const expect = node['expect'];
+      const expectOk = (REDIRECT_MAP_EXPECT as readonly unknown[]).includes(expect);
+      if (!expectOk) fail(`${path}.expect`, missing(expect) ? 'required' : 'expected 301, 308, 404 or 410');
+      const to = node['to'];
+      let toText: string | undefined;
+      if (!missing(to)) {
+        if (typeof to !== 'string') fail(`${path}.to`, `expected text, got ${typeof to} (quote it)`);
+        else if (!(to.trim().startsWith('/') || isHttpUrl(to.trim()))) fail(`${path}.to`, `expected an http(s) URL or a path starting with /: ${to}`);
+        else toText = to.trim();
+      }
+      if (expectOk && (expect === 301 || expect === 308) && missing(to)) fail(`${path}.to`, `required when expect is ${String(expect)}`);
+      if (expectOk && (expect === 404 || expect === 410) && !missing(to)) fail(`${path}.to`, `not allowed when expect is ${String(expect)}`);
+      if (fromText !== null && expectOk) {
+        entries.push({ from: fromText, expect: expect as RedirectMapEntry['expect'], ...(toText !== undefined ? { to: toText } : {}) });
+      }
+    });
+  }
+  if (!ok || typeof kind !== 'string') return null;
+  return {
+    ...record,
+    kind: kind as RedirectMapRecord['kind'],
+    ...(oldOrigin !== undefined ? { oldOrigin } : {}),
+    entries,
+  };
+}
+
 /**
  * Check a parsed inputs value's shape and return it typed. `undefined` and
  * `null` are no inputs. Throws `InputsError` listing every problem found:
@@ -566,7 +686,12 @@ export function parseInputs(value: unknown): AuditInputs {
     ciRules?: readonly CiRuleRecord[];
     urlMatrix?: readonly UrlMatrixEntry[];
     canary?: CanaryRecord;
+    redirectMap?: RedirectMapRecord;
   } = {};
+  if (value['redirectMap'] !== undefined && value['redirectMap'] !== null) {
+    const redirectMap = parseRedirectMap(value['redirectMap'], problem);
+    if (redirectMap !== null) inputs.redirectMap = redirectMap;
+  }
   if (value['canary'] !== undefined && value['canary'] !== null) {
     const canary = parseCanary(value['canary'], problem);
     if (canary !== null) inputs.canary = canary;

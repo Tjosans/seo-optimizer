@@ -359,3 +359,86 @@ describe('metadata-completeness', () => {
     expect(meta([page('/', { status: 500 })]).outcome).toBe('not-applicable');
   });
 });
+
+// --- raw-rendered-crawl-diff -------------------------------------------------
+
+interface RenderSpec {
+  readonly finalPath?: string;
+  readonly status?: number;
+  readonly links?: readonly string[];
+  readonly error?: string;
+}
+
+/** A page with a render attached, as `crawl()` records one under `renderPages`. */
+const withRender = (base: CrawledPage, spec: RenderSpec = {}): CrawledPage => {
+  const finalUrl = spec.finalPath === undefined ? base.fetch.finalUrl : `${ORIGIN}${spec.finalPath}`;
+  const failed = spec.error !== undefined;
+  const html =
+    '<html><head><title>T</title></head><body><h1>H</h1>' +
+    (spec.links ?? []).map((href) => `<a href="${href}">link</a>`).join('') +
+    '</body></html>';
+  return {
+    ...base,
+    rendered: {
+      render: {
+        requestedUrl: base.url,
+        finalUrl,
+        status: failed ? null : (spec.status ?? base.fetch.status),
+        html: failed ? '' : html,
+        totalMs: 5,
+        error: spec.error ?? null,
+      },
+      extracted: failed ? null : extract(html, finalUrl),
+      comparison: null,
+    },
+  };
+};
+
+const diff = (pages: readonly CrawledPage[]): Observation => run('raw-rendered-crawl-diff', pages);
+
+describe('raw-rendered-crawl-diff', () => {
+  it('is not applicable when no page was rendered', () => {
+    expect(diff([page('/')]).outcome).toBe('not-applicable');
+  });
+
+  it('errors when every render failed', () => {
+    expect(diff([withRender(page('/'), { error: 'timeout' })]).outcome).toBe('error');
+  });
+
+  it('fails a client-side redirect the raw fetch never followed', () => {
+    const observation = diff([withRender(page('/old'), { finalPath: '/new' })]);
+    expect(observation.outcome).toBe('fail');
+    expect(samples(observation)).toContain('/new');
+  });
+
+  it('fails a rendered status that differs from the raw one', () => {
+    const observation = diff([withRender(page('/'), { status: 404 })]);
+    expect(observation.outcome).toBe('fail');
+    expect(samples(observation)).toContain('404');
+  });
+
+  it('warns on a same-site URL linked only from rendered DOM', () => {
+    const observation = diff([withRender(page('/', { links: ['/a'] }), { links: ['/a', '/hidden'] })]);
+    expect(observation.outcome).toBe('warn');
+    expect(observation.data?.['renderOnlyTargets']).toBe(1);
+  });
+
+  it('does not warn when another page carries the link in raw', () => {
+    const observation = diff([
+      withRender(page('/', { links: ['/a'] }), { links: ['/a', '/b'] }),
+      withRender(page('/a', { links: ['/b'] }), { links: ['/b'] }),
+    ]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('ignores external links only the render carries', () => {
+    const observation = diff([withRender(page('/'), { links: ['https://other.example/x'] })]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('passes a render that agrees, ignoring a failed one beside it', () => {
+    const observation = diff([withRender(page('/')), withRender(page('/b'), { error: 'boom' })]);
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data).toMatchObject({ pagesCompared: 1, renderFailures: 1 });
+  });
+});

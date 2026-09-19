@@ -3,8 +3,8 @@
  *
  * 4.1 asks that "priority URLs have no broken links, missing metadata or
  * indexation conflicts", and declares a detector for each half a raw crawl can
- * see. The third, `raw-rendered-crawl-diff`, needs a rendered crawl (Phase 5),
- * so 4.1 stays ungraded until it exists; these two still report today.
+ * see. The third, `raw-rendered-crawl-diff`, needs a rendered crawl and is
+ * `not-applicable` without one.
  *
  * Both are site-scoped because both findings live between pages. A 404 is a
  * fact about one response, and `http-status` (1.4) already judges it; a broken
@@ -14,7 +14,7 @@
  * the site disagreeing, and neither page shows it on its own.
  */
 
-import { normalizeUrl } from '@seo/crawler';
+import { isSameSite, normalizeUrl } from '@seo/crawler';
 import type { CrawledPage, CrawlResult, FetchResult } from '@seo/crawler';
 import type { SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
@@ -424,4 +424,103 @@ function countMissing(gaps: readonly Missing[]): Record<string, number> {
   return counts;
 }
 
-export const qaProbes = [brokenLinks, metadataCompleteness];
+interface RenderDiff {
+  readonly url: string;
+  readonly issue: string;
+}
+
+/**
+ * A browser and a plain fetch land on the same page, with the same status, and
+ * reach the same site through the same links.
+ *
+ * Rendering is opt-in per crawl, so this is `not-applicable` when no page was
+ * rendered, and `error` when every render attempted failed. On each page with a
+ * render, `fail`:
+ * - the rendered `finalUrl` is not the raw one — a client-side redirect a
+ *   crawler that does not run scripts never follows;
+ * - the rendered status is not the raw one.
+ *
+ * `warn`: a same-site URL linked only from rendered DOM, anywhere in the
+ * crawl, and never from any page's raw HTML — reachable only by rendering, so
+ * a non-rendering crawler cannot discover it. `raw-rendered-parity` (1.1)
+ * judges the same difference one page at a time; here it is judged across the
+ * crawl, where a link one page adds may be one another carries in raw.
+ */
+export const rawRenderedCrawlDiff: SiteProbe = {
+  id: 'raw-rendered-crawl-diff',
+  scope: 'site',
+  title: 'A rendered crawl lands where the raw one does and finds no page only scripts link to',
+  run({ crawl, origin }) {
+    const rendered = crawl.pages.filter((page) => page.rendered !== undefined && page.rendered !== null);
+    if (rendered.length === 0) return notApplicable('No page was rendered; rendering was not requested.');
+
+    const diffs: RenderDiff[] = [];
+    const rawTargets = new Set<string>();
+    const renderedTargets = new Set<string>();
+    let compared = 0;
+    let failedRenders = 0;
+
+    const collect = (links: readonly { readonly url: string }[], into: Set<string>): void => {
+      for (const link of links) {
+        if (!isSameSite(link.url, origin)) continue;
+        const target = normalizeUrl(link.url);
+        if (target !== null) into.add(target);
+      }
+    };
+    for (const page of parsedPages(crawl)) collect(page.extracted?.links ?? [], rawTargets);
+
+    for (const page of rendered) {
+      const capture = page.rendered;
+      if (capture === undefined || capture === null) continue;
+      if (capture.render.error !== null) {
+        failedRenders += 1;
+        continue;
+      }
+      compared += 1;
+      const url = page.normalizedUrl;
+      const rawFinal = normalizeUrl(page.fetch.finalUrl);
+      const renderedFinal = normalizeUrl(capture.render.finalUrl);
+      if (rawFinal !== null && renderedFinal !== null && rawFinal !== renderedFinal) {
+        diffs.push({ url, issue: `the raw fetch ends at ${rawFinal} but the browser ends at ${renderedFinal}` });
+      }
+      const { status } = capture.render;
+      if (status !== null && page.fetch.status !== null && status !== page.fetch.status) {
+        diffs.push({ url, issue: `the raw status is ${page.fetch.status} and the rendered status is ${status}` });
+      }
+      collect(capture.extracted?.links ?? [], renderedTargets);
+    }
+
+    if (compared === 0) {
+      return errored(`Every render attempted failed (${failedRenders} page(s)), so nothing was compared.`);
+    }
+
+    const onlyRendered = [...renderedTargets].filter((target) => !rawTargets.has(target));
+    const data = {
+      pagesRendered: rendered.length,
+      pagesCompared: compared,
+      renderFailures: failedRenders,
+      differences: diffs.length,
+      renderOnlyTargets: onlyRendered.length,
+    };
+
+    if (diffs.length > 0) {
+      return fail(
+        `${diffs.length} page(s) end somewhere else, or answer differently, once rendered.`,
+        { ...data, samples: diffs.slice(0, SAMPLES) },
+      );
+    }
+    if (onlyRendered.length > 0) {
+      return warn(
+        `${onlyRendered.length} same-site URL(s) are linked only from rendered DOM and never from raw HTML; ` +
+          'a crawler that does not render cannot reach them.',
+        { ...data, renderOnly: onlyRendered.slice(0, SAMPLES) },
+      );
+    }
+    return pass(
+      `${compared} rendered page(s) end where the raw fetch does, with the same status, and add no link target.`,
+      data,
+    );
+  },
+};
+
+export const qaProbes = [brokenLinks, metadataCompleteness, rawRenderedCrawlDiff];

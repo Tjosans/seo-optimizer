@@ -14,11 +14,12 @@
  * the site disagreeing, and neither page shows it on its own.
  */
 
-import { CI_GUARD_DEFECTS, CI_RULE_MAX_FALSE_POSITIVE_RATE, inputRecordProblem } from '@seo/core';
+import { CI_GUARD_DEFECTS, CI_RULE_MAX_FALSE_POSITIVE_RATE, environmentOrigins, inputRecordProblem } from '@seo/core';
 import { isSameSite, normalizeUrl } from '@seo/crawler';
 import type { CrawledPage, CrawlResult, FetchResult } from '@seo/crawler';
 import type { SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
+import { matrixMatcher, NOINDEX_DIRECTIVE } from './site.js';
 
 /** How many examples of each finding an observation carries. */
 const SAMPLES = 10;
@@ -617,4 +618,91 @@ export const ciExtendedChecks: SiteProbe = {
   },
 };
 
-export const qaProbes = [brokenLinks, metadataCompleteness, rawRenderedCrawlDiff, ciSeoGuards, ciExtendedChecks];
+/**
+ * The post-cutover smoke test on the production hostname (5.1). It reads the
+ * URL matrix, and applies only when the audit origin is the matrix's
+ * `production` environment: the matrix names a `production` row and the origin
+ * is not a staging or preview origin the `environments` input lists. Otherwise
+ * it is `not-applicable`, since a smoke test of staging says nothing about launch.
+ *
+ * Fails: a priority URL not answering 200, a page the matrix says is indexable
+ * that carries noindex, and a `private` pattern answering 200 to a crawl that
+ * held no credentials. A priority pattern the crawl never reached holds the
+ * check with a `warn`. Organic crawler traffic cannot be seen from a crawl, so
+ * every result records it as `unavailable`; a passing smoke test does not say
+ * that a real search crawler was observed.
+ */
+export const productionSmokeTest: SiteProbe = {
+  id: 'production-smoke-test',
+  scope: 'site',
+  title: 'Priority URLs answer 200, are indexable and private URLs stay private on production',
+  run({ crawl, inputs, origin }) {
+    const matrix = inputs?.urlMatrix;
+    if (matrix === undefined) return notApplicable('No URL matrix was supplied.');
+    if (!matrix.some((row) => row.environment === 'production')) {
+      return notApplicable('The URL matrix names no production environment, so the audit origin is not known to be production.');
+    }
+    const elsewhere = environmentOrigins(inputs?.environments).find((entry) => isSameSite(origin, entry.origin));
+    if (elsewhere !== undefined) {
+      return notApplicable(`The audit origin is the ${elsewhere.name} environment, not production.`);
+    }
+
+    const rows = matrix.filter((row) => row.environment === undefined || row.environment === 'production');
+    const matchers = rows.map((row) => ({ row, ...matrixMatcher(row.pattern, origin) }));
+    const specificity = (entry: (typeof matchers)[number]): number =>
+      entry.exact ? Number.MAX_SAFE_INTEGER : entry.row.pattern.replace(/\*/g, '').length;
+
+    const reached = new Set<(typeof matchers)[number]>();
+    const failures: string[] = [];
+    for (const page of crawl.pages) {
+      if (page.fetch.status === null || !isSameSite(page.normalizedUrl, origin)) continue;
+      const hits = matchers.filter((entry) => entry.test(page.normalizedUrl));
+      if (hits.length === 0) continue;
+      const best = hits.reduce((a, b) => (specificity(b) > specificity(a) ? b : a));
+      reached.add(best);
+      const { row } = best;
+      const url = page.normalizedUrl;
+      const { status } = page.fetch;
+      if (row.priority === true && status !== 200) failures.push(`${url} answered ${status}, a priority URL must answer 200`);
+      if (row.access === 'private' && status === 200) {
+        failures.push(`${url} answered 200 without credentials, the matrix marks it private`);
+      }
+      if (row.indexable && page.extracted !== null && status === 200) {
+        const noindex = NOINDEX_DIRECTIVE.test(page.extracted.metaRobots ?? '') ||
+          NOINDEX_DIRECTIVE.test(page.fetch.headers['x-robots-tag'] ?? '');
+        if (noindex) failures.push(`${url} is noindex, the matrix expects it indexable`);
+      }
+    }
+
+    const unreached = matchers
+      .filter((entry) => entry.row.priority === true && entry.row.access !== 'private' && !reached.has(entry))
+      .map((entry) => entry.row.pattern);
+    const data = {
+      rows: rows.length,
+      failures: failures.slice(0, SAMPLES),
+      failureCount: failures.length,
+      unreached: unreached.slice(0, SAMPLES),
+      organicCrawling: 'unavailable',
+    };
+
+    if (failures.length > 0) {
+      return fail(
+        `${failures.length} production smoke-test failure(s): ${failures.slice(0, 3).join('; ')}.`,
+        data,
+      );
+    }
+    if (unreached.length > 0) {
+      return warn(
+        `${unreached.length} priority pattern(s) were not reached, so their production response is unverified: ${unreached.slice(0, 3).join(', ')}.`,
+        data,
+      );
+    }
+    return pass(
+      'Priority URLs answer 200, no indexable URL is noindex and no private URL answered without credentials; ' +
+        'organic crawler activity is unavailable to a crawl and is not verified.',
+      data,
+    );
+  },
+};
+
+export const qaProbes = [brokenLinks, metadataCompleteness, rawRenderedCrawlDiff, ciSeoGuards, ciExtendedChecks, productionSmokeTest];

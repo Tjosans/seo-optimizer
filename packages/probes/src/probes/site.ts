@@ -18,7 +18,7 @@ const add = (index: Map<string, Set<string>>, key: string, value: string): void 
   else existing.add(value);
 };
 
-const NOINDEX_DIRECTIVE = /\bnoindex\b|\bnone\b/i;
+export const NOINDEX_DIRECTIVE = /\bnoindex\b|\bnone\b/i;
 
 const htmlPages = (pages: readonly CrawledPage[]): CrawledPage[] =>
   pages.filter((page) => page.extracted !== null && page.fetch.status === 200);
@@ -1263,7 +1263,7 @@ export const thirdPartyBudget: SiteProbe = {
 };
 
 /** A `urlMatrix` pattern as a matcher: an exact URL or a glob (`*` in a segment, `**` across). */
-const matrixMatcher = (pattern: string, origin: string): { test: (url: string) => boolean; exact: boolean } => {
+export const matrixMatcher = (pattern: string, origin: string): { test: (url: string) => boolean; exact: boolean } => {
   const trimmed = pattern.trim();
   const absolute = /^https?:\/\//i.test(trimmed) ? trimmed : new URL(trimmed.startsWith('/') ? trimmed : `/${trimmed}`, origin).toString();
   if (!absolute.includes('*')) {

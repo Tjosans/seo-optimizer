@@ -3,8 +3,8 @@
  * the site says so explicitly.
  */
 
-import { normalizeUrl } from '@seo/crawler';
-import type { CrawledPage } from '@seo/crawler';
+import { isSameSite, normalizeUrl } from '@seo/crawler';
+import type { CrawledPage, Extracted } from '@seo/crawler';
 import type { PageProbe, SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
 
@@ -295,6 +295,104 @@ export const renderingStrategyClassifier: PageProbe = {
   },
 };
 
+const firstH1 = (extracted: Extracted): string | null =>
+  extracted.headings.find((heading) => heading.level === 1)?.text ?? null;
+
+/** Same-site link targets, normalized so a fragment or a trailing-slash spelling is not a difference. */
+const sameSiteTargets = (extracted: Extracted, origin: string): Set<string> => {
+  const targets = new Set<string>();
+  for (const link of extracted.links) {
+    if (!isSameSite(link.url, origin)) continue;
+    try {
+      const normalized = normalizeUrl(link.url);
+      if (normalized !== null) targets.add(normalized);
+    } catch {
+      // An unparseable target has no identity to compare.
+    }
+  }
+  return targets;
+};
+
+/**
+ * Whether raw and rendered carry the same things, not the same amount of them.
+ *
+ * `rendering-strategy-classifier` judges directives, canonical and volume; a
+ * page can pass all of that and still swap its title, its h1 or half its
+ * navigation once scripts run. A `<title>` or first h1 that differs, and a
+ * same-site link target that only the raw response carries, fail: a crawler
+ * that renders would index something other than what one that does not
+ * sees, and the links rendering removed are edges a non-rendering crawl
+ * followed. A same-site target that appears only after rendering is a `warn`:
+ * a non-rendering crawler cannot discover it, which is a reliability question
+ * for whoever owns the rendering strategy.
+ *
+ * A title or h1 present on one side only counts as a difference. Rendering
+ * is opt-in per crawl: no render is `not-applicable`, a failed one `error`.
+ */
+export const rawRenderedParity: PageProbe = {
+  id: 'raw-rendered-parity',
+  scope: 'page',
+  htmlOnly: true,
+  title: 'Raw and rendered responses carry the same title, heading and links',
+  run({ page, site }) {
+    const rendered = page.rendered;
+    if (rendered === undefined || rendered === null) {
+      return notApplicable('No render was captured for this crawl; rendering was not requested.');
+    }
+    if (rendered.render.error !== null) {
+      return errored(`Rendering failed: ${rendered.render.error}.`);
+    }
+    const renderedExtracted = rendered.extracted;
+    if (renderedExtracted === null) {
+      return errored('The rendered response was empty or not HTML, so there is nothing to compare it against.');
+    }
+    const raw = page.extracted;
+    if (raw === null) return notApplicable('Response is not HTML.');
+
+    const failures: string[] = [];
+    const data: Record<string, unknown> = {};
+
+    if (raw.title !== renderedExtracted.title) {
+      failures.push(`the title is "${raw.title ?? ''}" raw and "${renderedExtracted.title ?? ''}" rendered`);
+      data['rawTitle'] = raw.title;
+      data['renderedTitle'] = renderedExtracted.title;
+    }
+    const rawH1 = firstH1(raw);
+    const renderedH1 = firstH1(renderedExtracted);
+    if (rawH1 !== renderedH1) {
+      failures.push(`the first h1 is "${rawH1 ?? ''}" raw and "${renderedH1 ?? ''}" rendered`);
+      data['rawH1'] = rawH1;
+      data['renderedH1'] = renderedH1;
+    }
+
+    const rawTargets = sameSiteTargets(raw, site.origin);
+    const renderedTargets = sameSiteTargets(renderedExtracted, site.origin);
+    const removed = [...rawTargets].filter((target) => !renderedTargets.has(target));
+    const added = [...renderedTargets].filter((target) => !rawTargets.has(target));
+    if (removed.length > 0) {
+      failures.push(`${removed.length} same-site link target(s) in the raw response are gone after rendering`);
+      data['removedLinks'] = removed.slice(0, 10);
+    }
+
+    if (failures.length > 0) {
+      return fail(`Raw and rendered disagree: ${failures.join('; ')}.`, {
+        ...data,
+        removedLinkCount: removed.length,
+        addedLinkCount: added.length,
+      });
+    }
+    if (added.length > 0) {
+      return warn(
+        `${added.length} same-site link target(s) exist only after rendering; a crawler that does not render cannot discover them.`,
+        { addedLinks: added.slice(0, 10), addedLinkCount: added.length },
+      );
+    }
+    return pass('Raw and rendered responses carry the same title, first h1 and same-site link targets.', {
+      linkTargets: rawTargets.size,
+    });
+  },
+};
+
 export const xRobotsTagNonHtml: PageProbe = {
   id: 'x-robots-tag-non-html',
   scope: 'page',
@@ -322,6 +420,7 @@ export const xRobotsTagNonHtml: PageProbe = {
 export const indexabilityProbes = [
   internalSearchIndexability,
   localeCanonical,
+  rawRenderedParity,
   renderingStrategyClassifier,
   xRobotsTagNonHtml,
 ];

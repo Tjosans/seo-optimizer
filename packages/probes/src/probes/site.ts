@@ -6,7 +6,7 @@
 
 import { extract, isAllowed, isSameSite, normalizeUrl, pathDepth } from '@seo/crawler';
 import type { CrawledPage } from '@seo/crawler';
-import { isProductToken, isUserDirectedAgent } from '@seo/core';
+import { inputRecordProblem, isProductToken, isUserDirectedAgent } from '@seo/core';
 import type { SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
 import { checkLanguageTag } from './language-tags.js';
@@ -17,6 +17,8 @@ const add = (index: Map<string, Set<string>>, key: string, value: string): void 
   if (existing === undefined) index.set(key, new Set([value]));
   else existing.add(value);
 };
+
+const NOINDEX_DIRECTIVE = /\bnoindex\b|\bnone\b/i;
 
 const htmlPages = (pages: readonly CrawledPage[]): CrawledPage[] =>
   pages.filter((page) => page.extracted !== null && page.fetch.status === 200);
@@ -1260,7 +1262,136 @@ export const thirdPartyBudget: SiteProbe = {
   },
 };
 
+/** A `urlMatrix` pattern as a matcher: an exact URL or a glob (`*` in a segment, `**` across). */
+const matrixMatcher = (pattern: string, origin: string): { test: (url: string) => boolean; exact: boolean } => {
+  const trimmed = pattern.trim();
+  const absolute = /^https?:\/\//i.test(trimmed) ? trimmed : new URL(trimmed.startsWith('/') ? trimmed : `/${trimmed}`, origin).toString();
+  if (!absolute.includes('*')) {
+    const target = normalizeUrl(absolute);
+    return { exact: true, test: (url) => url === target };
+  }
+  const source = absolute
+    .split(/(\*\*|\*)/)
+    .map((part) => (part === '**' ? '.*' : part === '*' ? '[^/?#]*' : part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')))
+    .join('');
+  const regex = new RegExp(`^${source}$`, 'i');
+  return {
+    exact: false,
+    test: (url) => regex.test(url) || (url.endsWith('/') ? regex.test(url.slice(0, -1)) : regex.test(`${url}/`)),
+  };
+};
+
+const MATRIX_SAMPLES = 10;
+
+/**
+ * Whether the crawl agrees with the URL matrix (0.3). The matrix is an input
+ * nobody can observe, so this is `not-applicable` without it. Rows naming an
+ * `environment` are set aside: the crawl has no declared environment to judge
+ * them against. Each crawled URL is judged by the most specific pattern that
+ * matches it (an exact URL beats a glob, a longer glob a shorter one).
+ *
+ * Fails: a priority pattern with no crawled URL, a priority URL answering other
+ * than its `status` (the first response, so a 301 the row expects is not lost to
+ * the redirect being followed), and a crawled page whose indexability or
+ * canonical disagrees with its pattern. Warns: a crawled URL no pattern covers,
+ * a non-priority pattern with no crawled example, and a row with no owner or
+ * past its review date.
+ */
+export const urlInventoryBuilder: SiteProbe = {
+  id: 'url-inventory-builder',
+  scope: 'site',
+  title: 'The crawl agrees with the URL matrix',
+  run({ crawl, inputs, origin }) {
+    const matrix = inputs?.urlMatrix;
+    if (matrix === undefined) return notApplicable('No URL matrix was supplied.');
+    const rows = matrix.filter((row) => row.environment === undefined);
+    if (rows.length === 0) {
+      return notApplicable(
+        matrix.length === 0 ? 'The URL matrix section is empty.' : 'Every URL matrix row names an environment.',
+      );
+    }
+
+    const matchers = rows.map((row) => ({ row, ...matrixMatcher(row.pattern, origin) }));
+    const specificity = (entry: (typeof matchers)[number]): number =>
+      entry.exact ? Number.MAX_SAFE_INTEGER : entry.row.pattern.replace(/\*/g, '').length;
+
+    const examples = new Map<(typeof matchers)[number], CrawledPage[]>(matchers.map((entry) => [entry, []]));
+    const unmatched: string[] = [];
+    for (const page of crawl.pages) {
+      if (page.fetch.status === null || !isSameSite(page.normalizedUrl, origin)) continue;
+      const hits = matchers.filter((entry) => entry.test(page.normalizedUrl));
+      if (hits.length === 0) {
+        unmatched.push(page.normalizedUrl);
+        continue;
+      }
+      const best = hits.reduce((a, b) => (specificity(b) > specificity(a) ? b : a));
+      examples.get(best)?.push(page);
+    }
+
+    const failures: string[] = [];
+    const warnings: string[] = [];
+    for (const [entry, pages] of examples) {
+      const { row } = entry;
+      if (pages.length === 0) {
+        const line = `${row.pattern} was not reached by the crawl`;
+        (row.priority === true ? failures : warnings).push(
+          row.priority === true ? line : `${row.pattern} has no crawled example`,
+        );
+        continue;
+      }
+      for (const page of pages) {
+        const url = page.normalizedUrl;
+        const first = page.fetch.redirectChain[0]?.status ?? page.fetch.status;
+        if (row.priority === true && first !== row.status) {
+          failures.push(`${url} answered ${first}, the matrix expects ${row.status}`);
+        }
+        if (page.extracted === null || page.fetch.status !== 200 || page.fetch.redirectChain.length > 0) continue;
+        const noindex = NOINDEX_DIRECTIVE.test(page.extracted.metaRobots ?? '') ||
+          NOINDEX_DIRECTIVE.test(page.fetch.headers['x-robots-tag'] ?? '');
+        if (row.indexable === noindex) {
+          failures.push(`${url} is ${noindex ? 'noindex' : 'indexable'}, the matrix expects ${row.indexable ? 'indexable' : 'noindex'}`);
+        }
+        const canonical = page.extracted.canonical === null ? null : normalizeUrl(page.extracted.canonical);
+        const expected = row.canonical === 'self' ? url : row.canonical === 'none' ? null : normalizeUrl(row.canonical);
+        if (canonical !== expected) {
+          failures.push(`${url} has canonical ${canonical ?? 'none'}, the matrix expects ${expected ?? 'none'}`);
+        }
+      }
+    }
+
+    const at = crawl.crawledAt ?? null;
+    const held = rows.flatMap((row) => {
+      const problem = row.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(row, new Date(at));
+      return problem === null ? [] : [`${row.pattern} (${problem})`];
+    });
+
+    const data = {
+      rows: rows.length,
+      setAside: matrix.length - rows.length,
+      failures: failures.slice(0, MATRIX_SAMPLES),
+      unmatched: unmatched.slice(0, MATRIX_SAMPLES),
+      unmatchedCount: unmatched.length,
+      warnings: warnings.slice(0, MATRIX_SAMPLES),
+      held,
+    };
+    if (failures.length > 0) {
+      return fail(
+        `${failures.length} disagreement(s) with the URL matrix: ${failures.slice(0, 3).join('; ')}.`,
+        { ...data, failureCount: failures.length },
+      );
+    }
+    const notes = [
+      unmatched.length > 0 ? `${unmatched.length} crawled URL(s) match no pattern` : '',
+      warnings.length > 0 ? `${warnings.length} pattern(s) have no crawled example` : '',
+      held.length > 0 ? `${held.length} row(s) held for review: ${held.slice(0, 3).join(', ')}` : '',
+    ].filter((note) => note !== '');
+    if (notes.length > 0) return warn(`${notes.join('; ')}.`, data);
+    return pass(`Every crawled URL matches a row of the URL matrix, and every row has a crawled example.`, data);
+  },
+};
+
 export const siteProbes = [
+  urlInventoryBuilder,
   robotsTxt,
   sitemapValidity,
   sitemapCanonicalAgreement,

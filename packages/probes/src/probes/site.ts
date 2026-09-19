@@ -1520,8 +1520,55 @@ export const inheritedDomainHistory: SiteProbe = {
   },
 };
 
+/** Whether a Search Console property's address covers every page of `origin`; null when it cannot be read. */
+function propertyCovers(type: 'domain' | 'url-prefix', url: string, origin: string): boolean | null {
+  try {
+    const site = new URL(origin);
+    if (type === 'domain') {
+      const domain = url.trim().replace(/^sc-domain:/i, '').replace(/\.$/, '').toLowerCase();
+      if (domain === '' || /[/:\s]/.test(domain)) return null;
+      return site.hostname === domain || site.hostname.endsWith(`.${domain}`);
+    }
+    const prefix = new URL(url);
+    return prefix.protocol === site.protocol && prefix.host === site.host && (prefix.pathname === '/' || prefix.pathname === '');
+  } catch {
+    return null;
+  }
+}
+
+export const gscPropertyOwnership: SiteProbe = {
+  id: 'gsc-property-ownership',
+  scope: 'site',
+  title: 'A Search Console property covers the site, with more than one verified owner',
+  run({ crawl, inputs, origin }) {
+    const record = inputs?.searchConsole;
+    if (record === undefined) return notApplicable('No Search Console export was supplied.');
+
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    const property = record.property;
+    if (property === undefined) {
+      return warn('The Search Console export names no property, so setup is pending.', { property: null });
+    }
+
+    const failures: string[] = [];
+    const covers = propertyCovers(property.type, property.url, origin);
+    if (covers === false) failures.push(`the ${property.type} property ${property.url} does not cover ${origin}`);
+    if (covers === null) failures.push(`the property address ${property.url} cannot be read as a ${property.type} property`);
+    const owners = new Set(property.owners.map((owner) => owner.email.trim().toLowerCase()));
+    if (owners.size === 0) failures.push('the property has no verified owner');
+
+    const data = { type: property.type, url: property.url, owners: owners.size, covers };
+    if (failures.length > 0) return fail(`${failures.join('; ')}.`, data);
+    if (problem !== null) return warn(`The Search Console record is held for review (${problem}).`, data);
+    if (owners.size === 1) return warn('The property has a single verified owner; a second keeps access if that person leaves.', data);
+    return pass(`The ${property.type} property ${property.url} covers ${origin} with ${owners.size} verified owners.`, data);
+  },
+};
+
 export const siteProbes = [
   urlInventoryBuilder,
+  gscPropertyOwnership,
   inheritedDomainHistory,
   migrationMapBuilder,
   robotsTxt,

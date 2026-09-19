@@ -366,6 +366,54 @@ describe('scripts/inputs.example.yaml', () => {
   });
 });
 
+describe('bingWebmaster', () => {
+  const full = {
+    owner: 'Jane',
+    recordedAt: '2026-09-01T09:00:00Z',
+    property: { url: 'https://example.com/', verified: true, verifiedAt: '2026-08-01T09:00:00Z' },
+    sitemaps: [{ url: 'https://example.com/sitemap.xml', submittedAt: '2026-08-02T09:00:00Z', status: 'Success' }],
+    aiCitations: [{ page: 'https://example.com/a', citations: 8, period: '2026-06-01/2026-08-31' }],
+  };
+  const run = (patch: object) => () => parseInputs({ bingWebmaster: { ...full, ...patch } });
+
+  it('reads each subsection', () => {
+    const b = parseInputs({ bingWebmaster: full }).bingWebmaster;
+    expect(b?.property).toEqual({ url: 'https://example.com/', verified: true, verifiedAt: '2026-08-01T09:00:00.000Z' });
+    expect(b?.sitemaps?.[0]?.status).toBe('Success');
+    expect(b?.aiCitations?.[0]?.citations).toBe(8);
+  });
+
+  it('keeps an empty list as an answer and an absent one as a gap', () => {
+    const b = parseInputs({ bingWebmaster: { ...full, sitemaps: [], aiCitations: undefined } }).bingWebmaster;
+    expect(b?.sitemaps).toEqual([]);
+    expect(b?.aiCitations).toBeUndefined();
+  });
+
+  it('allows an unverified property without a date', () => {
+    const b = parseInputs({ bingWebmaster: { ...full, property: { url: 'https://example.com/', verified: false } } }).bingWebmaster;
+    expect(b?.property).toEqual({ url: 'https://example.com/', verified: false });
+  });
+
+  it('refuses what an export would not hold, listing every path', () => {
+    expect(run({ extra: 1 })).toThrow(/bingWebmaster\.extra: unknown field/);
+    expect(run({ property: { url: 'https://example.com/', verified: true } })).toThrow(/property\.verifiedAt: required/);
+    expect(run({ property: { url: 'example.com', verified: 'yes' } })).toThrow(/property\.verified: expected true or false/);
+    expect(run({ sitemaps: [full.sitemaps[0], full.sitemaps[0]] })).toThrow(/duplicate sitemap/);
+    expect(run({ sitemaps: [{ url: 'https://example.com/s.xml', submittedAt: 'soon', status: 'Success' }] })).toThrow(/sitemaps\[0\]\.submittedAt: not a date/);
+    expect(run({ aiCitations: [{ ...full.aiCitations[0], citations: -1 }] })).toThrow(/aiCitations\[0\]\.citations/);
+    expect(run({ aiCitations: [{ ...full.aiCitations[0], citations: '8' }] })).toThrow(/aiCitations\[0\]\.citations/);
+    expect(run({ aiCitations: [full.aiCitations[0], full.aiCitations[0]] })).toThrow(/duplicate row/);
+    expect(run({ aiCitations: {} })).toThrow(/aiCitations: expected a list/);
+  });
+
+  it('is in scripts/inputs.example.yaml', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { parse } = await import('yaml');
+    const text = readFileSync(new URL('../../../scripts/inputs.example.yaml', import.meta.url), 'utf8');
+    expect(parseInputs(parse(text)).bingWebmaster?.aiCitations).toHaveLength(1);
+  });
+});
+
 describe('reporting', () => {
   const base = { owner: 'Jane', recordedAt: '2026-09-05T09:00:00Z', rhythm: 'weekly' };
 

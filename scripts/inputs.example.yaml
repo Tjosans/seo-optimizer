@@ -196,6 +196,28 @@ searchConsole:
   owner: Jane Doe
   recordedAt: 2026-09-01T09:00:00Z
 
+# bingWebmaster: what a person exports from Bing Webmaster Tools. Every
+# subsection is optional; an empty list is the report saying there is nothing.
+# property.verified is true or false, and verifiedAt is required when it is
+# true. sitemaps rows carry the page's own status text; a sitemap listed twice
+# is refused. aiCitations: how many times Bing's AI answers cited a page (a
+# whole number, an http(s) page); period is the date range as exported.
+bingWebmaster:
+  property:
+    url: https://example.com/
+    verified: true
+    verifiedAt: 2026-08-01T09:00:00Z
+  sitemaps:
+    - url: https://example.com/sitemap.xml
+      submittedAt: 2026-08-02T09:00:00Z
+      status: Success
+  aiCitations:
+    - page: https://example.com/guides/getting-started
+      citations: 8
+      period: 2026-06-01/2026-08-31
+  owner: Jane Doe
+  recordedAt: 2026-09-01T09:00:00Z
+
 # contentDecisions (7.2): what was decided for each URL whose clicks fell, one
 # row per url (an http(s) address). decision is free text (refresh, merge,
 # redirect, retire, keep); decidedAt is when it was made.

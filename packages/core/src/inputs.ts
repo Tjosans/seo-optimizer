@@ -391,8 +391,46 @@ export interface DisavowRecord extends InputRecord {
   readonly removalAttempts: readonly string[];
 }
 
+/** The Bing Webmaster Tools property the site is managed under. */
+export interface BingWebmasterProperty {
+  readonly url: string;
+  readonly verified: boolean;
+  /** ISO 8601 instant; required when `verified` is true. */
+  readonly verifiedAt?: string;
+}
+
+/** One row of the Sitemaps page: what was submitted, when, what Bing made of it. */
+export interface BingWebmasterSitemap {
+  readonly url: string;
+  /** ISO 8601 instant. */
+  readonly submittedAt: string;
+  /** The page's own words: `Success`, `Pending`, `Error`… */
+  readonly status: string;
+}
+
+/** One row of the AI Performance report: how often Bing's AI answers cited a page. */
+export interface BingWebmasterAiCitation {
+  readonly page: string;
+  readonly citations: number;
+  /** The date range the count covers, as exported: `2026-06-01/2026-08-31`, `Last 3 months`… */
+  readonly period: string;
+}
+
+/**
+ * What a person exports from Bing Webmaster Tools. An absent subsection was not
+ * supplied; an empty list is the report saying there is nothing, which is an
+ * answer, not a gap.
+ */
+export interface BingWebmasterRecord extends InputRecord {
+  readonly property?: BingWebmasterProperty;
+  readonly sitemaps?: readonly BingWebmasterSitemap[];
+  readonly aiCitations?: readonly BingWebmasterAiCitation[];
+}
+
 /** Every section an audit can be given. */
 export interface AuditInputs {
+  /** Bing Webmaster Tools exports: property, sitemaps, AI citations. */
+  readonly bingWebmaster?: BingWebmasterRecord;
   /** The disavow submission, its reasons and removal attempts (6.8). */
   readonly disavow?: DisavowRecord;
   /** The reporting rhythm, alert thresholds and anomaly log (6.3). */
@@ -420,7 +458,7 @@ export interface AuditInputs {
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -1377,6 +1415,118 @@ function parseSearchConsole(value: unknown, problem: (path: string, text: string
   return ok ? { ...record, ...out } : null;
 }
 
+const BING_WEBMASTER_KEYS = ['property', 'sitemaps', 'aiCitations'];
+
+function parseBingWebmaster(value: unknown, problem: (path: string, text: string) => void): BingWebmasterRecord | null {
+  const record = parseInputRecord('bingWebmaster', value, problem, BING_WEBMASTER_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`bingWebmaster${path}`, text);
+    ok = false;
+  };
+  const missing = (raw: unknown): boolean => raw === undefined || raw === null || raw === '';
+  const text = (node: Node, path: string, key: string): string | null => {
+    const raw = node[key];
+    if (typeof raw === 'string' && raw.trim() !== '') return raw.trim();
+    fail(`${path}.${key}`, missing(raw) ? 'required' : `expected text, got ${typeof raw} (quote it)`);
+    return null;
+  };
+  const httpUrl = (node: Node, path: string, key: string): string | null => {
+    const raw = text(node, path, key);
+    if (raw !== null && !isHttpUrl(raw)) {
+      fail(`${path}.${key}`, `expected an http(s) URL: ${raw}`);
+      return null;
+    }
+    return raw;
+  };
+  const time = (node: Node, path: string, key: string, required: boolean): string | null => {
+    if (!required && missing(node[key])) return null;
+    const raw = text(node, path, key);
+    if (raw === null) return null;
+    const ms = instant(raw);
+    if (ms === null) {
+      fail(`${path}.${key}`, `not a date and time: ${raw}`);
+      return null;
+    }
+    return new Date(ms).toISOString();
+  };
+  const unknownKeys = (node: Node, path: string, known: readonly string[]): void => {
+    for (const key of Object.keys(node)) if (!known.includes(key)) fail(`${path}.${key}`, 'unknown field');
+  };
+  const rows = (key: string, each: (node: Node, path: string) => void): boolean => {
+    const raw = value[key];
+    if (missing(raw)) return false;
+    if (!Array.isArray(raw)) {
+      fail(`.${key}`, 'expected a list');
+      return false;
+    }
+    raw.forEach((node, index) => {
+      const path = `.${key}[${index}]`;
+      if (!isNode(node)) fail(path, 'expected a mapping');
+      else each(node, path);
+    });
+    return true;
+  };
+  const out: { property?: BingWebmasterProperty; sitemaps?: BingWebmasterSitemap[]; aiCitations?: BingWebmasterAiCitation[] } = {};
+
+  const propertyRaw = value['property'];
+  if (!missing(propertyRaw)) {
+    if (!isNode(propertyRaw)) {
+      fail('.property', 'expected a mapping');
+    } else {
+      unknownKeys(propertyRaw, '.property', ['url', 'verified', 'verifiedAt']);
+      const url = httpUrl(propertyRaw, '.property', 'url');
+      const verified = propertyRaw['verified'];
+      if (typeof verified !== 'boolean') fail('.property.verified', missing(verified) ? 'required' : 'expected true or false');
+      const verifiedAt = time(propertyRaw, '.property', 'verifiedAt', verified === true);
+      if (url !== null && typeof verified === 'boolean' && (verified === false || verifiedAt !== null) && ok) {
+        out.property = { url, verified, ...(verifiedAt !== null ? { verifiedAt } : {}) };
+      }
+    }
+  }
+
+  const sitemaps: BingWebmasterSitemap[] = [];
+  const seen = new Set<string>();
+  if (
+    rows('sitemaps', (node, path) => {
+      unknownKeys(node, path, ['url', 'submittedAt', 'status']);
+      const url = httpUrl(node, path, 'url');
+      if (url !== null) {
+        if (seen.has(url)) fail(`${path}.url`, `duplicate sitemap: ${url}`);
+        seen.add(url);
+      }
+      const submittedAt = time(node, path, 'submittedAt', true);
+      const status = text(node, path, 'status');
+      if (url !== null && submittedAt !== null && status !== null) sitemaps.push({ url, submittedAt, status });
+    })
+  ) {
+    out.sitemaps = sitemaps;
+  }
+
+  const aiCitations: BingWebmasterAiCitation[] = [];
+  const citedSeen = new Set<string>();
+  if (
+    rows('aiCitations', (node, path) => {
+      unknownKeys(node, path, ['page', 'citations', 'period']);
+      const page = httpUrl(node, path, 'page');
+      const citations = node['citations'];
+      const citationsOk = typeof citations === 'number' && Number.isInteger(citations) && citations >= 0;
+      if (!citationsOk) fail(`${path}.citations`, missing(citations) ? 'required' : 'expected a whole number of 0 or more');
+      const period = text(node, path, 'period');
+      if (page !== null && period !== null) {
+        const key = `${page}\n${period}`;
+        if (citedSeen.has(key)) fail(`${path}.page`, `duplicate row: ${page}`);
+        citedSeen.add(key);
+      }
+      if (page !== null && citationsOk && period !== null) aiCitations.push({ page, citations, period });
+    })
+  ) {
+    out.aiCitations = aiCitations;
+  }
+  return ok ? { ...record, ...out } : null;
+}
+
 /**
  * Check a parsed inputs value's shape and return it typed. `undefined` and
  * `null` are no inputs. Throws `InputsError` listing every problem found:
@@ -1405,7 +1555,12 @@ export function parseInputs(value: unknown): AuditInputs {
     contentDecisions?: readonly ContentDecision[];
     reporting?: ReportingRecord;
     disavow?: DisavowRecord;
+    bingWebmaster?: BingWebmasterRecord;
   } = {};
+  if (value['bingWebmaster'] !== undefined && value['bingWebmaster'] !== null) {
+    const bingWebmaster = parseBingWebmaster(value['bingWebmaster'], problem);
+    if (bingWebmaster !== null) inputs.bingWebmaster = bingWebmaster;
+  }
   if (value['disavow'] !== undefined && value['disavow'] !== null) {
     const disavow = parseDisavow(value['disavow'], problem);
     if (disavow !== null) inputs.disavow = disavow;

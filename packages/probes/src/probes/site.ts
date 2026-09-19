@@ -6,7 +6,7 @@
 
 import { extract, isAllowed, isSameSite, normalizeUrl, pathDepth } from '@seo/crawler';
 import type { CrawledPage } from '@seo/crawler';
-import { inputRecordProblem, isProductToken, isUserDirectedAgent } from '@seo/core';
+import { DOMAIN_HISTORY_REQUIRED_CHECKS, inputRecordProblem, isProductToken, isUserDirectedAgent } from '@seo/core';
 import type { SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
 import { checkLanguageTag } from './language-tags.js';
@@ -1486,8 +1486,43 @@ export const migrationMapBuilder: SiteProbe = {
   },
 };
 
+export const inheritedDomainHistory: SiteProbe = {
+  id: 'inherited-domain-history',
+  scope: 'site',
+  title: 'The history of an inherited domain was checked for manual actions and archived content, and nothing blocking is open',
+  run({ crawl, inputs }) {
+    const history = inputs?.domainHistory;
+    if (history === undefined) return notApplicable('No domain history was supplied.');
+
+    const failures: string[] = [];
+    const open = history.blockingIssues.filter((item) => !item.resolved).map((item) => item.issue);
+    if (open.length > 0) failures.push(`${open.length} blocking issue(s) unresolved: ${open.slice(0, 3).join('; ')}`);
+
+    const missing: string[] = [];
+    for (const required of DOMAIN_HISTORY_REQUIRED_CHECKS) {
+      const found = history.checks.some((check) => required.words.some((word) => check.name.toLowerCase().includes(word)));
+      if (!found) missing.push(required.label);
+    }
+    if (missing.length > 0) failures.push(`no ${missing.join(' or ')} check is recorded`);
+
+    const at = crawl.crawledAt ?? null;
+    const problem = history.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(history, new Date(at));
+
+    const data = {
+      checks: history.checks.map((check) => check.name),
+      blockingIssues: history.blockingIssues.length,
+      unresolved: open,
+      missingChecks: missing,
+    };
+    if (failures.length > 0) return fail(`${failures.join('; ')}.`, data);
+    if (problem !== null) return warn(`The domain history is held for review (${problem}).`, data);
+    return pass(`The domain history has a manual-action and an archive check, and every blocking issue is resolved (${history.blockingIssues.length} recorded).`, data);
+  },
+};
+
 export const siteProbes = [
   urlInventoryBuilder,
+  inheritedDomainHistory,
   migrationMapBuilder,
   robotsTxt,
   sitemapValidity,

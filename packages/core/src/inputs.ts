@@ -200,8 +200,42 @@ export function redirectMapRootUrl(record: RedirectMapRecord | undefined): strin
   }
 }
 
+/** One look at the history of a domain the site inherited (0.8): what was checked, what it found, when. */
+export interface DomainHistoryCheck {
+  /** What was looked at: a manual-actions review, an archive review, a backlink audit… */
+  readonly name: string;
+  /** What the check found, in the reviewer's words. */
+  readonly result: string;
+  /** ISO 8601 instant. */
+  readonly checkedAt: string;
+}
+
+/** A problem the history turned up that blocks launch until it is resolved. */
+export interface DomainHistoryIssue {
+  readonly issue: string;
+  readonly resolved: boolean;
+}
+
+/**
+ * What a person learned about the past of a domain the site inherited (0.8):
+ * the checks they ran and the blocking issues those found. Nothing observable
+ * from a crawl can say what a domain was used for before.
+ */
+export interface DomainHistoryRecord extends InputRecord {
+  readonly checks: readonly DomainHistoryCheck[];
+  readonly blockingIssues: readonly DomainHistoryIssue[];
+}
+
+/** The checks a domain history must hold, each with the words a check's name has to contain. */
+export const DOMAIN_HISTORY_REQUIRED_CHECKS = [
+  { label: 'manual-action', words: ['manual'] },
+  { label: 'archive', words: ['archive', 'wayback'] },
+] as const;
+
 /** Every section an audit can be given. */
 export interface AuditInputs {
+  /** The history of an inherited domain (0.8). */
+  readonly domainHistory?: DomainHistoryRecord;
   /** The migration's redirect map (0.8). */
   readonly redirectMap?: RedirectMapRecord;
   /** The availability canary and its alert delivery (5.5). */
@@ -219,7 +253,7 @@ export interface AuditInputs {
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -727,6 +761,70 @@ function parseRedirectMap(value: unknown, problem: (path: string, text: string) 
   };
 }
 
+const DOMAIN_HISTORY_KEYS = ['checks', 'blockingIssues'];
+
+function parseDomainHistory(value: unknown, problem: (path: string, text: string) => void): DomainHistoryRecord | null {
+  const record = parseInputRecord('domainHistory', value, problem, DOMAIN_HISTORY_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`domainHistory${path}`, text);
+    ok = false;
+  };
+  const missing = (raw: unknown): boolean => raw === undefined || raw === null || raw === '';
+  const text = (node: Node, path: string, key: string): string | null => {
+    const raw = node[key];
+    if (typeof raw === 'string' && raw.trim() !== '') return raw.trim();
+    fail(`${path}.${key}`, missing(raw) ? 'required' : `expected text, got ${typeof raw} (quote it)`);
+    return null;
+  };
+
+  const checks: DomainHistoryCheck[] = [];
+  const checksRaw = value['checks'];
+  if (!missing(checksRaw) && !Array.isArray(checksRaw)) {
+    fail('.checks', 'expected a list');
+  } else if (Array.isArray(checksRaw)) {
+    checksRaw.forEach((node, index) => {
+      const path = `.checks[${index}]`;
+      if (!isNode(node)) {
+        fail(path, 'expected a mapping');
+        return;
+      }
+      for (const key of Object.keys(node)) {
+        if (!['name', 'result', 'checkedAt'].includes(key)) fail(`${path}.${key}`, 'unknown field');
+      }
+      const name = text(node, path, 'name');
+      const result = text(node, path, 'result');
+      const at = text(node, path, 'checkedAt');
+      const ms = at === null ? null : instant(at);
+      if (at !== null && ms === null) fail(`${path}.checkedAt`, `not a date and time: ${at}`);
+      if (name !== null && result !== null && ms !== null) checks.push({ name, result, checkedAt: new Date(ms).toISOString() });
+    });
+  }
+
+  const blockingIssues: DomainHistoryIssue[] = [];
+  const issuesRaw = value['blockingIssues'];
+  if (!missing(issuesRaw) && !Array.isArray(issuesRaw)) {
+    fail('.blockingIssues', 'expected a list');
+  } else if (Array.isArray(issuesRaw)) {
+    issuesRaw.forEach((node, index) => {
+      const path = `.blockingIssues[${index}]`;
+      if (!isNode(node)) {
+        fail(path, 'expected a mapping');
+        return;
+      }
+      for (const key of Object.keys(node)) {
+        if (key !== 'issue' && key !== 'resolved') fail(`${path}.${key}`, 'unknown field');
+      }
+      const issue = text(node, path, 'issue');
+      const resolved = node['resolved'];
+      if (typeof resolved !== 'boolean') fail(`${path}.resolved`, missing(resolved) ? 'required' : 'expected true or false');
+      if (issue !== null && typeof resolved === 'boolean') blockingIssues.push({ issue, resolved });
+    });
+  }
+  return ok ? { ...record, checks, blockingIssues } : null;
+}
+
 /**
  * Check a parsed inputs value's shape and return it typed. `undefined` and
  * `null` are no inputs. Throws `InputsError` listing every problem found:
@@ -750,7 +848,12 @@ export function parseInputs(value: unknown): AuditInputs {
     urlMatrix?: readonly UrlMatrixEntry[];
     canary?: CanaryRecord;
     redirectMap?: RedirectMapRecord;
+    domainHistory?: DomainHistoryRecord;
   } = {};
+  if (value['domainHistory'] !== undefined && value['domainHistory'] !== null) {
+    const domainHistory = parseDomainHistory(value['domainHistory'], problem);
+    if (domainHistory !== null) inputs.domainHistory = domainHistory;
+  }
   if (value['redirectMap'] !== undefined && value['redirectMap'] !== null) {
     const redirectMap = parseRedirectMap(value['redirectMap'], problem);
     if (redirectMap !== null) inputs.redirectMap = redirectMap;

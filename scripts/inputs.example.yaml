@@ -121,3 +121,22 @@ redirectMap:
       expect: 410
   owner: Jane Doe
   recordedAt: 2026-09-10T09:00:00Z
+
+# domainHistory (0.8): what was learned about the past of an inherited domain.
+# checks lists what was looked at (name, result in your words, checkedAt); a
+# manual-actions check and an archive check (a name containing "manual", and
+# one containing "archive" or "wayback") are required. blockingIssues lists
+# what the history turned up; any with resolved: false fails inherited-domain-history.
+domainHistory:
+  checks:
+    - name: Manual actions review
+      result: none found
+      checkedAt: 2026-09-01T09:00:00Z
+    - name: Wayback archive review
+      result: previously a small blog, no spam
+      checkedAt: 2026-09-01T09:30:00Z
+  blockingIssues:
+    - issue: Spammy backlinks inherited from the previous owner
+      resolved: true
+  owner: Jane Doe
+  recordedAt: 2026-09-01T10:00:00Z

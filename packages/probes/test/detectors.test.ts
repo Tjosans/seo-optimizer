@@ -3695,6 +3695,45 @@ const withRender = (target: CrawledPage, renderedHtml: string | null, error: str
   };
 };
 
+describe('axe-accessibility', () => {
+  const withAxe = (
+    accessibility: { violations: { id: string; impact: string | null; nodes: number }[]; error: string | null } | undefined,
+  ): CrawledPage => {
+    const target = withRender(page({ path: '/' }), '<html><body><p>Hi</p></body></html>');
+    if (target.rendered === undefined || target.rendered === null || accessibility === undefined) return target;
+    return { ...target, rendered: { ...target.rendered, render: { ...target.rendered.render, accessibility } } };
+  };
+  const run = (target: CrawledPage) => runPage('axe-accessibility', target, [target]);
+
+  it('is not applicable without a render or without axe having run', () => {
+    expect(run(page({ path: '/' })).outcome).toBe('not-applicable');
+    expect(run(withAxe(undefined)).outcome).toBe('not-applicable');
+  });
+
+  it('errors when axe failed', () => {
+    expect(run(withAxe({ violations: [], error: 'boom' })).outcome).toBe('error');
+  });
+
+  it('fails on a critical or serious violation', () => {
+    const observation = run(
+      withAxe({ violations: [{ id: 'color-contrast', impact: 'serious', nodes: 3 }], error: null }),
+    );
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/color-contrast/);
+  });
+
+  it('warns on moderate or minor violations only', () => {
+    const observation = run(withAxe({ violations: [{ id: 'region', impact: 'moderate', nodes: 1 }], error: null }));
+    expect(observation.outcome).toBe('warn');
+  });
+
+  it('passes a clean run without claiming conformance', () => {
+    const observation = run(withAxe({ violations: [], error: null }));
+    expect(observation.outcome).toBe('pass');
+    expect(observation.summary).toMatch(/not a conformance claim/);
+  });
+});
+
 describe('rendering-strategy-classifier', () => {
   it('is not applicable when no render was captured for the crawl', () => {
     const target = page({ path: '/' });

@@ -24,7 +24,7 @@
  */
 
 import type { PageProbe } from '../types.js';
-import { fail, notApplicable, pass, warn } from '../types.js';
+import { errored, fail, notApplicable, pass, warn } from '../types.js';
 
 /**
  * Link text that names an action and not a destination, in the languages the
@@ -129,4 +129,51 @@ export const contentAccessibility: PageProbe = {
   },
 };
 
-export const accessibilityProbes = [contentAccessibility];
+/**
+ * axe-core against the settled DOM: corpus check 4.4.
+ *
+ * axe reads what a browser built, scripts included, so it sees contrast, ARIA
+ * and focus problems markup alone cannot. It also covers only a fraction of
+ * WCAG; 4.4 says "a tool score alone is insufficient" and is triaged
+ * `assisted`. So this fails what axe grades `critical` or `serious`, warns on
+ * the rest, and never reports a clean run as a conformance claim.
+ */
+const BLOCKING_IMPACTS = new Set(['critical', 'serious']);
+
+export const axeAccessibility: PageProbe = {
+  id: 'axe-accessibility',
+  scope: 'page',
+  htmlOnly: true,
+  title: 'Rendered pages carry no critical or serious axe-core violations',
+  run({ page }) {
+    const result = page.rendered?.render.accessibility;
+    if (result === undefined) {
+      return notApplicable('axe-core was not run on this page; accessibility rendering was not requested.');
+    }
+    if (result.error !== null) return errored(`axe-core could not run: ${result.error}.`);
+
+    const blocking = result.violations.filter((v) => v.impact !== null && BLOCKING_IMPACTS.has(v.impact));
+    const others = result.violations.filter((v) => v.impact === null || !BLOCKING_IMPACTS.has(v.impact));
+    const data = { violations: result.violations.map((v) => ({ id: v.id, impact: v.impact, nodes: v.nodes })) };
+
+    if (blocking.length > 0) {
+      return fail(
+        `axe-core found ${blocking.length} critical or serious violation(s): ${blocking.map((v) => v.id).join(', ')}.` +
+          (others.length > 0 ? ` A further ${others.length} lesser one(s) need a person.` : ''),
+        data,
+      );
+    }
+    if (others.length > 0) {
+      return warn(
+        `axe-core found ${others.length} moderate or minor violation(s): ${others.map((v) => v.id).join(', ')}. For a person to settle.`,
+        data,
+      );
+    }
+    return pass(
+      'axe-core found no violations on the rendered page. That is not a conformance claim: axe covers only part of WCAG, and a person evaluates the rest.',
+      data,
+    );
+  },
+};
+
+export const accessibilityProbes = [contentAccessibility, axeAccessibility];

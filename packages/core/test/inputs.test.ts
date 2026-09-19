@@ -459,3 +459,58 @@ describe('aiBaseline', () => {
     expect(run({ reports: [{ ...report, extra: 1 }] })).toThrow(/extra: unknown field/);
   });
 });
+
+describe('lighthouse', () => {
+  const full = {
+    owner: 'Jane',
+    recordedAt: '2026-09-01T09:00:00Z',
+    reports: [{ url: 'https://example.com/', path: 'lighthouse/home.json' }],
+    perfPolicy: { thresholds: { lcpMs: 2500, cls: 0.1 }, testProfile: 'mobile', owner: 'Jane', revision: '2026-08-01T00:00:00Z' },
+  };
+  const run = (patch: object) => () => parseInputs({ lighthouse: { ...full, ...patch } });
+
+  it('reads reports and the policy', () => {
+    const l = parseInputs({ lighthouse: full }).lighthouse;
+    expect(l?.reports).toEqual([{ url: 'https://example.com/', path: 'lighthouse/home.json' }]);
+    expect(l?.perfPolicy?.thresholds).toEqual({ lcpMs: 2500, cls: 0.1 });
+    expect(l?.perfPolicy?.revision).toBe('2026-08-01T00:00:00.000Z');
+  });
+
+  it('allows reports without a policy', () => {
+    expect(parseInputs({ lighthouse: { ...full, perfPolicy: undefined } }).lighthouse?.perfPolicy).toBeUndefined();
+  });
+
+  it('refuses what a policy or report list cannot hold, listing every path', () => {
+    expect(run({ extra: 1 })).toThrow(/lighthouse\.extra: unknown field/);
+    expect(run({ reports: undefined })).toThrow(/reports: required/);
+    expect(run({ reports: [full.reports[0], full.reports[0]] })).toThrow(/duplicate report/);
+    expect(run({ reports: [{ url: 'nope', path: 'a.json' }] })).toThrow(/reports\[0\]\.url: expected an http/);
+    expect(run({ reports: [{ url: 'https://example.com/' }] })).toThrow(/reports\[0\]\.path: required/);
+    expect(run({ perfPolicy: { ...full.perfPolicy, thresholds: {} } })).toThrow(/set at least one/);
+    expect(run({ perfPolicy: { ...full.perfPolicy, thresholds: { lcpMs: '2500' } } })).toThrow(/thresholds\.lcpMs: expected a number/);
+    expect(run({ perfPolicy: { ...full.perfPolicy, thresholds: { fid: 100 } } })).toThrow(/thresholds\.fid: unknown field/);
+    expect(run({ perfPolicy: { ...full.perfPolicy, revision: 'soon' } })).toThrow(/perfPolicy\.revision: not a date/);
+    expect(run({ perfPolicy: { ...full.perfPolicy, testProfile: undefined } })).toThrow(/perfPolicy\.testProfile: required/);
+  });
+
+  it('reduces a report and loads the example file', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { parse } = await import('yaml');
+    const { loadLighthouseMetrics } = await import('../src/lighthouse.js');
+    const dir = new URL('../../../scripts/', import.meta.url);
+    const inputs = parseInputs(parse(readFileSync(new URL('inputs.example.yaml', dir), 'utf8')));
+    const loaded = loadLighthouseMetrics(inputs, fileURLToPathSafe(dir));
+    const m = loaded.lighthouse?.reports[0]?.metrics;
+    expect(m).toMatchObject({ lcpMs: 2100, cls: 0.04, tbtMs: 120, testProfile: 'mobile', fetchedAt: '2026-09-01T08:30:00.000Z' });
+    expect(m?.lcpElement).toEqual({ tag: 'img', selector: 'body > img.hero', src: '/hero.jpg', fetchPriority: 'high' });
+  });
+
+  it('names the file it cannot read', async () => {
+    const { loadLighthouseMetrics } = await import('../src/lighthouse.js');
+    expect(() => loadLighthouseMetrics(parseInputs({ lighthouse: full }), '/nonexistent')).toThrow(/home\.json/);
+  });
+});
+
+function fileURLToPathSafe(url: URL): string {
+  return decodeURIComponent(url.pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+}

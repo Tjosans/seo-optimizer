@@ -446,8 +446,69 @@ export interface AiBaselineRecord extends InputRecord {
   readonly reports: readonly AiBaselineReport[];
 }
 
+/** The LCP element as a Lighthouse report names it, with the loading attributes read off its markup. */
+export interface LighthouseLcpElement {
+  /** Lowercase tag name: `img`, `h1`, `video`… */
+  readonly tag: string;
+  readonly selector?: string;
+  /** The `src` (or `poster`) the element loads, when it is a media element. */
+  readonly src?: string;
+  /** The `loading` attribute, as written. */
+  readonly loading?: string;
+  /** The `fetchpriority` attribute, as written. */
+  readonly fetchPriority?: string;
+}
+
+/** What one Lighthouse report is reduced to. Absent numbers were not in the report. */
+export interface LighthouseMetrics {
+  /** Largest Contentful Paint, milliseconds. */
+  readonly lcpMs?: number;
+  /** Cumulative Layout Shift, unitless. */
+  readonly cls?: number;
+  /** Total Blocking Time, milliseconds. */
+  readonly tbtMs?: number;
+  readonly lcpElement?: LighthouseLcpElement;
+  /** ISO 8601 instant the report was run. */
+  readonly fetchedAt?: string;
+  /** The form factor it ran under (`mobile`, `desktop`), compared to the policy's `testProfile`. */
+  readonly testProfile?: string;
+}
+
+/** One report the person points at: the URL it audited and the JSON file. `metrics` is filled by `loadLighthouseMetrics`. */
+export interface LighthouseReport {
+  readonly url: string;
+  /** Path of the Lighthouse JSON file, relative to the inputs file. */
+  readonly path: string;
+  readonly metrics?: LighthouseMetrics;
+}
+
+/** Ceilings a report must stay under; at least one is set. */
+export interface PerfThresholds {
+  readonly lcpMs?: number;
+  readonly cls?: number;
+  readonly tbtMs?: number;
+}
+
+/** The performance budget: what counts as too slow, under which test profile, and which revision of it this is. */
+export interface PerfPolicy {
+  readonly thresholds: PerfThresholds;
+  /** The profile reports must have run under (`mobile`, `desktop`). */
+  readonly testProfile: string;
+  readonly owner: string;
+  /** ISO 8601 instant; a report older than this predates the policy. */
+  readonly revision: string;
+}
+
+/** Lighthouse reports per URL and the policy they are judged by. */
+export interface LighthouseRecord extends InputRecord {
+  readonly reports: readonly LighthouseReport[];
+  readonly perfPolicy?: PerfPolicy;
+}
+
 /** Every section an audit can be given. */
 export interface AuditInputs {
+  /** Lighthouse reports per URL and the performance policy (1.5, 4.5). */
+  readonly lighthouse?: LighthouseRecord;
   /** The AI visibility baseline: reports, metrics, scopes, periods (6.4). */
   readonly aiBaseline?: AiBaselineRecord;
   /** Bing Webmaster Tools exports: property, sitemaps, AI citations. */
@@ -479,7 +540,7 @@ export interface AuditInputs {
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -1606,6 +1667,90 @@ function parseAiBaseline(value: unknown, problem: (path: string, text: string) =
   return ok ? { ...record, reports } : null;
 }
 
+const LIGHTHOUSE_KEYS = ['reports', 'perfPolicy'];
+const PERF_POLICY_KEYS = ['thresholds', 'testProfile', 'owner', 'revision'];
+const PERF_THRESHOLD_KEYS = ['lcpMs', 'cls', 'tbtMs'];
+
+function parseLighthouse(value: unknown, problem: (path: string, text: string) => void): LighthouseRecord | null {
+  const record = parseInputRecord('lighthouse', value, problem, LIGHTHOUSE_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`lighthouse${path}`, text);
+    ok = false;
+  };
+  const absent = (raw: unknown): boolean => raw === undefined || raw === null || raw === '';
+  const text = (node: Node, path: string, key: string): string | null => {
+    const raw = node[key];
+    if (typeof raw === 'string' && raw.trim() !== '') return raw.trim();
+    fail(`${path}.${key}`, absent(raw) ? 'required' : `expected text, got ${typeof raw} (quote it)`);
+    return null;
+  };
+
+  const reports: LighthouseReport[] = [];
+  const rawReports = value['reports'];
+  if (absent(rawReports)) fail('.reports', 'required');
+  else if (!Array.isArray(rawReports)) fail('.reports', 'expected a list');
+  else {
+    const seen = new Set<string>();
+    rawReports.forEach((node, index) => {
+      const path = `.reports[${index}]`;
+      if (!isNode(node)) {
+        fail(path, 'expected a mapping');
+        return;
+      }
+      for (const key of Object.keys(node)) if (key !== 'url' && key !== 'path') fail(`${path}.${key}`, 'unknown field');
+      const url = text(node, path, 'url');
+      const file = text(node, path, 'path');
+      if (url !== null && !isHttpUrl(url)) fail(`${path}.url`, `expected an http(s) URL: ${url}`);
+      else if (url !== null) {
+        if (seen.has(url)) fail(`${path}.url`, `duplicate report: ${url}`);
+        seen.add(url);
+      }
+      if (url !== null && file !== null) reports.push({ url, path: file });
+    });
+  }
+
+  let perfPolicy: PerfPolicy | undefined;
+  const rawPolicy = value['perfPolicy'];
+  if (!absent(rawPolicy)) {
+    if (!isNode(rawPolicy)) fail('.perfPolicy', 'expected a mapping');
+    else {
+      const path = '.perfPolicy';
+      for (const key of Object.keys(rawPolicy)) if (!PERF_POLICY_KEYS.includes(key)) fail(`${path}.${key}`, 'unknown field');
+      const testProfile = text(rawPolicy, path, 'testProfile');
+      const owner = text(rawPolicy, path, 'owner');
+      const revisionText = text(rawPolicy, path, 'revision');
+      let revision: string | null = null;
+      if (revisionText !== null) {
+        const ms = instant(revisionText);
+        if (ms === null) fail(`${path}.revision`, `not a date and time: ${revisionText}`);
+        else revision = new Date(ms).toISOString();
+      }
+      const thresholds: { lcpMs?: number; cls?: number; tbtMs?: number } = {};
+      const rawThresholds = rawPolicy['thresholds'];
+      if (absent(rawThresholds)) fail(`${path}.thresholds`, 'required');
+      else if (!isNode(rawThresholds)) fail(`${path}.thresholds`, 'expected a mapping');
+      else {
+        for (const key of Object.keys(rawThresholds)) {
+          if (!PERF_THRESHOLD_KEYS.includes(key)) {
+            fail(`${path}.thresholds.${key}`, 'unknown field');
+            continue;
+          }
+          const n = rawThresholds[key];
+          if (typeof n !== 'number' || !Number.isFinite(n) || n <= 0) fail(`${path}.thresholds.${key}`, 'expected a number above 0');
+          else thresholds[key as keyof PerfThresholds] = n;
+        }
+        if (Object.keys(rawThresholds).length === 0) fail(`${path}.thresholds`, 'set at least one of lcpMs, cls, tbtMs');
+      }
+      if (testProfile !== null && owner !== null && revision !== null && Object.keys(thresholds).length > 0) {
+        perfPolicy = { thresholds, testProfile, owner, revision };
+      }
+    }
+  }
+  return ok ? { ...record, reports, ...(perfPolicy !== undefined ? { perfPolicy } : {}) } : null;
+}
+
 /**
  * Check a parsed inputs value's shape and return it typed. `undefined` and
  * `null` are no inputs. Throws `InputsError` listing every problem found:
@@ -1622,6 +1767,7 @@ export function parseInputs(value: unknown): AuditInputs {
     problems.push(`${path}: ${text}`);
   };
   const inputs: {
+    lighthouse?: LighthouseRecord;
     experiments?: readonly ExperimentRecord[];
     environments?: EnvironmentsRecord;
     ciGuard?: CiGuardRecord;
@@ -1637,6 +1783,10 @@ export function parseInputs(value: unknown): AuditInputs {
     bingWebmaster?: BingWebmasterRecord;
     aiBaseline?: AiBaselineRecord;
   } = {};
+  if (value['lighthouse'] !== undefined && value['lighthouse'] !== null) {
+    const lighthouse = parseLighthouse(value['lighthouse'], problem);
+    if (lighthouse !== null) inputs.lighthouse = lighthouse;
+  }
   if (value['aiBaseline'] !== undefined && value['aiBaseline'] !== null) {
     const aiBaseline = parseAiBaseline(value['aiBaseline'], problem);
     if (aiBaseline !== null) inputs.aiBaseline = aiBaseline;

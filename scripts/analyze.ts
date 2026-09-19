@@ -17,7 +17,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import { environmentOrigins, parseInputs, redirectMapUrls } from '@seo/core';
+import { environmentOrigins, loadLighthouseMetricsFor, parseInputs, redirectMapUrls } from '@seo/core';
 import type { AuditInputs, Corpus } from '@seo/core';
 import { CURRENT_CORPUS_VERSION, loadCorpus } from '@seo/corpus';
 import { crawl } from '@seo/crawler';
@@ -170,7 +170,7 @@ function parseArgs(argv: readonly string[]): Args {
       case '--out': out = next(); break;
       case '--no-save': save = false; break;
       case '--baseline': baseline = JSON.parse(readFileSync(next(), 'utf8')) as Snapshot; break;
-      case '--inputs': inputs = parseInputs(parseYaml(readFileSync(next(), 'utf8'))); break;
+      case '--inputs': { const file = next(); inputs = loadLighthouseMetricsFor(parseInputs(parseYaml(readFileSync(file, 'utf8'))), file); break; }
       case '--file': {
         const text = readFileSync(next(), 'utf8');
         for (const line of text.split(/\r?\n/)) {

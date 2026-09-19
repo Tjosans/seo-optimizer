@@ -270,3 +270,24 @@ reporting:
       disposition: seasonal dip, no action; recheck next week
   owner: Jane Doe
   recordedAt: 2026-09-01T09:00:00Z
+
+# lighthouse (1.5, 4.5): Lighthouse JSON reports, one per URL, by file path
+# (relative to this file). The engine reduces each to LCP, CLS, TBT, the LCP
+# element with its loading attributes, the run time and the form factor.
+# perfPolicy is the budget: thresholds (any of lcpMs, cls, tbtMs, each above
+# 0), the testProfile reports must have run under (mobile or desktop), who
+# owns it, and its revision (a report older than this predates the policy).
+lighthouse:
+  reports:
+    - url: https://example.com/
+      path: lighthouse/home.json
+  perfPolicy:
+    thresholds:
+      lcpMs: 2500
+      cls: 0.1
+      tbtMs: 200
+    testProfile: mobile
+    owner: Jane Doe
+    revision: 2026-08-01T00:00:00Z
+  owner: Jane Doe
+  recordedAt: 2026-09-01T09:00:00Z

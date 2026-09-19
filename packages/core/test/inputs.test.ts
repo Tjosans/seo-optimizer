@@ -441,3 +441,21 @@ describe('contentDecisions', () => {
     expect(() => parseInputs({ contentDecisions: [{ ...row, url: '/a' }] })).toThrow(/http\(s\) URL/);
   });
 });
+
+describe('aiBaseline', () => {
+  const report = { report: 'SC AI', metric: 'impressions', scope: 'Google', period: '2026-09-01/2026-09-30', availableFrom: '2026-08-31' };
+  const base = { owner: 'Jane', recordedAt: '2026-10-01T09:00:00Z', reports: [report] };
+  const run = (patch: object) => () => parseInputs({ aiBaseline: { ...base, ...patch } });
+
+  it('reads reports', () => {
+    expect(parseInputs({ aiBaseline: base }).aiBaseline?.reports[0]?.availableFrom).toBe('2026-08-31T00:00:00.000Z');
+  });
+
+  it('refuses what a baseline would not hold', () => {
+    expect(run({ reports: undefined })).toThrow(/aiBaseline\.reports: required/);
+    expect(run({ reports: [{ ...report, availableFrom: 'soon' }] })).toThrow(/availableFrom: not a date/);
+    expect(run({ reports: [{ ...report, metric: 3 }] })).toThrow(/metric: expected text/);
+    expect(run({ reports: [report, report] })).toThrow(/duplicate row/);
+    expect(run({ reports: [{ ...report, extra: 1 }] })).toThrow(/extra: unknown field/);
+  });
+});

@@ -218,6 +218,20 @@ bingWebmaster:
   owner: Jane Doe
   recordedAt: 2026-09-01T09:00:00Z
 
+# aiBaseline (6.4): the AI visibility reports a baseline is drawn from, one row
+# each. scope names the engine the number speaks for (one engine per row);
+# period is the date range as exported; availableFrom is the date the tool began
+# recording the report, so a period starting earlier is invented history.
+aiBaseline:
+  reports:
+    - report: Search Console AI performance
+      metric: impressions
+      scope: Google
+      period: 2026-09-01/2026-09-30
+      availableFrom: 2026-08-31
+  owner: Jane Doe
+  recordedAt: 2026-10-01T09:00:00Z
+
 # contentDecisions (7.2): what was decided for each URL whose clicks fell, one
 # row per url (an http(s) address). decision is free text (refresh, merge,
 # redirect, retire, keep); decidedAt is when it was made.

@@ -1810,7 +1810,46 @@ export const bingOnboarding: SiteProbe = {
   },
 };
 
+const AI_ENGINE_NAMES = /\b(google|gemini|bing|copilot|chatgpt|openai|perplexity|claude|anthropic|meta ai|grok)\b/gi;
+const COMBINED_WORDS = /\b(combined|blended|composite|aggregate[d]?|unified|all engines|all ai|cross-engine|overall|total)\b|\bscore\b/i;
+const PERIOD_START = /^\s*(\d{4}-\d{2}-\d{2})\s*(?:\/|to\b|–|--?|$)/;
+
+export const aiVisibilityBaseline: SiteProbe = {
+  id: 'ai-visibility-baseline',
+  scope: 'site',
+  title: 'The AI visibility baseline is per engine and claims no history its tools did not record',
+  run({ crawl, inputs }) {
+    const record = inputs?.aiBaseline;
+    if (record === undefined) return notApplicable('No AI visibility baseline was supplied.');
+
+    const invented: string[] = [];
+    const combined: string[] = [];
+    const unreadable: string[] = [];
+    for (const row of record.reports) {
+      const start = PERIOD_START.exec(row.period)?.[1];
+      const startMs = start === undefined ? Number.NaN : Date.parse(`${start}T00:00:00Z`);
+      if (Number.isNaN(startMs)) unreadable.push(row.report);
+      else if (startMs < Date.parse(`${row.availableFrom.slice(0, 10)}T00:00:00Z`)) {
+        invented.push(`${row.report} (${row.period} starts before ${row.availableFrom.slice(0, 10)})`);
+      }
+      const engines = new Set((row.scope.match(AI_ENGINE_NAMES) ?? []).map((name) => name.toLowerCase()));
+      if (COMBINED_WORDS.test(row.metric) || COMBINED_WORDS.test(row.scope) || engines.size > 1) combined.push(row.report);
+    }
+    const data = { reports: record.reports.length, invented: invented.slice(0, 10), combined: combined.slice(0, 10), unreadable: unreadable.slice(0, 10) };
+
+    if (invented.length > 0) return fail(`${invented.length} report(s) claim history before the tool recorded it: ${invented.slice(0, 3).join('; ')}.`, data);
+    if (combined.length > 0) return fail(`${combined.length} report(s) combine engines into one score: ${combined.slice(0, 3).join(', ')}.`, data);
+    if (record.reports.length === 0) return warn('The AI visibility baseline lists no reports.', data);
+    if (unreadable.length > 0) return warn(`The period of ${unreadable.length} report(s) is not a date range, so its history cannot be checked: ${unreadable.slice(0, 3).join(', ')}.`, data);
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) return warn(`The AI visibility baseline is held for review (${problem}).`, data);
+    return pass(`All ${record.reports.length} baseline report(s) are per engine and start no earlier than their tool recorded.`, data);
+  },
+};
+
 export const siteProbes = [
+  aiVisibilityBaseline,
   bingOnboarding,
   backlinkMonitor,
   reportingAnomalyThresholds,

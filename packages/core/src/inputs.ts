@@ -427,8 +427,29 @@ export interface BingWebmasterRecord extends InputRecord {
   readonly aiCitations?: readonly BingWebmasterAiCitation[];
 }
 
+/** One AI visibility report a baseline is drawn from (6.4). */
+export interface AiBaselineReport {
+  /** The report's name as its tool titles it. */
+  readonly report: string;
+  /** What it measures: `citations`, `mentions`, `share of answers`… */
+  readonly metric: string;
+  /** The engine or engines the number speaks for. */
+  readonly scope: string;
+  /** The date range it covers, as exported: `2026-06-01/2026-08-31`. */
+  readonly period: string;
+  /** ISO 8601 instant the tool began recording this report. */
+  readonly availableFrom: string;
+}
+
+/** The AI visibility baseline: one row per report, each with its own history limit. */
+export interface AiBaselineRecord extends InputRecord {
+  readonly reports: readonly AiBaselineReport[];
+}
+
 /** Every section an audit can be given. */
 export interface AuditInputs {
+  /** The AI visibility baseline: reports, metrics, scopes, periods (6.4). */
+  readonly aiBaseline?: AiBaselineRecord;
   /** Bing Webmaster Tools exports: property, sitemaps, AI citations. */
   readonly bingWebmaster?: BingWebmasterRecord;
   /** The disavow submission, its reasons and removal attempts (6.8). */
@@ -458,7 +479,7 @@ export interface AuditInputs {
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -1527,6 +1548,64 @@ function parseBingWebmaster(value: unknown, problem: (path: string, text: string
   return ok ? { ...record, ...out } : null;
 }
 
+const AI_BASELINE_KEYS = ['reports'];
+const AI_BASELINE_REPORT_KEYS = ['report', 'metric', 'scope', 'period', 'availableFrom'];
+
+function parseAiBaseline(value: unknown, problem: (path: string, text: string) => void): AiBaselineRecord | null {
+  const record = parseInputRecord('aiBaseline', value, problem, AI_BASELINE_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`aiBaseline${path}`, text);
+    ok = false;
+  };
+  const raw = value['reports'];
+  if (raw === undefined || raw === null || raw === '') {
+    fail('.reports', 'required');
+    return null;
+  }
+  if (!Array.isArray(raw)) {
+    fail('.reports', 'expected a list');
+    return null;
+  }
+  const reports: AiBaselineReport[] = [];
+  const seen = new Set<string>();
+  raw.forEach((node, index) => {
+    const path = `.reports[${index}]`;
+    if (!isNode(node)) {
+      fail(path, 'expected a mapping');
+      return;
+    }
+    for (const key of Object.keys(node)) if (!AI_BASELINE_REPORT_KEYS.includes(key)) fail(`${path}.${key}`, 'unknown field');
+    const text = (key: string): string | null => {
+      const v = node[key];
+      if (typeof v === 'string' && v.trim() !== '') return v.trim();
+      fail(`${path}.${key}`, v === undefined || v === null || v === '' ? 'required' : `expected text, got ${typeof v} (quote it)`);
+      return null;
+    };
+    const report = text('report');
+    const metric = text('metric');
+    const scope = text('scope');
+    const period = text('period');
+    const from = text('availableFrom');
+    let availableFrom: string | null = null;
+    if (from !== null) {
+      const ms = instant(from);
+      if (ms === null) fail(`${path}.availableFrom`, `not a date: ${from}`);
+      else availableFrom = new Date(ms).toISOString();
+    }
+    if (report !== null && metric !== null && scope !== null && period !== null) {
+      const key = `${report}\n${metric}\n${scope}\n${period}`;
+      if (seen.has(key)) fail(`${path}.report`, `duplicate row: ${report}`);
+      seen.add(key);
+    }
+    if (report !== null && metric !== null && scope !== null && period !== null && availableFrom !== null) {
+      reports.push({ report, metric, scope, period, availableFrom });
+    }
+  });
+  return ok ? { ...record, reports } : null;
+}
+
 /**
  * Check a parsed inputs value's shape and return it typed. `undefined` and
  * `null` are no inputs. Throws `InputsError` listing every problem found:
@@ -1556,7 +1635,12 @@ export function parseInputs(value: unknown): AuditInputs {
     reporting?: ReportingRecord;
     disavow?: DisavowRecord;
     bingWebmaster?: BingWebmasterRecord;
+    aiBaseline?: AiBaselineRecord;
   } = {};
+  if (value['aiBaseline'] !== undefined && value['aiBaseline'] !== null) {
+    const aiBaseline = parseAiBaseline(value['aiBaseline'], problem);
+    if (aiBaseline !== null) inputs.aiBaseline = aiBaseline;
+  }
   if (value['bingWebmaster'] !== undefined && value['bingWebmaster'] !== null) {
     const bingWebmaster = parseBingWebmaster(value['bingWebmaster'], problem);
     if (bingWebmaster !== null) inputs.bingWebmaster = bingWebmaster;

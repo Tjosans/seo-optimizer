@@ -52,7 +52,7 @@
  * a worker has to be named for one to survive a restart.
  */
 
-import { and, eq, inArray, lt, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { parseAiCrawlerPolicy, parseInputs } from '@seo/core';
 import type { CrawlOptions } from '@seo/crawler';
 import { audits, sites } from '@seo/db';
@@ -150,7 +150,8 @@ export class AuditScheduler {
   readonly #store: JobStore<AuditJob> | undefined;
   readonly #blobStore: BlobStore | undefined;
   /**
-   * When this process took the queue over, read from the database clock.
+   * When this process took the queue over, read from the database clock and
+   * kept exactly as Postgres wrote it.
    *
    * `reconcile` looks no later than this, so an audit submitted while the sweep
    * runs cannot be mistaken for an abandoned one — nothing this process
@@ -158,8 +159,17 @@ export class AuditScheduler {
    * clock as `audits.createdAt`: comparing a Postgres timestamp against this
    * process's own `new Date()` makes the sweep's correctness depend on two
    * machines agreeing about the time, and they do not.
+   *
+   * Text, not a `Date`, and that is not a detail. `timestamptz` keeps
+   * microseconds and a `Date` keeps milliseconds, so parsing the cutoff into
+   * one truncates it downwards — and `created_at < cutoff` then skips every row
+   * written in that same millisecond with a larger remainder. Those rows are
+   * genuinely older than the cutoff and are exactly what the sweep exists to
+   * close out. On a machine fast enough to submit and recover inside one
+   * millisecond, which CI is and a developer's laptop often is not, they stay
+   * `pending` forever.
    */
-  #cutoff: Date | null = null;
+  #cutoff: string | null = null;
 
   constructor(options: AuditSchedulerOptions) {
     this.#db = options.db;
@@ -386,7 +396,7 @@ export class AuditScheduler {
       .where(
         and(
           inArray(audits.status, ['pending', 'running']),
-          lt(audits.createdAt, cutoff),
+          sql`${audits.createdAt} < ${cutoff}::timestamptz`,
           ...(options.siteIds === undefined
             ? []
             : [inArray(audits.siteId, [...options.siteIds])]),
@@ -426,6 +436,15 @@ export class AuditScheduler {
         .where(eq(audits.id, auditId));
     }
     return true;
+  }
+
+  /**
+   * The line `reconcile` draws, as Postgres wrote it, or null before
+   * `recover()` has read it. An audit row older than this was another
+   * process's to finish; one newer is this process's own.
+   */
+  get cutoff(): string | null {
+    return this.#cutoff;
   }
 
   /**
@@ -492,12 +511,13 @@ export class AuditScheduler {
    * Every timestamp `reconcile` compares against was written by Postgres, so
    * the boundary has to be Postgres's too.
    */
-  async #databaseNow(): Promise<Date> {
-    const rows = (await this.#db.execute(sql`select now() as now`)) as unknown as readonly {
-      readonly now: Date;
+  async #databaseNow(): Promise<string> {
+    const rows = (await this.#db.execute(sql`select now()::text as now`)) as unknown as readonly {
+      readonly now: string;
     }[];
     const now = rows[0]?.now;
-    return now instanceof Date ? now : new Date();
+    // `::text` keeps the microseconds a `Date` would drop; see `#cutoff`.
+    return typeof now === 'string' ? now : new Date().toISOString();
   }
 
   #optionsFor(origin: string, request: AuditRequest): CrawlOptions {

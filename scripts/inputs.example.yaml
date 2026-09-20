@@ -334,6 +334,18 @@ contentReview:
     reviewedAt: 2026-09-10T09:00:00Z
     verdict: helpful
 
+# brandEntity (0.5): how the organisation names itself. legalName and
+# publicName are text; sameAs lists the profiles it stands behind (http(s)
+# URLs). An Organization sameAs in the markup that is not listed here, or a
+# name matching neither, fails; a listed profile missing from the markup holds.
+brandEntity:
+  legalName: Example Holdings AB
+  publicName: Example
+  sameAs:
+    - https://www.linkedin.com/company/example
+  owner: Jane Doe
+  recordedAt: 2026-09-10T09:00:00Z
+
 # a11yEvaluation (4.4): the manual accessibility evaluation. scope says what was
 # covered; methods (at least one) and limitations are lists of text. blockers
 # are barriers found, each with its WCAG criterion, URL and whether it is

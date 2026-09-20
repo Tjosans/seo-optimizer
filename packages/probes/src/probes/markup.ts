@@ -8,7 +8,7 @@
  */
 
 import { inputRecordProblem } from '@seo/core';
-import { isSameSite } from '@seo/crawler';
+import { isSameSite, normalizeUrl } from '@seo/crawler';
 import type { CrawledPage } from '@seo/crawler';
 import type { PageProbe, SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
@@ -873,6 +873,100 @@ export const schemaValidationParity: PageProbe = {
   },
 };
 
+// --- 0.5 brand-entity-consistency ------------------------------------------
+
+/** A profile address compared the way a person would: scheme, `www.` and a trailing slash do not tell two profiles apart. */
+const profileKey = (raw: string): string => {
+  const url = normalizeUrl(raw) ?? raw.trim();
+  return url.replace(/^https?:\/\/(?:www\.)?/i, '').replace(/\/+$/, '').toLowerCase();
+};
+
+/** `sameAs` as JSON-LD ships it: one string or a list of them. */
+const sameAsOf = (node: Record<string, unknown>): string[] => {
+  const raw = node['sameAs'];
+  const list = Array.isArray(raw) ? raw : [raw];
+  return list.flatMap((item) => (cleanText(item) === null ? [] : [cleanText(item)!]));
+};
+
+/**
+ * 0.5 asks that the organisation's identity be governed: one entity, named the
+ * same way everywhere, pointing at profiles it stands behind. Which names and
+ * profiles those are is the person's to say (`brandEntity`: legal name, public
+ * name, `sameAs`); the markup is what a crawl can hold against it. Fails an
+ * Organization `sameAs` the record does not list — an identity link nobody
+ * approved — and an Organization name matching neither record name. A
+ * `LocalBusiness` is a branch and may carry its own name, so its name is not
+ * judged, though its `sameAs` is. Warns a record `sameAs` no Organization
+ * markup carries, and a record nobody answers for or past its review.
+ * `assisted`: whether the profiles are the right ones stays a person's.
+ */
+export const brandEntityConsistency: SiteProbe = {
+  id: 'brand-entity-consistency',
+  scope: 'site',
+  title: 'Organization markup names the brand and profiles the brand record lists, and the record\'s profiles appear',
+  run({ crawl, inputs }) {
+    const record = inputs?.brandEntity;
+    if (record === undefined) return notApplicable('No brand entity record was supplied.');
+
+    const listed = new Map(record.sameAs.map((url) => [profileKey(url), url]));
+    const names = new Set([foldName(record.legalName), foldName(record.publicName)]);
+    const seen = new Set<string>();
+    const unlisted = new Map<string, string>();
+    const wrongNames = new Map<string, string>();
+    let organizations = 0;
+
+    for (const page of crawl.pages) {
+      const extracted = page.extracted;
+      if (extracted === null) continue;
+      for (const node of jsonLdNodes(extracted.jsonLd)) {
+        const types = typesOf(node).map(bareType);
+        if (!types.some((type) => ORGANIZATION_TYPES.has(type))) continue;
+        organizations += 1;
+        for (const url of sameAsOf(node)) {
+          const key = profileKey(url);
+          seen.add(key);
+          if (!listed.has(key) && !unlisted.has(url)) unlisted.set(url, page.normalizedUrl);
+        }
+        const name = cleanText(node['name']);
+        if (name !== null && !types.every((type) => type === 'LocalBusiness') && !names.has(foldName(name)) && !wrongNames.has(name)) {
+          wrongNames.set(name, page.normalizedUrl);
+        }
+      }
+    }
+
+    const absent = [...listed.entries()].filter(([key]) => !seen.has(key)).map(([, url]) => url);
+    const data = {
+      organizations,
+      unlisted: [...unlisted.entries()].slice(0, 10).map(([sameAs, url]) => ({ sameAs, url })),
+      wrongNames: [...wrongNames.entries()].slice(0, 10).map(([name, url]) => ({ name, url })),
+      absent: absent.slice(0, 10),
+    };
+
+    const failures: string[] = [];
+    if (unlisted.size > 0) failures.push(`Organization sameAs the brand record does not list: ${[...unlisted.keys()].slice(0, 3).join(', ')}`);
+    if (wrongNames.size > 0) failures.push(`Organization name matching neither the legal nor the public name: ${[...wrongNames.keys()].slice(0, 3).join(', ')}`);
+    if (failures.length > 0) return fail(`${failures.join('; ')}.`, data);
+
+    const held: string[] = [];
+    if (absent.length > 0) {
+      held.push(
+        organizations === 0
+          ? `no Organization markup was crawled, so none of the ${absent.length} listed profile(s) appears`
+          : `listed profile(s) no Organization markup carries: ${absent.slice(0, 3).join(', ')}`,
+      );
+    }
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'the brand record has no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) held.push(problem);
+    if (held.length > 0) return warn(`The brand entity is not settled: ${held.join('; ')}.`, data);
+
+    return pass(
+      `${organizations} Organization node(s) use the recorded names and list only recorded profiles, and every recorded profile appears. A person still confirms the profiles are the right ones.`,
+      data,
+    );
+  },
+};
+
 export const markupProbes = [
   schemaValidationParity,
   semanticHtml,
@@ -887,4 +981,5 @@ export const markupProbes = [
   liveAnalyticsSmoke,
   reviewIntegrity,
   ugcGovernance,
+  brandEntityConsistency,
 ];

@@ -398,6 +398,18 @@ export interface A11yEvaluationRecord extends InputRecord {
   readonly conformanceClaim: string;
 }
 
+/**
+ * How the organisation names itself (0.5): its legal name, the name it trades
+ * under, and the profiles it stands behind (`sameAs`, absolute http(s) URLs).
+ * A person answers for it; markup that names another entity is measured
+ * against it.
+ */
+export interface BrandEntityRecord extends InputRecord {
+  readonly legalName: string;
+  readonly publicName: string;
+  readonly sameAs: readonly string[];
+}
+
 /** The search engines a Search Console export can speak for. */
 export const REPORTING_MEASURED_ENGINES = ['google'] as const;
 
@@ -737,12 +749,14 @@ export interface AuditInputs {
   readonly contentReview?: readonly ContentReview[];
   /** The checkout cases tested by hand (4.10). */
   readonly checkoutMatrix?: CheckoutMatrixRecord;
+  /** The brand's legal and public names and the profiles it stands behind (0.5). */
+  readonly brandEntity?: BrandEntityRecord;
   /** The manual accessibility evaluation: scope, methods, limitations, blockers, conformance claim (4.4). */
   readonly a11yEvaluation?: A11yEvaluationRecord;
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics', 'serverLogs', 'merchantFeed', 'checkoutMatrix', 'a11yEvaluation', 'contentReview'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics', 'serverLogs', 'merchantFeed', 'checkoutMatrix', 'a11yEvaluation', 'contentReview', 'brandEntity'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -1538,6 +1552,40 @@ function parseA11yEvaluation(value: unknown, problem: (path: string, text: strin
   if (!missing(claimRaw) && typeof claimRaw !== 'string') fail('.conformanceClaim', `expected text, got ${typeof claimRaw} (quote it)`);
   if (!ok || scope === null) return null;
   return { ...record, scope, methods, limitations, blockers, conformanceClaim: typeof claimRaw === 'string' ? claimRaw.trim() : '' };
+}
+
+const BRAND_ENTITY_KEYS = ['legalName', 'publicName', 'sameAs'];
+
+function parseBrandEntity(value: unknown, problem: (path: string, text: string) => void): BrandEntityRecord | null {
+  const record = parseInputRecord('brandEntity', value, problem, BRAND_ENTITY_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`brandEntity${path}`, text);
+    ok = false;
+  };
+  const missing = (raw: unknown): boolean => raw === undefined || raw === null || raw === '';
+  const name = (key: 'legalName' | 'publicName'): string | null => {
+    const raw = value[key];
+    if (typeof raw === 'string' && raw.trim() !== '') return raw.trim();
+    fail(`.${key}`, missing(raw) ? 'required' : `expected text, got ${typeof raw} (quote it)`);
+    return null;
+  };
+  const legalName = name('legalName');
+  const publicName = name('publicName');
+  const sameAs: string[] = [];
+  const raw = value['sameAs'];
+  if (!Array.isArray(raw)) {
+    fail('.sameAs', missing(raw) ? 'required' : 'expected a list');
+  } else {
+    raw.forEach((item, index) => {
+      if (typeof item !== 'string' || item.trim() === '') fail(`.sameAs[${index}]`, 'expected text');
+      else if (!isHttpUrl(item.trim())) fail(`.sameAs[${index}]`, `expected an http(s) URL: ${item}`);
+      else sameAs.push(item.trim());
+    });
+  }
+  if (!ok || legalName === null || publicName === null) return null;
+  return { ...record, legalName, publicName, sameAs };
 }
 
 const DISAVOW_KEYS =['submitted', 'reasons', 'removalAttempts'];
@@ -2420,7 +2468,12 @@ export function parseInputs(value: unknown): AuditInputs {
     checkoutMatrix?: CheckoutMatrixRecord;
     a11yEvaluation?: A11yEvaluationRecord;
     contentReview?: readonly ContentReview[];
+    brandEntity?: BrandEntityRecord;
   } = {};
+  if (value['brandEntity'] !== undefined && value['brandEntity'] !== null) {
+    const brandEntity = parseBrandEntity(value['brandEntity'], problem);
+    if (brandEntity !== null) inputs.brandEntity = brandEntity;
+  }
   if (value['contentReview'] !== undefined && value['contentReview'] !== null) {
     const contentReview = parseContentReview(value['contentReview'], problem);
     if (contentReview !== null) inputs.contentReview = contentReview;

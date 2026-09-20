@@ -578,6 +578,8 @@ export interface AnalyticsReconciliation {
   readonly period: string;
   readonly sourceA: AnalyticsSourceFigure;
   readonly sourceB: AnalyticsSourceFigure;
+  /** Why the two figures differ, in the owner's words (sampling, bot filtering, consent loss…). */
+  readonly explanation?: string;
 }
 
 /** How analytics is set up (measurement IDs, consent default, event plan) and what its numbers were reconciled against. */
@@ -1756,7 +1758,7 @@ function parseAiBaseline(value: unknown, problem: (path: string, text: string) =
 
 const ANALYTICS_KEYS = ['measurementIds', 'consentDefault', 'events', 'reported'];
 const ANALYTICS_EVENT_KEYS = ['name', 'trigger', 'expect'];
-const ANALYTICS_REPORTED_KEYS = ['metric', 'period', 'sourceA', 'sourceB'];
+const ANALYTICS_REPORTED_KEYS = ['metric', 'period', 'sourceA', 'sourceB', 'explanation'];
 const ANALYTICS_FIGURE_KEYS = ['name', 'value'];
 
 function parseAnalytics(value: unknown, problem: (path: string, text: string) => void): AnalyticsRecord | null {
@@ -1872,7 +1874,15 @@ function parseAnalytics(value: unknown, problem: (path: string, text: string) =>
         if (seen.has(key)) fail(`${path}.metric`, `duplicate row: ${metric} ${period}`);
         seen.add(key);
       }
-      if (metric !== null && period !== null && sourceA !== null && sourceB !== null) reported.push({ metric, period, sourceA, sourceB });
+      let explanation: string | undefined;
+      const rawExplanation = node['explanation'];
+      if (!absent(rawExplanation)) {
+        if (typeof rawExplanation === 'string' && rawExplanation.trim() !== '') explanation = rawExplanation.trim();
+        else fail(`${path}.explanation`, `expected text, got ${typeof rawExplanation} (quote it)`);
+      }
+      if (metric !== null && period !== null && sourceA !== null && sourceB !== null) {
+        reported.push({ metric, period, sourceA, sourceB, ...(explanation === undefined ? {} : { explanation }) });
+      }
     });
   }
   return ok && consentDefault !== null ? { ...record, measurementIds, consentDefault, events, reported } : null;

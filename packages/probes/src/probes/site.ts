@@ -1848,7 +1848,49 @@ export const aiVisibilityBaseline: SiteProbe = {
   },
 };
 
+const RECONCILIATION_FAIL_GAP = 0.1;
+const RECONCILIATION_WARN_GAP = 0.05;
+
+/** The gap between two figures as a share of the larger one; 0 when both are 0. */
+function figureGap(a: number, b: number): number {
+  const larger = Math.max(a, b);
+  return larger === 0 ? 0 : Math.abs(a - b) / larger;
+}
+
+export const analyticsReconciliation: SiteProbe = {
+  id: 'analytics-reconciliation',
+  scope: 'site',
+  title: 'Analytics figures agree with a second source, or the gap is explained',
+  run({ crawl, inputs }) {
+    const record = inputs?.analytics;
+    if (record === undefined || record.reported.length === 0) return notApplicable('No reported analytics figures were supplied to reconcile.');
+
+    const describe = (row: (typeof record.reported)[number], gap: number): string =>
+      `${row.metric} ${row.period}: ${row.sourceA.name} ${row.sourceA.value} vs ${row.sourceB.name} ${row.sourceB.value} (${(gap * 100).toFixed(1)}% apart)`;
+    const unexplained: string[] = [];
+    const drifting: string[] = [];
+    for (const row of record.reported) {
+      const gap = figureGap(row.sourceA.value, row.sourceB.value);
+      if (gap > RECONCILIATION_FAIL_GAP && row.explanation === undefined) unexplained.push(describe(row, gap));
+      else if (gap > RECONCILIATION_WARN_GAP) drifting.push(describe(row, gap));
+    }
+    const data = { pairs: record.reported.length, unexplained: unexplained.slice(0, 10), drifting: drifting.slice(0, 10) };
+
+    if (unexplained.length > 0) {
+      return fail(`${unexplained.length} reported pair(s) are more than 10% apart with no explanation: ${unexplained.slice(0, 3).join('; ')}.`, data);
+    }
+    if (drifting.length > 0) {
+      return warn(`${drifting.length} reported pair(s) are more than 5% apart: ${drifting.slice(0, 3).join('; ')}.`, data);
+    }
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) return warn(`The analytics record is held for review (${problem}).`, data);
+    return pass(`All ${record.reported.length} reported pair(s) agree within 5%.`, data);
+  },
+};
+
 export const siteProbes = [
+  analyticsReconciliation,
   aiVisibilityBaseline,
   bingOnboarding,
   backlinkMonitor,

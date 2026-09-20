@@ -166,7 +166,7 @@ Every v5.0 detector not yet implemented has its own line below, preceded by the 
   - NOTE: iteration 3 (completed) failed its tests and was stashed as 'roadmap-runner iteration 3 (20260920-045509): Implement detector `template-lab-perf` (4.5, a launch gate, ...' (see git stash list).
   - NOTE: iteration 2 (completed) failed its tests and was stashed as 'roadmap-runner iteration 2 (20260920-045509): Implement detector `template-lab-perf` (4.5, a launch gate, ...' (see git stash list).
   - NOTE: iteration 1 (completed) failed its tests and was stashed as 'roadmap-runner iteration 1 (20260920-045509): Implement detector `template-lab-perf` (4.5, a launch gate, ...' (see git stash list).
-- [ ] Add the `crux` input section: a CrUX API response per origin or URL (p75 LCP, INP, CLS, form factor, collection period), stored verbatim and reduced to what grading needs, strict, with an example
+- [!] Add the `crux` input section: a CrUX API response per origin or URL (p75 LCP, INP, CLS, form factor, collection period), stored verbatim and reduced to what grading needs, strict, with an example  <!-- BLOCKED by runner after 3 attempts -->
   - NOTE: iteration 6 (completed) failed its tests and was stashed as 'roadmap-runner iteration 6 (20260920-045509): Add the `crux` input section: a CrUX API response per origin...' (see git stash list).
   - NOTE: iteration 5 (completed) failed its tests and was stashed as 'roadmap-runner iteration 5 (20260920-045509): Add the `crux` input section: a CrUX API response per origin...' (see git stash list).
   - NOTE: iteration 4 (completed) failed its tests and was stashed as 'roadmap-runner iteration 4 (20260920-045509): Add the `crux` input section: a CrUX API response per origin...' (see git stash list).

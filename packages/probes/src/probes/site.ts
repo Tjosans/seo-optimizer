@@ -2077,7 +2077,55 @@ export const indexnowIntegration: SiteProbe = {
   },
 };
 
+const DAY_MS = 86_400_000;
+
+/**
+ * 7.1 asks whether incidents have an owner and a fix and whether alerting is
+ * still proven to work. The incident log and the test-alert interval are
+ * supplied (`incidents`); the last test alert is read from `canary`. Fails an
+ * incident with no owner or remediation, and a test alert older than the
+ * interval, measured at the crawl's time. No test alert on record holds the
+ * check. Without the section, `not-applicable`.
+ */
+export const monitoringIncidentSla: SiteProbe = {
+  id: 'monitoring-incident-sla',
+  scope: 'site',
+  title: 'Every incident has an owner and a remediation, and the last test alert is within its interval',
+  run({ crawl, inputs }) {
+    const record = inputs?.incidents;
+    if (record === undefined) return notApplicable('No incidents record was supplied.');
+
+    const at = crawl.crawledAt ?? null;
+    const unowned = record.entries.filter((entry) => entry.owner === '').map((entry) => entry.openedAt);
+    const unremediated = record.entries.filter((entry) => entry.remediation === '').map((entry) => entry.openedAt);
+    const lastTest = inputs?.canary?.lastTestAlertAt ?? null;
+    const ageDays = lastTest === null || at === null ? null : (Date.parse(at) - Date.parse(lastTest)) / DAY_MS;
+    const stale = ageDays !== null && ageDays > record.testAlertIntervalDays;
+
+    const data = {
+      incidents: record.entries.length,
+      open: record.entries.filter((entry) => entry.closedAt === undefined).length,
+      unowned: unowned.slice(0, 10),
+      unremediated: unremediated.slice(0, 10),
+      testAlertIntervalDays: record.testAlertIntervalDays,
+      lastTestAlertAt: lastTest,
+      testAlertAgeDays: ageDays === null ? null : Math.floor(ageDays),
+    };
+    const failures: string[] = [];
+    if (unowned.length > 0) failures.push(`${unowned.length} incident(s) have no owner (opened ${unowned.slice(0, 3).join(', ')})`);
+    if (unremediated.length > 0) failures.push(`${unremediated.length} incident(s) have no remediation (opened ${unremediated.slice(0, 3).join(', ')})`);
+    if (stale) failures.push(`The last test alert (${lastTest}) is ${Math.floor(ageDays)} days old, past the ${record.testAlertIntervalDays}-day interval`);
+    if (failures.length > 0) return fail(`${failures.join('; ')}.`, data);
+    if (lastTest === null) return warn('No test alert is on record (canary.lastTestAlertAt), so alerting is unproven.', data);
+
+    const problem = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) return warn(`The incidents record is held for review (${problem}).`, data);
+    return pass(`${record.entries.length} incident(s) all have an owner and a remediation, and the last test alert is within ${record.testAlertIntervalDays} days.`, data);
+  },
+};
+
 export const siteProbes = [
+  monitoringIncidentSla,
   indexnowIntegration,
   logFileAnalysis,
   analyticsReconciliation,

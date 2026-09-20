@@ -458,6 +458,29 @@ export interface BusinessProfileRecord extends InputRecord {
   readonly locations: readonly BusinessProfileLocation[];
 }
 
+/**
+ * One production incident (7.1). `owner` and `remediation` are kept as text
+ * even when blank: an incident nobody owns is the finding, not a bad file.
+ */
+export interface IncidentEntry {
+  /** ISO 8601 instant. */
+  readonly openedAt: string;
+  readonly owner: string;
+  readonly remediation: string;
+  /** ISO 8601 instant; absent while the incident is open. */
+  readonly closedAt?: string;
+}
+
+/**
+ * The incident log and the cadence of alert tests (7.1). `testAlertIntervalDays`
+ * is how often the site says it proves its alerting works; `canary.lastTestAlertAt`
+ * is measured against it.
+ */
+export interface IncidentsRecord extends InputRecord {
+  readonly testAlertIntervalDays: number;
+  readonly entries: readonly IncidentEntry[];
+}
+
 /** One IndexNow submission the site's publishing pipeline made (2.10). */
 export interface IndexNowSubmission {
   readonly url: string;
@@ -840,12 +863,14 @@ export interface AuditInputs {
   readonly businessProfile?: BusinessProfileRecord;
   /** The IndexNow key, its file location and the submission log (2.10). */
   readonly indexNow?: IndexNowRecord;
+  /** The incident log and how often alert tests must be run (7.1). */
+  readonly incidents?: IncidentsRecord;
   /** The manual accessibility evaluation: scope, methods, limitations, blockers, conformance claim (4.4). */
   readonly a11yEvaluation?: A11yEvaluationRecord;
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics', 'serverLogs', 'merchantFeed', 'checkoutMatrix', 'a11yEvaluation', 'contentReview', 'brandEntity', 'keywordMap', 'competitorBaseline', 'businessProfile', 'indexNow'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics', 'serverLogs', 'merchantFeed', 'checkoutMatrix', 'a11yEvaluation', 'contentReview', 'brandEntity', 'keywordMap', 'competitorBaseline', 'businessProfile', 'indexNow', 'incidents'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -1914,6 +1939,88 @@ function parseIndexNow(value: unknown, problem: (path: string, text: string) => 
   return { ...record, key, ...(keyLocation === undefined ? {} : { keyLocation }), log };
 }
 
+const INCIDENTS_KEYS = ['testAlertIntervalDays', 'entries'];
+const INCIDENT_ENTRY_KEYS = ['openedAt', 'owner', 'remediation', 'closedAt'];
+
+function parseIncidents(value: unknown, problem: (path: string, text: string) => void): IncidentsRecord | null {
+  const record = parseInputRecord('incidents', value, problem, INCIDENTS_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`incidents${path}`, text);
+    ok = false;
+  };
+  const missing = (raw: unknown): boolean => raw === undefined || raw === null || raw === '';
+  const interval = value['testAlertIntervalDays'];
+  if (typeof interval !== 'number' || !Number.isFinite(interval) || interval <= 0) {
+    fail('.testAlertIntervalDays', missing(interval) ? 'required' : 'expected a positive number of days');
+  }
+  const entries: IncidentEntry[] = [];
+  const raw = value['entries'];
+  if (!missing(raw)) {
+    if (!Array.isArray(raw)) fail('.entries', 'expected a list');
+    else {
+      raw.forEach((node, index) => {
+        const path = `.entries[${index}]`;
+        if (!isNode(node)) {
+          fail(path, 'expected a mapping');
+          return;
+        }
+        let good = true;
+        for (const field of Object.keys(node)) {
+          if (!INCIDENT_ENTRY_KEYS.includes(field)) {
+            fail(`${path}.${field}`, 'unknown field');
+            good = false;
+          }
+        }
+        const stamp = (key: 'openedAt' | 'closedAt', required: boolean): string => {
+          const at = node[key];
+          if (missing(at)) {
+            if (required) {
+              fail(`${path}.${key}`, 'required');
+              good = false;
+            }
+            return '';
+          }
+          if (typeof at !== 'string') {
+            fail(`${path}.${key}`, `expected text, got ${typeof at} (quote it)`);
+            good = false;
+            return '';
+          }
+          const ms = instant(at);
+          if (ms === null) {
+            fail(`${path}.${key}`, `not a date and time: ${at}`);
+            good = false;
+            return '';
+          }
+          return new Date(ms).toISOString();
+        };
+        const text = (key: 'owner' | 'remediation'): string => {
+          const at = node[key];
+          if (missing(at)) return '';
+          if (typeof at !== 'string') {
+            fail(`${path}.${key}`, `expected text, got ${typeof at} (quote it)`);
+            good = false;
+            return '';
+          }
+          return at.trim();
+        };
+        const openedAt = stamp('openedAt', true);
+        const closedAt = stamp('closedAt', false);
+        const owner = text('owner');
+        const remediation = text('remediation');
+        if (good && closedAt !== '' && closedAt < openedAt) {
+          fail(`${path}.closedAt`, 'closed before it was opened');
+          good = false;
+        }
+        if (good) entries.push({ openedAt, owner, remediation, ...(closedAt === '' ? {} : { closedAt }) });
+      });
+    }
+  }
+  if (!ok) return null;
+  return { ...record, testAlertIntervalDays: interval as number, entries };
+}
+
 const DISAVOW_KEYS =['submitted', 'reasons', 'removalAttempts'];
 
 function parseDisavow(value: unknown, problem: (path: string, text: string) => void): DisavowRecord | null {
@@ -2799,7 +2906,12 @@ export function parseInputs(value: unknown): AuditInputs {
     keywordMap?: readonly KeywordMapEntry[];
     businessProfile?: BusinessProfileRecord;
     indexNow?: IndexNowRecord;
+    incidents?: IncidentsRecord;
   } = {};
+  if (value['incidents'] !== undefined && value['incidents'] !== null) {
+    const incidents = parseIncidents(value['incidents'], problem);
+    if (incidents !== null) inputs.incidents = incidents;
+  }
   if (value['indexNow'] !== undefined && value['indexNow'] !== null) {
     const indexNow = parseIndexNow(value['indexNow'], problem);
     if (indexNow !== null) inputs.indexNow = indexNow;

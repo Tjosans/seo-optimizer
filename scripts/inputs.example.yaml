@@ -387,6 +387,19 @@ indexNow:
   owner: Jane Doe
   recordedAt: 2026-09-10T09:00:00Z
 
+# incidents (7.1): the incident log and how often alert tests must run.
+# An entry with no owner or remediation fails; so does canary.lastTestAlertAt
+# older than testAlertIntervalDays. closedAt is absent while it is open.
+incidents:
+  testAlertIntervalDays: 30
+  entries:
+    - openedAt: 2026-09-01T09:00:00Z
+      owner: Sam Lee
+      remediation: Rolled back the release
+      closedAt: 2026-09-01T11:00:00Z
+  owner: Jane Doe
+  recordedAt: 2026-09-10T09:00:00Z
+
 # brandEntity (0.5): how the organisation names itself. legalName and
 # publicName are text; sameAs lists the profiles it stands behind (http(s)
 # URLs). An Organization sameAs in the markup that is not listed here, or a

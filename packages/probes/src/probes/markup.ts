@@ -14,6 +14,7 @@ import type { PageProbe, SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
 import { bareType } from './content.js';
 import { jsonLdNodes, typesOf } from './metadata.js';
+import { notProductionReason } from './qa.js';
 
 const NO_HTML = 'No HTML was parsed for this response.';
 
@@ -492,6 +493,91 @@ export const analyticsConsentMatrix: PageProbe = {
   },
 };
 
+// --- 5.6 live-analytics-smoke ----------------------------------------------
+
+/**
+ * 5.6 is the launch-day receipt check: on production, does what the analytics
+ * plan says about each event hold on the rendered pages. It fails what is
+ * false on its face: a `sent` event no rendered trigger page carries, a
+ * `suppressed` event any rendered page sends, and a collect hit to a
+ * measurement id the plan does not list. A `sent` event with no rendered
+ * trigger page, or a request list that was cut, holds the check instead —
+ * nothing was observed either way — as does a record nobody answers for. An
+ * absent hit can be the correct consent outcome, so it is never a failure
+ * unless the plan says the event is sent. Later aggregate reporting is 6.7's.
+ */
+export const liveAnalyticsSmoke: SiteProbe = {
+  id: 'live-analytics-smoke',
+  scope: 'site',
+  title: 'Planned analytics events reach production, suppressed ones do not, and only known properties receive hits',
+  run({ crawl, inputs, origin }) {
+    const record = inputs?.analytics;
+    if (record === undefined) return notApplicable('No analytics setup was supplied.');
+    const notProduction = notProductionReason(inputs, origin);
+    if (notProduction !== null) return notApplicable(notProduction);
+
+    const renders = crawl.pages.flatMap((page) => {
+      const render = page.rendered?.render;
+      if (render === undefined || render.error !== null || render.requests === undefined) return [];
+      let pathname = '/';
+      try {
+        pathname = new URL(page.url).pathname;
+      } catch {
+        // keep the root
+      }
+      const hits = render.requests.flatMap((request) => {
+        const hit = readCollectHit(request.url);
+        return hit === null ? [] : [hit];
+      });
+      return [{ url: page.url, pathname, hits, truncated: render.requestsTruncated ?? false }];
+    });
+    if (renders.length === 0) return notApplicable('No page was rendered, so no network requests were recorded.');
+
+    const known = new Set(record.measurementIds.map((id) => id.toUpperCase()));
+    const unknownIds = new Map<string, string>();
+    for (const render of renders) {
+      for (const hit of render.hits) {
+        if (hit.measurementId !== null && !known.has(hit.measurementId.toUpperCase())) unknownIds.set(hit.measurementId, render.url);
+      }
+    }
+
+    const absent: string[] = [];
+    const present: string[] = [];
+    const unobserved: string[] = [];
+    for (const event of record.events) {
+      if (event.expect === 'suppressed') {
+        if (renders.some((render) => render.hits.some((hit) => hit.event === event.name))) present.push(event.name);
+        continue;
+      }
+      const triggered = renders.filter((render) => firesOnLoadAt(event.trigger, render.pathname));
+      if (triggered.length === 0) {
+        unobserved.push(event.name);
+      } else if (!triggered.some((render) => render.hits.some((hit) => hit.event === event.name))) {
+        (triggered.every((render) => render.truncated) ? unobserved : absent).push(event.name);
+      }
+    }
+
+    const failures: string[] = [];
+    if (absent.length > 0) failures.push(`sent event(s) on no rendered trigger page: ${absent.join(', ')}`);
+    if (present.length > 0) failures.push(`suppressed event(s) that were sent: ${present.join(', ')}`);
+    if (unknownIds.size > 0) failures.push(`collect hit(s) to unlisted measurement id(s): ${[...unknownIds.keys()].join(', ')}`);
+    const data = { pagesRendered: renders.length, absent, present, unlistedIds: [...unknownIds.keys()], unobserved };
+    if (failures.length > 0) return fail(`Live analytics does not match the plan: ${failures.join('; ')}.`, data);
+
+    const held: string[] = [];
+    if (unobserved.length > 0) held.push(`no rendered page (or only a cut request list) could show ${unobserved.join(', ')}`);
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'the analytics setup has no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) held.push(problem);
+    if (held.length > 0) return warn(`The live analytics smoke test is not settled: ${held.join('; ')}.`, data);
+
+    return pass(
+      `On ${renders.length} rendered page(s), every planned event was seen, no suppressed event was sent and every collect hit went to a listed id.`,
+      data,
+    );
+  },
+};
+
 // --- 3.13 review-integrity -------------------------------------------------
 
 const ORGANIZATION_TYPES = new Set([
@@ -798,6 +884,7 @@ export const markupProbes = [
   analyticsImplementation,
   consentModeConfig,
   analyticsConsentMatrix,
+  liveAnalyticsSmoke,
   reviewIntegrity,
   ugcGovernance,
 ];

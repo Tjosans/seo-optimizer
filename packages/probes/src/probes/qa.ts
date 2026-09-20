@@ -15,7 +15,7 @@
  */
 
 import { CI_GUARD_DEFECTS, redirectMapRootUrl, CI_RULE_MAX_FALSE_POSITIVE_RATE, environmentOrigins, inputRecordProblem } from '@seo/core';
-import type { RedirectMapRecord } from '@seo/core';
+import type { AuditInputs, RedirectMapRecord } from '@seo/core';
 import { isSameSite, normalizeUrl } from '@seo/crawler';
 import type { CrawledPage, CrawlResult, FetchResult } from '@seo/crawler';
 import type { SiteProbe } from '../types.js';
@@ -621,6 +621,19 @@ export const ciExtendedChecks: SiteProbe = {
 };
 
 /**
+ * Why an audit is not known to be of production, or null when it is: the URL
+ * matrix names a `production` row and the origin is not a staging or preview
+ * origin the `environments` input lists.
+ */
+export const notProductionReason = (inputs: AuditInputs | null | undefined, origin: string): string | null => {
+  if (!(inputs?.urlMatrix ?? []).some((row) => row.environment === 'production')) {
+    return 'The URL matrix names no production environment, so the audit origin is not known to be production.';
+  }
+  const elsewhere = environmentOrigins(inputs?.environments).find((entry) => isSameSite(origin, entry.origin));
+  return elsewhere === undefined ? null : `The audit origin is the ${elsewhere.name} environment, not production.`;
+};
+
+/**
  * The post-cutover smoke test on the production hostname (5.1). It reads the
  * URL matrix, and applies only when the audit origin is the matrix's
  * `production` environment: the matrix names a `production` row and the origin
@@ -641,13 +654,8 @@ export const productionSmokeTest: SiteProbe = {
   run({ crawl, inputs, origin }) {
     const matrix = inputs?.urlMatrix;
     if (matrix === undefined) return notApplicable('No URL matrix was supplied.');
-    if (!matrix.some((row) => row.environment === 'production')) {
-      return notApplicable('The URL matrix names no production environment, so the audit origin is not known to be production.');
-    }
-    const elsewhere = environmentOrigins(inputs?.environments).find((entry) => isSameSite(origin, entry.origin));
-    if (elsewhere !== undefined) {
-      return notApplicable(`The audit origin is the ${elsewhere.name} environment, not production.`);
-    }
+    const notProduction = notProductionReason(inputs, origin);
+    if (notProduction !== null) return notApplicable(notProduction);
 
     const rows = matrix.filter((row) => row.environment === undefined || row.environment === 'production');
     const matchers = rows.map((row) => ({ row, ...matrixMatcher(row.pattern, origin) }));

@@ -27,6 +27,7 @@ import { runProbes } from '@seo/probes';
 import type { SiteContext } from '@seo/probes';
 import { JobCancelledError, JobLeaseLostError } from '@seo/queue';
 import type { BlobStore } from '@seo/storage';
+import { loadGateHistory } from './gates.js';
 import { loadPreviousAudit } from './previous.js';
 import { StaleSiteProfileError, UnknownSiteFlagsError } from './types.js';
 import type { AuditJob, AuditOutcome, CorpusSource } from './types.js';
@@ -167,7 +168,27 @@ export async function runAudit(
       previous,
       release: job.release ?? null,
     };
-    const runs = runProbes(context);
+    let runs = runProbes(context);
+
+    // The gate history needs verdicts, and verdicts need probe runs, so a
+    // release audit with something to compare against is probed twice: once
+    // to learn which gates fail now, once with that history in hand. Only
+    // `release-regression-review` reads it, so only its result changes.
+    if (job.release != null && previous !== null) {
+      const firstPass = gradeAudit({
+        corpus,
+        flags: job.flags,
+        evidence: toEvidence(runs, runs.map(() => '')),
+      });
+      const gates = await loadGateHistory(db, {
+        siteId: job.siteId,
+        auditId: job.auditId,
+        release: job.release,
+        checks: corpus.checks,
+        grade: firstPass,
+      });
+      runs = runProbes({ ...context, gates });
+    }
 
     const resultIds = await persistProbeRuns(db, {
       auditId: job.auditId,

@@ -7,12 +7,14 @@
  * policy.
  */
 
-import { isSameSite } from '@seo/crawler';
+import { inputRecordProblem } from '@seo/core';
+import { isSameSite, normalizeUrl } from '@seo/crawler';
 import type { CrawledPage } from '@seo/crawler';
 import type { PageProbe, SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
 import { bareType } from './content.js';
-import { jsonLdNodes, typesOf } from './metadata.js';
+import { jsonLdNodes, jsonLdTypes, typesOf } from './metadata.js';
+import { notProductionReason } from './qa.js';
 
 const NO_HTML = 'No HTML was parsed for this response.';
 
@@ -358,6 +360,224 @@ export const consentModeConfig: PageProbe = {
   },
 };
 
+// --- 4.7 analytics-consent-matrix ------------------------------------------
+
+/** Hosts a GA4 measurement hit is sent to; a first-party endpoint is not one a crawl can recognise. */
+const COLLECT_HOSTS = /(^|\.)(google-analytics\.com|analytics\.google\.com|googletagmanager\.com|doubleclick\.net)$/i;
+
+interface CollectHit {
+  readonly event: string | null;
+  readonly measurementId: string | null;
+  readonly location: string;
+  readonly url: string;
+}
+
+/** A Google Analytics collect hit, or null when the request is anything else. */
+const readCollectHit = (requestUrl: string): CollectHit | null => {
+  let parsed: URL;
+  try {
+    parsed = new URL(requestUrl);
+  } catch {
+    return null;
+  }
+  if (!COLLECT_HOSTS.test(parsed.hostname) || !/\/(?:[gjr]\/)?collect\/?$/.test(parsed.pathname)) return null;
+  const params = parsed.searchParams;
+  return {
+    event: params.get('en'),
+    measurementId: params.get('tid'),
+    location: params.get('dl') ?? '',
+    url: requestUrl,
+  };
+};
+
+/** Words that put an event behind something the visitor does; a render before any interaction cannot see it. */
+const INTERACTION_WORDS = /\b(click|tap|press|submit|scroll|hover|select|add|remove|play|pause|open|close|type|enter|focus|change|toggle|swipe|drag|download)\w*/i;
+
+/** The path a trigger names (`purchase on /thank-you`), or null when it names none. */
+const triggerPath = (trigger: string): string | null => /(?:^|\s)(\/[^\s]*)/.exec(trigger)?.[1] ?? null;
+
+/**
+ * Whether a trigger fires while a page loads, on this pathname. A trigger
+ * naming a path fires there only; one that says load, view, visit or landing
+ * fires everywhere; anything a visitor has to do is not this render's to see.
+ */
+const firesOnLoadAt = (trigger: string, pathname: string): boolean => {
+  if (INTERACTION_WORDS.test(trigger)) return false;
+  const path = triggerPath(trigger);
+  if (path !== null) return path !== '/' && path.endsWith('/') ? pathname.startsWith(path) : pathname === path;
+  return /\b(load|loads|loaded|view|views|visit|landing|every page|all pages)\b/i.test(trigger);
+};
+
+/**
+ * 4.7 asks that analytics behave correctly in every consent state. A render
+ * before any interaction is one state: whatever the tag does when the visitor
+ * has not answered yet. It shows three things on their face. A Google collect
+ * hit while the declared default is `denied` says the tag ignored its own
+ * consent. An event the plan expects on a trigger page, with no hit carrying
+ * it, says the tag is not wired to that page. The same event sent twice for
+ * one page and property inflates every count built on it. Behaviour after
+ * accept, reject, partial choices and withdrawal is a visitor's interaction,
+ * which a render cannot make, so those states stay the person's. When the
+ * default is `denied` the missing-event check is skipped: an event the plan
+ * says is sent cannot be demanded of a tag that ought to be silent.
+ */
+export const analyticsConsentMatrix: PageProbe = {
+  id: 'analytics-consent-matrix',
+  scope: 'page',
+  htmlOnly: true,
+  title: 'Analytics hits follow the consent default, fire where planned and fire once',
+  run({ page, site }) {
+    const record = site.inputs?.analytics;
+    if (record === undefined) return notApplicable('No analytics setup was supplied.');
+    const render = page.rendered?.render;
+    if (render === undefined) return notApplicable('This page was not rendered, so its network requests were not recorded.');
+    if (render.error !== null) return errored(`The render failed: ${render.error}.`);
+    if (render.requests === undefined) return notApplicable('The render recorded no network requests.');
+
+    const hits = render.requests.flatMap((request) => {
+      const hit = readCollectHit(request.url);
+      return hit === null ? [] : [hit];
+    });
+    const data: Record<string, unknown> = { consentDefault: record.consentDefault, collectHits: hits.length };
+
+    if (record.consentDefault === 'denied' && hits.length > 0) {
+      return fail(
+        `${hits.length} Google collect hit(s) were sent before any interaction while consent defaults to denied.`,
+        { ...data, hits: hits.slice(0, 5).map((hit) => hit.url) },
+      );
+    }
+
+    const counts = new Map<string, number>();
+    for (const hit of hits) {
+      if (hit.event === null) continue;
+      const key = `${hit.event} ${hit.measurementId ?? ''} ${hit.location}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    const doubled = [...counts.entries()].filter(([, n]) => n > 1).map(([key, n]) => ({ event: key.split(' ')[0] ?? '', times: n }));
+
+    let pathname: string;
+    try {
+      pathname = new URL(page.url).pathname;
+    } catch {
+      pathname = '/';
+    }
+    const sent = new Set(hits.flatMap((hit) => (hit.event === null ? [] : [hit.event])));
+    const expected = record.events.filter((event) => event.expect === 'sent' && firesOnLoadAt(event.trigger, pathname));
+    const missing = record.consentDefault === 'denied' ? [] : expected.filter((event) => !sent.has(event.name)).map((event) => event.name);
+
+    const failures: string[] = [];
+    if (doubled.length > 0) {
+      failures.push(`sent twice: ${doubled.map((d) => `${d.event} (${d.times}×)`).join(', ')}`);
+      data['doubled'] = doubled;
+    }
+    if (missing.length > 0 && !(render.requestsTruncated ?? false)) {
+      failures.push(`expected on this page but not sent: ${missing.join(', ')}`);
+      data['missing'] = missing;
+    }
+    if (failures.length > 0) return fail(`Analytics events are wrong before any interaction: ${failures.join('; ')}.`, data);
+
+    const held: string[] = [];
+    if (missing.length > 0) {
+      held.push(`the render's request list was cut, so ${missing.join(', ')} may have been sent past it`);
+      data['missing'] = missing;
+    }
+    const at = site.crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'the analytics setup has no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) held.push(problem);
+    if (held.length > 0) return warn(`The analytics consent review is not settled: ${held.join('; ')}.`, data);
+
+    return pass(
+      `Before any interaction: ${hits.length} collect hit(s), none doubled, ${expected.length} planned on-load event(s) present. Other consent states are for a person.`,
+      data,
+    );
+  },
+};
+
+// --- 5.6 live-analytics-smoke ----------------------------------------------
+
+/**
+ * 5.6 is the launch-day receipt check: on production, does what the analytics
+ * plan says about each event hold on the rendered pages. It fails what is
+ * false on its face: a `sent` event no rendered trigger page carries, a
+ * `suppressed` event any rendered page sends, and a collect hit to a
+ * measurement id the plan does not list. A `sent` event with no rendered
+ * trigger page, or a request list that was cut, holds the check instead —
+ * nothing was observed either way — as does a record nobody answers for. An
+ * absent hit can be the correct consent outcome, so it is never a failure
+ * unless the plan says the event is sent. Later aggregate reporting is 6.7's.
+ */
+export const liveAnalyticsSmoke: SiteProbe = {
+  id: 'live-analytics-smoke',
+  scope: 'site',
+  title: 'Planned analytics events reach production, suppressed ones do not, and only known properties receive hits',
+  run({ crawl, inputs, origin }) {
+    const record = inputs?.analytics;
+    if (record === undefined) return notApplicable('No analytics setup was supplied.');
+    const notProduction = notProductionReason(inputs, origin);
+    if (notProduction !== null) return notApplicable(notProduction);
+
+    const renders = crawl.pages.flatMap((page) => {
+      const render = page.rendered?.render;
+      if (render === undefined || render.error !== null || render.requests === undefined) return [];
+      let pathname = '/';
+      try {
+        pathname = new URL(page.url).pathname;
+      } catch {
+        // keep the root
+      }
+      const hits = render.requests.flatMap((request) => {
+        const hit = readCollectHit(request.url);
+        return hit === null ? [] : [hit];
+      });
+      return [{ url: page.url, pathname, hits, truncated: render.requestsTruncated ?? false }];
+    });
+    if (renders.length === 0) return notApplicable('No page was rendered, so no network requests were recorded.');
+
+    const known = new Set(record.measurementIds.map((id) => id.toUpperCase()));
+    const unknownIds = new Map<string, string>();
+    for (const render of renders) {
+      for (const hit of render.hits) {
+        if (hit.measurementId !== null && !known.has(hit.measurementId.toUpperCase())) unknownIds.set(hit.measurementId, render.url);
+      }
+    }
+
+    const absent: string[] = [];
+    const present: string[] = [];
+    const unobserved: string[] = [];
+    for (const event of record.events) {
+      if (event.expect === 'suppressed') {
+        if (renders.some((render) => render.hits.some((hit) => hit.event === event.name))) present.push(event.name);
+        continue;
+      }
+      const triggered = renders.filter((render) => firesOnLoadAt(event.trigger, render.pathname));
+      if (triggered.length === 0) {
+        unobserved.push(event.name);
+      } else if (!triggered.some((render) => render.hits.some((hit) => hit.event === event.name))) {
+        (triggered.every((render) => render.truncated) ? unobserved : absent).push(event.name);
+      }
+    }
+
+    const failures: string[] = [];
+    if (absent.length > 0) failures.push(`sent event(s) on no rendered trigger page: ${absent.join(', ')}`);
+    if (present.length > 0) failures.push(`suppressed event(s) that were sent: ${present.join(', ')}`);
+    if (unknownIds.size > 0) failures.push(`collect hit(s) to unlisted measurement id(s): ${[...unknownIds.keys()].join(', ')}`);
+    const data = { pagesRendered: renders.length, absent, present, unlistedIds: [...unknownIds.keys()], unobserved };
+    if (failures.length > 0) return fail(`Live analytics does not match the plan: ${failures.join('; ')}.`, data);
+
+    const held: string[] = [];
+    if (unobserved.length > 0) held.push(`no rendered page (or only a cut request list) could show ${unobserved.join(', ')}`);
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'the analytics setup has no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) held.push(problem);
+    if (held.length > 0) return warn(`The live analytics smoke test is not settled: ${held.join('; ')}.`, data);
+
+    return pass(
+      `On ${renders.length} rendered page(s), every planned event was seen, no suppressed event was sent and every collect hit went to a listed id.`,
+      data,
+    );
+  },
+};
+
 // --- 3.13 review-integrity -------------------------------------------------
 
 const ORGANIZATION_TYPES = new Set([
@@ -653,6 +873,297 @@ export const schemaValidationParity: PageProbe = {
   },
 };
 
+// --- 0.5 brand-entity-consistency ------------------------------------------
+
+/** A profile address compared the way a person would: scheme, `www.` and a trailing slash do not tell two profiles apart. */
+const profileKey = (raw: string): string => {
+  const url = normalizeUrl(raw) ?? raw.trim();
+  return url.replace(/^https?:\/\/(?:www\.)?/i, '').replace(/\/+$/, '').toLowerCase();
+};
+
+/** `sameAs` as JSON-LD ships it: one string or a list of them. */
+const sameAsOf = (node: Record<string, unknown>): string[] => {
+  const raw = node['sameAs'];
+  const list = Array.isArray(raw) ? raw : [raw];
+  return list.flatMap((item) => (cleanText(item) === null ? [] : [cleanText(item)!]));
+};
+
+/**
+ * 0.5 asks that the organisation's identity be governed: one entity, named the
+ * same way everywhere, pointing at profiles it stands behind. Which names and
+ * profiles those are is the person's to say (`brandEntity`: legal name, public
+ * name, `sameAs`); the markup is what a crawl can hold against it. Fails an
+ * Organization `sameAs` the record does not list — an identity link nobody
+ * approved — and an Organization name matching neither record name. A
+ * `LocalBusiness` is a branch and may carry its own name, so its name is not
+ * judged, though its `sameAs` is. Warns a record `sameAs` no Organization
+ * markup carries, and a record nobody answers for or past its review.
+ * `assisted`: whether the profiles are the right ones stays a person's.
+ */
+export const brandEntityConsistency: SiteProbe = {
+  id: 'brand-entity-consistency',
+  scope: 'site',
+  title: 'Organization markup names the brand and profiles the brand record lists, and the record\'s profiles appear',
+  run({ crawl, inputs }) {
+    const record = inputs?.brandEntity;
+    if (record === undefined) return notApplicable('No brand entity record was supplied.');
+
+    const listed = new Map(record.sameAs.map((url) => [profileKey(url), url]));
+    const names = new Set([foldName(record.legalName), foldName(record.publicName)]);
+    const seen = new Set<string>();
+    const unlisted = new Map<string, string>();
+    const wrongNames = new Map<string, string>();
+    let organizations = 0;
+
+    for (const page of crawl.pages) {
+      const extracted = page.extracted;
+      if (extracted === null) continue;
+      for (const node of jsonLdNodes(extracted.jsonLd)) {
+        const types = typesOf(node).map(bareType);
+        if (!types.some((type) => ORGANIZATION_TYPES.has(type))) continue;
+        organizations += 1;
+        for (const url of sameAsOf(node)) {
+          const key = profileKey(url);
+          seen.add(key);
+          if (!listed.has(key) && !unlisted.has(url)) unlisted.set(url, page.normalizedUrl);
+        }
+        const name = cleanText(node['name']);
+        if (name !== null && !types.every((type) => type === 'LocalBusiness') && !names.has(foldName(name)) && !wrongNames.has(name)) {
+          wrongNames.set(name, page.normalizedUrl);
+        }
+      }
+    }
+
+    const absent = [...listed.entries()].filter(([key]) => !seen.has(key)).map(([, url]) => url);
+    const data = {
+      organizations,
+      unlisted: [...unlisted.entries()].slice(0, 10).map(([sameAs, url]) => ({ sameAs, url })),
+      wrongNames: [...wrongNames.entries()].slice(0, 10).map(([name, url]) => ({ name, url })),
+      absent: absent.slice(0, 10),
+    };
+
+    const failures: string[] = [];
+    if (unlisted.size > 0) failures.push(`Organization sameAs the brand record does not list: ${[...unlisted.keys()].slice(0, 3).join(', ')}`);
+    if (wrongNames.size > 0) failures.push(`Organization name matching neither the legal nor the public name: ${[...wrongNames.keys()].slice(0, 3).join(', ')}`);
+    if (failures.length > 0) return fail(`${failures.join('; ')}.`, data);
+
+    const held: string[] = [];
+    if (absent.length > 0) {
+      held.push(
+        organizations === 0
+          ? `no Organization markup was crawled, so none of the ${absent.length} listed profile(s) appears`
+          : `listed profile(s) no Organization markup carries: ${absent.slice(0, 3).join(', ')}`,
+      );
+    }
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'the brand record has no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) held.push(problem);
+    if (held.length > 0) return warn(`The brand entity is not settled: ${held.join('; ')}.`, data);
+
+    return pass(
+      `${organizations} Organization node(s) use the recorded names and list only recorded profiles, and every recorded profile appears. A person still confirms the profiles are the right ones.`,
+      data,
+    );
+  },
+};
+
+// --- 2.12 gbp-setup ---------------------------------------------------------
+
+/** Letters and digits only, lowercased: `+46 8-123 45` and `+46812345` agree. */
+const squash = (value: string): string => value.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+
+/** A postal address as JSON-LD ships it: a string or a PostalAddress node, reduced to its street line. */
+const addressOf = (node: Record<string, unknown>): string | null => {
+  const raw = node['address'];
+  if (typeof raw === 'string') return cleanText(raw);
+  if (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) {
+    return cleanText((raw as Record<string, unknown>)['streetAddress']);
+  }
+  return null;
+};
+
+/**
+ * 2.12 asks that a business's Google Business Profile be set up and that the
+ * site say the same thing about each location. Eligibility and verification
+ * are the person's to state (`businessProfile`); the crawl can hold the
+ * LocalBusiness markup on each location's page against the record. Fails a
+ * name, address or phone in that markup that disagrees (phones compared by
+ * digits, addresses by street line, either containing the other). Warns
+ * verification still pending or not begun, no locations, a location page the
+ * crawl did not reach or carrying no LocalBusiness markup, and a record nobody
+ * answers for or past its review. `eligible: false` needs nothing.
+ * `assisted`: whether the profile itself is right stays a person's.
+ */
+export const gbpSetup: SiteProbe = {
+  id: 'gbp-setup',
+  scope: 'site',
+  title: 'Location pages carry LocalBusiness markup that agrees with the business profile',
+  run({ crawl, inputs }) {
+    const record = inputs?.businessProfile;
+    if (record === undefined) return notApplicable('No business profile was supplied.');
+    if (!record.eligible) return notApplicable('The business is recorded as not eligible for a Business Profile.');
+
+    const pages = new Map<string, CrawledPage>();
+    for (const page of crawl.pages) {
+      pages.set(page.normalizedUrl, page);
+      const landed = normalizeUrl(page.fetch.finalUrl);
+      if (landed !== null && !pages.has(landed)) pages.set(landed, page);
+    }
+
+    const disagreements: { url: string; field: string; expected: string; found: string }[] = [];
+    const unreached: string[] = [];
+    const unmarked: string[] = [];
+    for (const location of record.locations) {
+      const page = pages.get(normalizeUrl(location.url) ?? location.url);
+      if (page === undefined || page.extracted === null) {
+        unreached.push(location.url);
+        continue;
+      }
+      const nodes = jsonLdNodes(page.extracted.jsonLd).filter((node) => typesOf(node).map(bareType).some((type) => type === 'LocalBusiness'));
+      if (nodes.length === 0) {
+        unmarked.push(location.url);
+        continue;
+      }
+      // One node may stand for the location; the page passes if any does.
+      const nodeDisagreements = nodes.map((node) => {
+        const found: { url: string; field: string; expected: string; found: string }[] = [];
+        const name = cleanText(node['name']);
+        if (name !== null && foldName(name) !== foldName(location.name)) found.push({ url: location.url, field: 'name', expected: location.name, found: name });
+        const address = addressOf(node);
+        if (address !== null) {
+          const a = squash(address);
+          const b = squash(location.address);
+          if (a !== '' && !b.includes(a) && !a.includes(b)) found.push({ url: location.url, field: 'address', expected: location.address, found: address });
+        }
+        const phone = cleanText(node['telephone']);
+        if (phone !== null && squash(phone) !== squash(location.phone)) found.push({ url: location.url, field: 'phone', expected: location.phone, found: phone });
+        return found;
+      });
+      const best = nodeDisagreements.reduce((a, b) => (b.length < a.length ? b : a));
+      disagreements.push(...best);
+    }
+
+    const data = {
+      verification: record.verification,
+      locations: record.locations.length,
+      disagreements: disagreements.slice(0, 10),
+      unreached: unreached.slice(0, 10),
+      unmarked: unmarked.slice(0, 10),
+    };
+    if (disagreements.length > 0) {
+      const first = disagreements[0]!;
+      return fail(
+        `${disagreements.length} LocalBusiness ${disagreements.length === 1 ? 'property disagrees' : 'properties disagree'} with the business profile (${first.url}: ${first.field} is "${first.found}", the profile says "${first.expected}").`,
+        data,
+      );
+    }
+
+    const held: string[] = [];
+    if (record.verification !== 'verified') held.push(`verification is ${record.verification}`);
+    if (record.locations.length === 0) held.push('no locations are recorded');
+    if (unreached.length > 0) held.push(`${unreached.length} location page(s) the crawl did not reach`);
+    if (unmarked.length > 0) held.push(`${unmarked.length} location page(s) with no LocalBusiness markup`);
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'the business profile has no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) held.push(problem);
+    if (held.length > 0) return warn(`The business profile is not settled: ${held.join('; ')}.`, data);
+
+    return pass(
+      `${record.locations.length} location page(s) carry LocalBusiness markup that agrees with the verified profile. A person still confirms the profile itself.`,
+      data,
+    );
+  },
+};
+
+/**
+ * Structured data and hreflang against the previous audit: corpus check 7.9.
+ * Pages are matched by normalized URL, and only pages with parsed HTML now and
+ * a 200 before are compared. Fails a page whose JSON-LD carried a type before
+ * and now has a block that no longer parses, and an hreflang pair that was
+ * reciprocal before and is not now (both pages crawled this time, one no longer
+ * names the other). Warns a schema type removed from a page with no parse error
+ * behind it. No previous audit: `not-applicable`.
+ */
+export const schemaHreflangMaintenance: SiteProbe = {
+  id: 'schema-hreflang-maintenance',
+  scope: 'site',
+  title: 'Structured data and hreflang clusters still work as they did in the previous audit',
+  run({ crawl, previous }) {
+    if (previous === undefined || previous === null) {
+      return notApplicable('There is no previous audit to compare structured data and hreflang against.');
+    }
+    const key = (url: string): string => normalizeUrl(url) ?? url;
+    const before = new Map(previous.pages.map((p) => [p.url, p] as const));
+    const now = new Map<string, CrawledPage>();
+    for (const page of crawl.pages) {
+      if (page.extracted !== null) now.set(page.normalizedUrl, page);
+    }
+
+    const broken: { url: string; lost: string[] }[] = [];
+    const removed: { url: string; lost: string[] }[] = [];
+    let compared = 0;
+    for (const [url, page] of now) {
+      const old = before.get(url);
+      const extracted = page.extracted;
+      if (old === undefined || extracted === null || old.status !== 200 || page.fetch.status !== 200) continue;
+      compared += 1;
+      const present = new Set(jsonLdTypes(extracted.jsonLd));
+      const lost = old.jsonLdTypes.filter((type) => !present.has(type));
+      if (lost.length === 0) continue;
+      (extracted.jsonLdErrors > 0 ? broken : removed).push({ url, lost });
+    }
+
+    const targets = (hreflang: readonly { readonly url: string }[]): Set<string> =>
+      new Set(hreflang.map((entry) => key(entry.url)));
+    const lapsed: { from: string; to: string }[] = [];
+    let pairs = 0;
+    for (const old of previous.pages) {
+      for (const target of targets(old.hreflang)) {
+        if (old.url >= target) continue;
+        const partner = before.get(target);
+        if (partner === undefined || !targets(partner.hreflang).has(old.url)) continue;
+        const a = now.get(old.url)?.extracted;
+        const b = now.get(target)?.extracted;
+        if (a === undefined || a === null || b === undefined || b === null) continue;
+        pairs += 1;
+        if (!targets(a.hreflang).has(target)) lapsed.push({ from: old.url, to: target });
+        else if (!targets(b.hreflang).has(old.url)) lapsed.push({ from: target, to: old.url });
+      }
+    }
+
+    if (compared === 0 && pairs === 0) {
+      return notApplicable('No page with structured data or hreflang in the previous audit was crawled again.');
+    }
+    const data = {
+      pagesCompared: compared,
+      reciprocalPairsBefore: pairs,
+      jsonLdBroken: broken.slice(0, 10),
+      typesRemoved: removed.slice(0, 10),
+      hreflangLapsed: lapsed.slice(0, 10),
+    };
+    if (broken.length > 0 || lapsed.length > 0) {
+      const parts: string[] = [];
+      if (broken.length > 0) {
+        parts.push(`${broken.length} page(s) lost JSON-LD that parsed before (a block no longer parses, e.g. ${broken[0]?.url})`);
+      }
+      if (lapsed.length > 0) {
+        parts.push(`${lapsed.length} hreflang pair(s) that were reciprocal no longer are (e.g. ${lapsed[0]?.from} no longer names ${lapsed[0]?.to})`);
+      }
+      return fail(`${parts.join('; ')}.`, data);
+    }
+    if (removed.length > 0) {
+      return warn(
+        `${removed.length} page(s) dropped a schema type the previous audit found (e.g. ${removed[0]?.lost.join(', ')} on ${removed[0]?.url}).`,
+        data,
+      );
+    }
+    return pass(
+      `Structured data and reciprocal hreflang pairs held across ${compared} page(s) and ${pairs} pair(s) compared.`,
+      data,
+    );
+  },
+};
+
 export const markupProbes = [
   schemaValidationParity,
   semanticHtml,
@@ -663,6 +1174,11 @@ export const markupProbes = [
   soft404,
   analyticsImplementation,
   consentModeConfig,
+  analyticsConsentMatrix,
+  liveAnalyticsSmoke,
   reviewIntegrity,
   ugcGovernance,
+  brandEntityConsistency,
+  gbpSetup,
+  schemaHreflangMaintenance,
 ];

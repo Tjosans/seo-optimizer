@@ -15,7 +15,7 @@
  */
 
 import { CI_GUARD_DEFECTS, redirectMapRootUrl, CI_RULE_MAX_FALSE_POSITIVE_RATE, environmentOrigins, inputRecordProblem } from '@seo/core';
-import type { RedirectMapRecord } from '@seo/core';
+import type { AuditInputs, RedirectMapRecord } from '@seo/core';
 import { isSameSite, normalizeUrl } from '@seo/crawler';
 import type { CrawledPage, CrawlResult, FetchResult } from '@seo/crawler';
 import type { SiteProbe } from '../types.js';
@@ -621,6 +621,19 @@ export const ciExtendedChecks: SiteProbe = {
 };
 
 /**
+ * Why an audit is not known to be of production, or null when it is: the URL
+ * matrix names a `production` row and the origin is not a staging or preview
+ * origin the `environments` input lists.
+ */
+export const notProductionReason = (inputs: AuditInputs | null | undefined, origin: string): string | null => {
+  if (!(inputs?.urlMatrix ?? []).some((row) => row.environment === 'production')) {
+    return 'The URL matrix names no production environment, so the audit origin is not known to be production.';
+  }
+  const elsewhere = environmentOrigins(inputs?.environments).find((entry) => isSameSite(origin, entry.origin));
+  return elsewhere === undefined ? null : `The audit origin is the ${elsewhere.name} environment, not production.`;
+};
+
+/**
  * The post-cutover smoke test on the production hostname (5.1). It reads the
  * URL matrix, and applies only when the audit origin is the matrix's
  * `production` environment: the matrix names a `production` row and the origin
@@ -641,13 +654,8 @@ export const productionSmokeTest: SiteProbe = {
   run({ crawl, inputs, origin }) {
     const matrix = inputs?.urlMatrix;
     if (matrix === undefined) return notApplicable('No URL matrix was supplied.');
-    if (!matrix.some((row) => row.environment === 'production')) {
-      return notApplicable('The URL matrix names no production environment, so the audit origin is not known to be production.');
-    }
-    const elsewhere = environmentOrigins(inputs?.environments).find((entry) => isSameSite(origin, entry.origin));
-    if (elsewhere !== undefined) {
-      return notApplicable(`The audit origin is the ${elsewhere.name} environment, not production.`);
-    }
+    const notProduction = notProductionReason(inputs, origin);
+    if (notProduction !== null) return notApplicable(notProduction);
 
     const rows = matrix.filter((row) => row.environment === undefined || row.environment === 'production');
     const matchers = rows.map((row) => ({ row, ...matrixMatcher(row.pattern, origin) }));
@@ -1286,7 +1294,234 @@ export const prelaunchBaselineSnapshot: SiteProbe = {
   },
 };
 
+/** A previous audit older than this is no longer a quarterly comparison. */
+const QUARTERLY_MAX_AGE_DAYS = 100;
+
+/**
+ * `quarterly-regression-crawl` (7.3): every probe that passed in the previous
+ * audit and fails in this one is a regression, named with both audits. Compares
+ * outcomes per probe and page, so one page slipping on a page-scoped probe is
+ * reported even when the rest still pass. `not-applicable` without a previous
+ * audit.
+ *
+ * Fails on any regression. Warns a previous audit more than 100 days old,
+ * measured at the crawl's time, and a run that cannot see the current results.
+ * A probe that errored or was not applicable now is not a regression: nothing
+ * observed the site getting worse.
+ */
+export const quarterlyRegressionCrawl: SiteProbe = {
+  id: 'quarterly-regression-crawl',
+  scope: 'site',
+  afterOthers: true,
+  title: 'The quarterly crawl shows no probe that passed last time and fails now',
+  run({ crawl, previous, runs }) {
+    if (previous === undefined || previous === null) {
+      return notApplicable('No previous audit was supplied to compare against.');
+    }
+    if (runs === undefined) {
+      return errored('The current probe results were not available to compare.');
+    }
+
+    const key = (probeId: string, pageUrl: string | null | undefined): string => `${probeId}\n${pageUrl ?? ''}`;
+    const wasPassing = new Set<string>();
+    for (const before of previous.probes) {
+      if (before.probeId !== 'quarterly-regression-crawl' && before.outcome === 'pass') {
+        wasPassing.add(key(before.probeId, before.pageUrl));
+      }
+    }
+
+    const regressions: { probeId: string; pageUrl: string | null }[] = [];
+    for (const run of runs) {
+      if (run.observation.outcome !== 'fail') continue;
+      if (wasPassing.has(key(run.probeId, run.pageUrl))) {
+        regressions.push({ probeId: run.probeId, pageUrl: run.pageUrl ?? null });
+      }
+    }
+
+    const now = crawl.crawledAt ?? null;
+    const ageDays =
+      now === null ? null : Math.floor((Date.parse(now) - Date.parse(previous.takenAt)) / 86_400_000);
+    const data = {
+      previousAudit: previous.takenAt,
+      currentAudit: now,
+      ageDays,
+      regressions,
+    };
+    const between = `audit of ${previous.takenAt} and audit of ${now ?? 'this crawl'}`;
+
+    if (regressions.length > 0) {
+      const named = regressions
+        .slice(0, 10)
+        .map((r) => (r.pageUrl === null ? r.probeId : `${r.probeId} (${r.pageUrl})`))
+        .join(', ');
+      const more = regressions.length > 10 ? `, and ${regressions.length - 10} more` : '';
+      return fail(
+        `${regressions.length} probe result${regressions.length === 1 ? '' : 's'} passed in the ${between} and now fail: ${named}${more}.`,
+        data,
+      );
+    }
+    if (ageDays !== null && ageDays > QUARTERLY_MAX_AGE_DAYS) {
+      return warn(
+        `The previous audit is ${ageDays} days old (more than ${QUARTERLY_MAX_AGE_DAYS}), so this is not a quarterly comparison; no regression against it.`,
+        data,
+      );
+    }
+    return pass(`No probe that passed in the ${between} fails now.`, data);
+  },
+};
+
+/**
+ * `release-regression-review` (7.4): a launch gate that passed in the previous
+ * audit and fails in this one is a regression, and a release owes it a
+ * `reopened` review run. `not-applicable` when the audit names no release or
+ * has no previous audit.
+ *
+ * Fails a regressed gate with no reopened run in the release. A regressed gate
+ * that was reopened is the process working, and passes. Reports `error` when
+ * the gate history was not supplied: nobody saw the gates.
+ */
+export const releaseRegressionReview: SiteProbe = {
+  id: 'release-regression-review',
+  scope: 'site',
+  title: 'A launch gate that regressed since the last audit has been reopened for review',
+  run({ previous, release, gates }) {
+    if (release === undefined || release === null) {
+      return notApplicable('This audit is not of a release, so no review run is owed.');
+    }
+    if (previous === undefined || previous === null) {
+      return notApplicable('No previous audit was supplied to compare the launch gates against.');
+    }
+    if (gates === undefined || gates === null) {
+      return errored('The launch-gate history was not available to compare.');
+    }
+
+    const failing = new Set(gates.failingNow);
+    const reopened = new Set(gates.reopened);
+    const regressed = [...new Set(gates.passedBefore)].filter((id) => failing.has(id)).sort();
+    const unreviewed = regressed.filter((id) => !reopened.has(id));
+    const data = { release, previousAudit: previous.takenAt, regressed, unreviewed };
+
+    if (unreviewed.length > 0) {
+      return fail(
+        `${unreviewed.length} launch gate${unreviewed.length === 1 ? '' : 's'} passed in the audit of ${previous.takenAt} and now fail with no reopened review run in release "${release}": ${unreviewed.join(', ')}.`,
+        data,
+      );
+    }
+    if (regressed.length > 0) {
+      return pass(
+        `${regressed.length} regressed launch gate${regressed.length === 1 ? ' has' : 's have'} been reopened in release "${release}": ${regressed.join(', ')}.`,
+        data,
+      );
+    }
+    return pass(`No launch gate that passed in the audit of ${previous.takenAt} fails now.`, data);
+  },
+};
+
+/**
+ * The URL pattern a page belongs to: its path with ids and slugs collapsed
+ * (`/blog/my-post-2` → `/blog/:slug`, `/p/48213` → `/p/:id`). A number or long hex
+ * run is an id; a segment with a hyphen or underscore is a slug; any other with
+ * a digit is an id.
+ */
+export function urlTemplate(url: string): string {
+  let pathname: string;
+  try {
+    pathname = new URL(url).pathname;
+  } catch {
+    return url;
+  }
+  const segments = pathname
+    .split('/')
+    .filter((segment) => segment !== '')
+    .map((segment) => {
+      if (/^\d+$/.test(segment) || /^[0-9a-f]{8,}(-[0-9a-f]{4,})*$/i.test(segment)) return ':id';
+      if (/[-_]/.test(segment)) return ':slug';
+      if (/\d/.test(segment)) return ':id';
+      return segment;
+    });
+  return `/${segments.join('/')}`;
+}
+
+/**
+ * `conditional-template-monitor` (6.9): pages are grouped by URL pattern, and a
+ * template where one page-scoped probe passed before and fails now on half or
+ * more of its pages is a template that broke, not a page. `not-applicable`
+ * without a previous audit.
+ *
+ * Only pages that passed the probe before and have a pass, warn or fail now are
+ * counted, and a template needs at least two of them: one page is a page. A
+ * probe that errored or was not applicable now observed nothing. Reports `error`
+ * when the current results were not available.
+ */
+export const conditionalTemplateMonitor: SiteProbe = {
+  id: 'conditional-template-monitor',
+  scope: 'site',
+  afterOthers: true,
+  title: 'No template has a probe that regressed on half or more of its pages',
+  run({ previous, runs }) {
+    if (previous === undefined || previous === null) {
+      return notApplicable('No previous audit was supplied to compare templates against.');
+    }
+    if (runs === undefined) {
+      return errored('The current probe results were not available to compare.');
+    }
+
+    const key = (probeId: string, pageUrl: string): string => `${probeId}\n${normalizeUrl(pageUrl) ?? pageUrl}`;
+    const wasPassing = new Set<string>();
+    for (const before of previous.probes) {
+      if (before.pageUrl !== null && before.outcome === 'pass') wasPassing.add(key(before.probeId, before.pageUrl));
+    }
+
+    const groups = new Map<string, { template: string; probeId: string; compared: number; regressed: string[] }>();
+    for (const run of runs) {
+      if (run.pageUrl === undefined || run.pageUrl === null) continue;
+      if (run.probeId === 'conditional-template-monitor') continue;
+      const { outcome } = run.observation;
+      if (outcome !== 'pass' && outcome !== 'warn' && outcome !== 'fail') continue;
+      if (!wasPassing.has(key(run.probeId, run.pageUrl))) continue;
+      const template = urlTemplate(run.pageUrl);
+      const id = `${run.probeId}\n${template}`;
+      let group = groups.get(id);
+      if (group === undefined) {
+        group = { template, probeId: run.probeId, compared: 0, regressed: [] };
+        groups.set(id, group);
+      }
+      group.compared += 1;
+      if (outcome === 'fail') group.regressed.push(run.pageUrl);
+    }
+
+    const broken = [...groups.values()]
+      .filter((g) => g.compared >= 2 && g.regressed.length * 2 >= g.compared)
+      .sort((a, b) => a.template.localeCompare(b.template) || a.probeId.localeCompare(b.probeId));
+    const data = {
+      previousAudit: previous.takenAt,
+      templates: broken.map((g) => ({
+        template: g.template,
+        probeId: g.probeId,
+        compared: g.compared,
+        regressed: g.regressed.length,
+      })),
+    };
+
+    if (broken.length > 0) {
+      const named = broken
+        .slice(0, 10)
+        .map((g) => `${g.template} — ${g.probeId} (${g.regressed.length} of ${g.compared} pages)`)
+        .join('; ');
+      const more = broken.length > 10 ? `; and ${broken.length - 10} more` : '';
+      return fail(
+        `${broken.length} template${broken.length === 1 ? '' : 's'} regressed on half or more of their pages since the audit of ${previous.takenAt}: ${named}${more}.`,
+        data,
+      );
+    }
+    return pass(`No template regressed on half or more of its pages since the audit of ${previous.takenAt}.`, data);
+  },
+};
+
 export const qaProbes = [
+  conditionalTemplateMonitor,
+  releaseRegressionReview,
+  quarterlyRegressionCrawl,
   prelaunchBaselineSnapshot,
   migrationRedirectTest,
   migrationRedirectsLive,

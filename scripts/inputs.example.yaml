@@ -292,6 +292,182 @@ lighthouse:
   owner: Jane Doe
   recordedAt: 2026-09-01T09:00:00Z
 
+# serverLogs (7.8): an access log in combined format, by file path (relative to
+# this file). Each line is read into { at, method, path, status, userAgent };
+# the query string is dropped before anything is stored, so no personal data
+# in a URL is kept. Lines that are not combined format are counted and skipped.
+serverLogs:
+  path: logs/access.log
+  owner: Jane Doe
+  recordedAt: 2026-09-01T09:00:00Z
+
+# merchantFeed (2.11): a Merchant Center feed, by file path (relative to this
+# file): RSS with the g: namespace, or TSV with a header row (id, link, price,
+# availability required; gtin, brand optional). Each item is read into
+# { id, link, price, currency, availability, gtin, brand }. The read is strict:
+# an item missing a required field, a price that is not "12.99 USD", a link
+# that is not absolute or a repeated id refuses the whole file.
+merchantFeed:
+  path: feeds/merchant.xml
+  owner: Jane Doe
+  recordedAt: 2026-09-01T09:00:00Z
+
+# checkoutMatrix (4.10): the checkout paths a person walked by hand; a crawl
+# may not place an order. result is pass or fail. A failed case, or a case URL
+# the crawl got a non-200 from, fails the check.
+checkoutMatrix:
+  cases:
+    - case: guest checkout, in-stock item
+      url: https://example.com/checkout
+      result: pass
+      testedAt: 2026-09-10T09:00:00Z
+  owner: Jane Doe
+  recordedAt: 2026-09-10T09:00:00Z
+
+# contentReview (3.5): a person's review of each priority page's content, one
+# row per url (an http(s) address). verdict is helpful, needs-work or fails; a
+# fails verdict fails the check, as does a reviewed URL that is now 4xx or
+# noindex. A crawled priority page (urlMatrix) with no review holds the check.
+contentReview:
+  - url: https://example.com/guides/getting-started
+    reviewer: Jane Doe
+    reviewedAt: 2026-09-10T09:00:00Z
+    verdict: helpful
+
+# keywordMap (0.2): which page answers which queries. One row per url (an
+# http(s) address, once); purpose is text, queries a non-empty list of text. A
+# mapped URL the crawl did not reach as an indexable 200 fails the check; more
+# than half the indexable crawled pages with no row holds it.
+keywordMap:
+  - url: https://example.com/guides/getting-started
+    purpose: Teach a new customer the first three steps
+    queries:
+      - how to get started with example
+
+# competitorBaseline (0.1): who the site is benchmarked against. audience,
+# market and language are text, competitors a list of URLs or bare hosts,
+# baselineAt when the results were captured. A blank field, no competitors, or
+# a competitor on the site's own host fails the check.
+competitorBaseline:
+  audience: Small-business owners
+  market: Sweden
+  language: sv
+  competitors:
+    - https://rival.example
+  baselineAt: 2026-09-01T09:00:00Z
+  owner: Jane Doe
+  recordedAt: 2026-09-10T09:00:00Z
+
+# businessProfile (2.12): the Google Business Profile. eligible is true or
+# false (false needs nothing else); verification is verified, pending or
+# unverified; each location's name, address and phone are what its page's
+# LocalBusiness markup must agree with. Disagreement fails; pending holds.
+businessProfile:
+  eligible: true
+  verification: verified
+  locations:
+    - name: Example Café
+      address: Storgatan 1, 111 23 Stockholm
+      phone: '+46 8 123 45 67'
+      url: https://example.com/stockholm
+  owner: Jane Doe
+  recordedAt: 2026-09-10T09:00:00Z
+
+# indexNow (2.10): the IndexNow key and the submissions the publishing
+# pipeline made. The crawl fetches the key file once (keyLocation, else
+# /<key>.txt at the origin) and it must hold the key. A logged url on another
+# host fails, and so does one url sent more than five times in a UTC day.
+indexNow:
+  key: a1b2c3d4e5f6a7b8
+  keyLocation: https://example.com/a1b2c3d4e5f6a7b8.txt
+  log:
+    - url: https://example.com/new-article
+      sentAt: 2026-09-18T09:00:00Z
+      status: 200
+  owner: Jane Doe
+  recordedAt: 2026-09-10T09:00:00Z
+
+# incidents (7.1): the incident log and how often alert tests must run.
+# An entry with no owner or remediation fails; so does canary.lastTestAlertAt
+# older than testAlertIntervalDays. closedAt is absent while it is open.
+incidents:
+  testAlertIntervalDays: 30
+  entries:
+    - openedAt: 2026-09-01T09:00:00Z
+      owner: Sam Lee
+      remediation: Rolled back the release
+      closedAt: 2026-09-01T11:00:00Z
+  owner: Jane Doe
+  recordedAt: 2026-09-10T09:00:00Z
+
+# vulnerabilities (7.10): known vulnerabilities in the stack. severity is one of
+# critical, high, medium, low; fixedAt is absent while it is open. An unfixed
+# critical with no owner fails; an owned one, or a Server / X-Powered-By header
+# that names a version, holds the check.
+vulnerabilities:
+  entries:
+    - id: CVE-2026-0001
+      severity: high
+      owner: Sam Lee
+      fixedAt: 2026-09-05T09:00:00Z
+  owner: Jane Doe
+  recordedAt: 2026-09-10T09:00:00Z
+
+# reviewDestinations (7.6): where the site's reputation is reviewed off-page.
+# A destination whose recheckAt has passed fails; one with no owner holds the check.
+reviewDestinations:
+  destinations:
+    - destination: Trustpilot
+      policyDate: 2026-08-01T09:00:00Z
+      owner: Sam Lee
+      recheckAt: 2027-02-01T09:00:00Z
+  owner: Jane Doe
+  recordedAt: 2026-09-10T09:00:00Z
+
+# digitalPr (7.5): the digital PR plan and the links it has won. A win with
+# paid: true fails (a paid link is a link scheme), as does a record with no
+# owner; a plan with no wins yet holds the check.
+digitalPr:
+  plan: Earn coverage with an annual industry benchmark report
+  wins:
+    - url: https://news.example.org/benchmark-report
+      date: 2026-08-20T09:00:00Z
+      paid: false
+  owner: Jane Doe
+  recordedAt: 2026-09-10T09:00:00Z
+
+# brandEntity (0.5): how the organisation names itself. legalName and
+# publicName are text; sameAs lists the profiles it stands behind (http(s)
+# URLs). An Organization sameAs in the markup that is not listed here, or a
+# name matching neither, fails; a listed profile missing from the markup holds.
+brandEntity:
+  legalName: Example Holdings AB
+  publicName: Example
+  sameAs:
+    - https://www.linkedin.com/company/example
+  owner: Jane Doe
+  recordedAt: 2026-09-10T09:00:00Z
+
+# a11yEvaluation (4.4): the manual accessibility evaluation. scope says what was
+# covered; methods (at least one) and limitations are lists of text. blockers
+# are barriers found, each with its WCAG criterion, URL and whether it is
+# resolved; an open one fails the check. conformanceClaim is blank when none is
+# made; a claim beside any critical axe violation fails the check.
+a11yEvaluation:
+  scope: checkout, account and the ten launch templates
+  methods:
+    - keyboard walk-through
+    - NVDA on Firefox
+  limitations:
+    - no mobile screen reader pass
+  blockers:
+    - criterion: 2.1.1 Keyboard
+      url: https://example.com/checkout
+      resolved: true
+  conformanceClaim: WCAG 2.2 AA
+  owner: Jane Doe
+  recordedAt: 2026-09-10T09:00:00Z
+
 # crux (6.2): field Core Web Vitals, one population per source, target and
 # device segment. source is crux-origin, crux-url, search-console-group or
 # rum; never label one as another. lcpMs, inpMs and cls are the p75 values;
@@ -312,5 +488,37 @@ crux:
         - metric: inp
           owner: Jane Doe
           retestAt: 2026-10-01T00:00:00Z
+  owner: Jane Doe
+  recordedAt: 2026-09-10T09:00:00Z
+
+# analytics: how measurement is set up and what its numbers were checked
+# against. measurementIds lists every property the site sends to.
+# consentDefault is what tags do before the visitor answers the banner
+# (granted or denied). events is the tagging plan: the trigger that fires
+# each one and whether it should be sent or suppressed. reported puts one
+# metric over one period from two different sources side by side, so the
+# gap between them can be judged. All four keys are required.
+analytics:
+  measurementIds:
+    - G-ABC123DEF4
+  consentDefault: denied
+  events:
+    - name: purchase
+      trigger: order confirmation page loads
+      expect: sent
+    - name: page_view
+      trigger: page load before consent
+      expect: suppressed
+  reported:
+    - metric: sessions
+      period: 2026-08-01/2026-08-31
+      sourceA:
+        name: ga4
+        value: 48200
+      sourceB:
+        name: server-logs
+        value: 51900
+      # optional: why the two differ. A gap over 10% with none fails.
+      explanation: server logs count bots that GA4 filters out
   owner: Jane Doe
   recordedAt: 2026-09-10T09:00:00Z

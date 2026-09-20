@@ -41,7 +41,7 @@ describe('probe matrix', () => {
   it('reports the coverage gap rather than hiding it', () => {
     const { detectorsImplemented, detectorsDeclared, automatedChecksCoverable } = matrix.summary;
     expect(detectorsImplemented).toBeGreaterThan(0);
-    expect(detectorsImplemented).toBeLessThan(detectorsDeclared);
+    expect(detectorsImplemented).toBeLessThanOrEqual(detectorsDeclared);
     expect(automatedChecksCoverable).toBeGreaterThan(0);
 
     const rendered = formatProbeMatrix(matrix);

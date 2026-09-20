@@ -841,7 +841,60 @@ export const fieldCwvMonitor: SiteProbe = {
   },
 };
 
+/** A banner that names a release: `nginx/1.18.0`, `PHP/8.1.2`, `Apache 2.4.41`. */
+const NAMES_A_VERSION = /\/\s*v?\d|\b\d+\.\d+/i;
+
+/**
+ * 7.10 asks whether known vulnerabilities are owned and fixed and whether the
+ * stack advertises what it runs. The list is supplied (`vulnerabilities`); the
+ * banners are read from the crawl's responses. Fails an unfixed critical with
+ * no owner. An owned unfixed critical, a `Server` or `X-Powered-By` header that
+ * names a version, or an overdue record holds the check. Without the section,
+ * `not-applicable`.
+ */
+export const securityDependencyMaintenance: SiteProbe = {
+  id: 'security-dependency-maintenance',
+  scope: 'site',
+  title: 'No unfixed critical vulnerability is unowned, and no response header names a software version',
+  run({ crawl, inputs }) {
+    const record = inputs?.vulnerabilities;
+    if (record === undefined) return notApplicable('No vulnerabilities record was supplied.');
+
+    const unfixed = record.entries.filter((entry) => entry.fixedAt === undefined);
+    const unfixedCritical = unfixed.filter((entry) => entry.severity === 'critical');
+    const unowned = unfixedCritical.filter((entry) => entry.owner === '');
+    const banners = new Map<string, string>();
+    for (const page of crawl.pages) {
+      for (const name of ['server', 'x-powered-by']) {
+        const value = page.fetch.headers[name];
+        if (value !== undefined && NAMES_A_VERSION.test(value)) banners.set(`${name}: ${value}`, page.url);
+      }
+    }
+
+    const data = {
+      vulnerabilities: record.entries.length,
+      unfixed: unfixed.length,
+      unfixedCritical: unfixedCritical.map((entry) => entry.id).slice(0, 10),
+      unowned: unowned.map((entry) => entry.id).slice(0, 10),
+      versionBanners: [...banners.keys()].slice(0, 10),
+    };
+    if (unowned.length > 0) {
+      return fail(`${unowned.length} unfixed critical vulnerabilit${unowned.length === 1 ? 'y has' : 'ies have'} no owner (${unowned.slice(0, 3).map((entry) => entry.id).join(', ')}).`, data);
+    }
+
+    const held: string[] = [];
+    if (unfixedCritical.length > 0) held.push(`${unfixedCritical.length} critical vulnerabilit${unfixedCritical.length === 1 ? 'y is' : 'ies are'} still unfixed (${unfixedCritical.slice(0, 3).map((entry) => entry.id).join(', ')})`);
+    if (banners.size > 0) held.push(`response headers name a software version (${[...banners.keys()].slice(0, 3).join('; ')})`);
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) held.push(`the vulnerabilities record is held for review (${problem})`);
+    if (held.length > 0) return warn(`${held.join('; ')}.`, data);
+    return pass(`${record.entries.length} tracked vulnerabilit${record.entries.length === 1 ? 'y' : 'ies'}, no unfixed critical, and no Server or X-Powered-By header names a version.`, data);
+  },
+};
+
 export const deliveryProbes = [
+  securityDependencyMaintenance,
   httpStatus,
   redirectChain,
   httpsEnforcement,

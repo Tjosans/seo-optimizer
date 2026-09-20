@@ -34,6 +34,7 @@ import type { PageProbe, SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
 import { previousPage } from '../previous.js';
 import { isNoindex } from './commerce.js';
+import { matrixMatcher } from './site.js';
 import { jsonLdNodes, typesOf } from './metadata.js';
 
 const NO_HTML = 'No HTML was parsed for this response.';
@@ -1028,6 +1029,131 @@ export const contentDecay: SiteProbe = {
   },
 };
 
+/**
+ * 3.5 asks that priority content serves its stated purpose, which only a reader
+ * can judge. The judgement is supplied (`contentReview`: url, reviewer, date,
+ * verdict); what a crawl can add is whether it still stands. Fails a `fails`
+ * verdict, and a reviewed URL the crawl now finds answering 4xx or noindexed —
+ * a page nobody can reach was not helpful to anyone. Warns a crawled priority
+ * page (a `urlMatrix` row marked `priority`, for production or everywhere,
+ * public) with no review, and a `needs-work` verdict, since neither is a
+ * pass. A reviewed URL the crawl did not reach is not judged. Without the
+ * section, `not-applicable`: absence of a review is not an answer.
+ */
+export const contentHelpfulness: SiteProbe = {
+  id: 'content-helpfulness',
+  scope: 'site',
+  title: 'Every reviewed priority page is helpful and still reachable, and every crawled one has a review',
+  run({ crawl, inputs, origin }) {
+    const reviews = inputs?.contentReview;
+    if (reviews === undefined) return notApplicable('No content review was supplied.');
+
+    const byUrl = new Map<string, CrawledPage>();
+    for (const page of crawl.pages) byUrl.set(page.normalizedUrl, page);
+    const reviewed = new Map(reviews.map((review) => [normalizeUrl(review.url) ?? review.url, review]));
+
+    const failed: string[] = [];
+    const unreachable: string[] = [];
+    const needsWork: string[] = [];
+    let notCrawled = 0;
+    for (const [url, review] of reviewed) {
+      if (review.verdict === 'fails') failed.push(url);
+      else if (review.verdict === 'needs-work') needsWork.push(url);
+      const page = byUrl.get(url);
+      if (page === undefined) {
+        notCrawled += 1;
+        continue;
+      }
+      const status = page.fetch.status;
+      if (status !== null && status >= 400) unreachable.push(`${url} (${status})`);
+      else if (isNoindex(page)) unreachable.push(`${url} (noindex)`);
+    }
+
+    const rows = (inputs?.urlMatrix ?? []).filter(
+      (row) => row.priority === true && row.access !== 'private' &&
+        (row.environment === undefined || row.environment === 'production'),
+    );
+    const matchers = rows.map((row) => matrixMatcher(row.pattern, origin).test);
+    const priority = [...byUrl.entries()]
+      .filter(([url, page]) => (page.fetch.status ?? 0) < 400 && matchers.some((test) => test(url)))
+      .map(([url]) => url)
+      .sort();
+    const unreviewed = priority.filter((url) => !reviewed.has(url));
+
+    const data = {
+      reviews: reviews.length,
+      failed: failed.slice(0, 10),
+      unreachable: unreachable.slice(0, 10),
+      needsWork: needsWork.slice(0, 10),
+      reviewsNotCrawled: notCrawled,
+      priorityPages: priority.length,
+      unreviewed: unreviewed.slice(0, 10),
+      unreviewedCount: unreviewed.length,
+    };
+
+    const failures: string[] = [];
+    if (failed.length > 0) failures.push(`${failed.length} page(s) reviewed as failing their purpose (${failed.slice(0, 3).join(', ')})`);
+    if (unreachable.length > 0) failures.push(`${unreachable.length} reviewed page(s) are no longer reachable or indexable (${unreachable.slice(0, 3).join(', ')})`);
+    if (failures.length > 0) return fail(`${failures.join('; ')}.`, data);
+
+    const held: string[] = [];
+    if (needsWork.length > 0) held.push(`${needsWork.length} page(s) reviewed as needing work (${needsWork.slice(0, 3).join(', ')})`);
+    if (unreviewed.length > 0) held.push(`${unreviewed.length} crawled priority page(s) have no review (${unreviewed.slice(0, 3).join(', ')})`);
+    if (held.length > 0) return warn(`${held.join('; ')}.`, data);
+
+    return pass(`${reviews.length} reviewed page(s) are helpful and still reachable; no crawled priority page lacks a review. A person still confirms the reviews.`, data);
+  },
+};
+
+/**
+ * 0.2 asks that every page has a job: which queries it answers, and why it
+ * exists. The map is supplied (`keywordMap`: url, purpose, queries); what a
+ * crawl adds is whether it still describes the site. Fails a mapped URL the
+ * crawl did not reach as an indexable 200 (a mapped page nobody can index
+ * answers no query). Warns when more than half the indexable crawled pages
+ * have no mapping. Without the section, `not-applicable`.
+ */
+export const keywordIntentMap: SiteProbe = {
+  id: 'keyword-intent-map',
+  scope: 'site',
+  title: 'Every mapped URL is an indexable 200, and most indexable pages are mapped',
+  run({ crawl, inputs }) {
+    const map = inputs?.keywordMap;
+    if (map === undefined) return notApplicable('No keyword map was supplied.');
+
+    const byUrl = new Map<string, CrawledPage>();
+    for (const page of crawl.pages) byUrl.set(page.normalizedUrl, page);
+    const mapped = new Set(map.map((entry) => normalizeUrl(entry.url) ?? entry.url));
+
+    const broken: string[] = [];
+    for (const url of mapped) {
+      const page = byUrl.get(url);
+      if (page === undefined) broken.push(`${url} (not crawled)`);
+      else if (page.fetch.status !== 200) broken.push(`${url} (${page.fetch.status ?? 'no response'})`);
+      else if (isNoindex(page)) broken.push(`${url} (noindex)`);
+    }
+
+    const indexable = [...byUrl.entries()].filter(([, page]) => page.fetch.status === 200 && !isNoindex(page)).map(([url]) => url);
+    const unmapped = indexable.filter((url) => !mapped.has(url)).sort();
+
+    const data = {
+      mappings: map.length,
+      broken: broken.slice(0, 10),
+      brokenCount: broken.length,
+      indexablePages: indexable.length,
+      unmapped: unmapped.slice(0, 10),
+      unmappedCount: unmapped.length,
+    };
+    if (broken.length > 0) {
+      return fail(`${broken.length} mapped URL(s) are not crawled as an indexable 200: ${broken.slice(0, 3).join(', ')}.`, data);
+    }
+    if (unmapped.length * 2 > indexable.length) {
+      return warn(`${unmapped.length} of ${indexable.length} indexable crawled page(s) have no keyword mapping (${unmapped.slice(0, 3).join(', ')}).`, data);
+    }
+    return pass(`${map.length} mapped URL(s) are indexable; ${unmapped.length} of ${indexable.length} indexable crawled page(s) are unmapped. A person still confirms the intents.`, data);
+  },
+};
+
 export const contentProbes = [
   answerFirstStructure,
   authorDateSignals,
@@ -1038,4 +1164,6 @@ export const contentProbes = [
   launchContentCompleteness,
   contentParityDiff,
   contentDecay,
+  contentHelpfulness,
+  keywordIntentMap,
 ];

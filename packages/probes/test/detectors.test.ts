@@ -3398,6 +3398,143 @@ describe('consent-mode-config', () => {
   });
 });
 
+// --- 4.7 analytics-consent-matrix ------------------------------------------
+
+describe('analytics-consent-matrix', () => {
+  const hit = (event: string, tid = 'G-ABC123'): string =>
+    `https://www.google-analytics.com/g/collect?v=2&tid=${tid}&en=${event}&dl=${encodeURIComponent(`${ORIGIN}/`)}`;
+  const renderedWith = (urls: readonly string[], path = '/', truncated = false): CrawledPage => {
+    const target = withRender(page({ path }), '<html><body><p>Hi</p></body></html>');
+    if (target.rendered === undefined || target.rendered === null) return target;
+    const requests = urls.map((url) => ({ url, method: 'POST', resourceType: 'ping', status: 204, failed: false }));
+    return { ...target, rendered: { ...target.rendered, render: { ...target.rendered.render, requests, requestsTruncated: truncated } } };
+  };
+  const record = (over: Record<string, unknown> = {}) => ({
+    owner: 'analytics lead',
+    recordedAt: '2026-09-01',
+    measurementIds: ['G-ABC123'],
+    consentDefault: 'granted',
+    events: [{ name: 'page_view', trigger: 'page_view on load', expect: 'sent' }],
+    reported: [],
+    ...over,
+  });
+  const run = (target: CrawledPage, analytics?: unknown) =>
+    pageProbe('analytics-consent-matrix').run({
+      page: target,
+      site: { ...siteOf([target]), inputs: analytics === undefined ? {} : ({ analytics } as never) },
+    });
+
+  it('is not applicable without the section or a render', () => {
+    expect(run(renderedWith([]), undefined).outcome).toBe('not-applicable');
+    expect(run(page({ path: '/' }), record()).outcome).toBe('not-applicable');
+  });
+
+  it('passes an expected event sent once', () => {
+    expect(run(renderedWith([hit('page_view')]), record()).outcome).toBe('pass');
+  });
+
+  it('fails a collect hit while consent defaults to denied', () => {
+    const observation = run(renderedWith([hit('page_view')]), record({ consentDefault: 'denied' }));
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('denied');
+  });
+
+  it('passes silence while consent defaults to denied', () => {
+    expect(run(renderedWith([]), record({ consentDefault: 'denied' })).outcome).toBe('pass');
+  });
+
+  it('fails an expected event that never fires', () => {
+    const observation = run(renderedWith([]), record());
+    expect(observation.outcome).toBe('fail');
+    expect(observation.data?.['missing']).toEqual(['page_view']);
+  });
+
+  it('fails an event sent twice', () => {
+    const observation = run(renderedWith([hit('page_view'), hit('page_view')]), record());
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('twice');
+  });
+
+  it('leaves click triggers and other pages alone', () => {
+    const events = [
+      { name: 'purchase', trigger: 'click on #buy', expect: 'sent' },
+      { name: 'generate_lead', trigger: 'load of /thanks', expect: 'sent' },
+    ];
+    expect(run(renderedWith([]), record({ events })).outcome).toBe('pass');
+    expect(run(renderedWith([], '/thanks'), record({ events })).outcome).toBe('fail');
+  });
+
+  it('holds a record with no owner, and a cut request list', () => {
+    expect(run(renderedWith([hit('page_view')]), record({ owner: '' })).outcome).toBe('warn');
+    expect(run(renderedWith([], '/', true), record()).outcome).toBe('warn');
+  });
+});
+
+// --- 5.6 live-analytics-smoke ----------------------------------------------
+
+describe('live-analytics-smoke', () => {
+  const hit = (event: string, tid = 'G-ABC123'): string =>
+    `https://www.google-analytics.com/g/collect?v=2&tid=${tid}&en=${event}&dl=${encodeURIComponent(`${ORIGIN}/`)}`;
+  const renderedWith = (urls: readonly string[], path = '/', truncated = false): CrawledPage => {
+    const target = withRender(page({ path }), '<html><body><p>Hi</p></body></html>');
+    if (target.rendered === undefined || target.rendered === null) return target;
+    const requests = urls.map((url) => ({ url, method: 'POST', resourceType: 'ping', status: 204, failed: false }));
+    return { ...target, rendered: { ...target.rendered, render: { ...target.rendered.render, requests, requestsTruncated: truncated } } };
+  };
+  const record = (over: Record<string, unknown> = {}) => ({
+    owner: 'analytics lead',
+    recordedAt: '2026-09-01',
+    measurementIds: ['G-ABC123'],
+    consentDefault: 'granted',
+    events: [{ name: 'page_view', trigger: 'page_view on load', expect: 'sent' }],
+    reported: [],
+    ...over,
+  });
+  const PRODUCTION = [{ pattern: '/', environment: 'production' }];
+  const run = (pages: readonly CrawledPage[], analytics?: unknown, urlMatrix: unknown = PRODUCTION) =>
+    siteProbe('live-analytics-smoke').run({
+      ...siteOf(pages),
+      inputs: { ...(analytics === undefined ? {} : { analytics }), ...(urlMatrix === null ? {} : { urlMatrix }) } as never,
+    });
+
+  it('is not applicable without the section, a production audit or a render', () => {
+    expect(run([renderedWith([])], undefined).outcome).toBe('not-applicable');
+    expect(run([renderedWith([hit('page_view')])], record(), null).outcome).toBe('not-applicable');
+    expect(run([page({ path: '/' })], record()).outcome).toBe('not-applicable');
+  });
+
+  it('passes a planned event seen and only listed ids', () => {
+    expect(run([renderedWith([hit('page_view')])], record()).outcome).toBe('pass');
+  });
+
+  it('fails a sent event absent from every trigger page', () => {
+    const observation = run([renderedWith([]), renderedWith([], '/about')], record());
+    expect(observation.outcome).toBe('fail');
+    expect(observation.data?.['absent']).toEqual(['page_view']);
+  });
+
+  it('fails a suppressed event that was sent', () => {
+    const events = [{ name: 'ad_storage_ping', trigger: 'load', expect: 'suppressed' }];
+    const observation = run([renderedWith([hit('ad_storage_ping')])], record({ events }));
+    expect(observation.outcome).toBe('fail');
+    expect(observation.data?.['present']).toEqual(['ad_storage_ping']);
+    expect(run([renderedWith([])], record({ events })).outcome).toBe('pass');
+  });
+
+  it('fails a hit to a measurement id the plan does not list', () => {
+    const observation = run([renderedWith([hit('page_view'), hit('page_view', 'G-OTHER99')])], record());
+    expect(observation.outcome).toBe('fail');
+    expect(observation.data?.['unlistedIds']).toEqual(['G-OTHER99']);
+  });
+
+  it('holds an event with no rendered trigger page, a cut list and an unowned record', () => {
+    const events = [{ name: 'generate_lead', trigger: 'load of /thanks', expect: 'sent' }];
+    expect(run([renderedWith([])], record({ events })).outcome).toBe('warn');
+    expect(run([renderedWith([], '/', true)], record()).outcome).toBe('warn');
+    expect(run([renderedWith([hit('page_view')])], record({ owner: '' })).outcome).toBe('warn');
+  });
+});
+
 // --- 2.16 publisher-discover-readiness -------------------------------------
 
 const ARTICLE_JSONLD =

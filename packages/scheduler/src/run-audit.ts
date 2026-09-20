@@ -19,7 +19,7 @@ import { eq } from 'drizzle-orm';
 import { audits } from '@seo/db';
 import type { Database } from '@seo/db';
 import { CorpusVersionMismatchError, gradeAudit, recordGrade, toEvidence } from '@seo/grader';
-import { environmentOrigins, redirectMapRootUrl, redirectMapUrls, simulatableAgents } from '@seo/core';
+import { environmentOrigins, indexNowKeyUrl, redirectMapRootUrl, redirectMapUrls, simulatableAgents } from '@seo/core';
 import { unknownFlags } from '@seo/corpus';
 import { CrawlCancelledError } from '@seo/crawler';
 import { crawlToDatabase, persistProbeRuns } from '@seo/persistence';
@@ -27,6 +27,7 @@ import { runProbes } from '@seo/probes';
 import type { SiteContext } from '@seo/probes';
 import { JobCancelledError, JobLeaseLostError } from '@seo/queue';
 import type { BlobStore } from '@seo/storage';
+import { loadGateHistory } from './gates.js';
 import { loadPreviousAudit } from './previous.js';
 import { StaleSiteProfileError, UnknownSiteFlagsError } from './types.js';
 import type { AuditJob, AuditOutcome, CorpusSource } from './types.js';
@@ -120,6 +121,8 @@ export async function runAudit(
     const mapUrls = redirectMapUrls(job.inputs?.redirectMap);
     if (rootUrl !== undefined) mapUrls.unshift(...(mapUrls.includes(rootUrl) ? [] : [rootUrl]));
 
+    const indexNowUrl = indexNowKeyUrl(job.inputs?.indexNow, job.origin);
+
     const crawled = await crawlToDatabase(db, {
       auditId: job.auditId,
       // The crawl's own stopping point. Without this the signal would only be
@@ -144,6 +147,7 @@ export async function runAudit(
               })),
             }),
         ...(mapUrls.length === 0 ? {} : { redirectMapUrls: mapUrls }),
+        ...(indexNowUrl === undefined ? {} : { indexNowKeyUrl: indexNowUrl }),
         ...(signal === undefined ? {} : { signal }),
       },
       ...(blobStore === undefined ? {} : { blobStore }),
@@ -164,7 +168,27 @@ export async function runAudit(
       previous,
       release: job.release ?? null,
     };
-    const runs = runProbes(context);
+    let runs = runProbes(context);
+
+    // The gate history needs verdicts, and verdicts need probe runs, so a
+    // release audit with something to compare against is probed twice: once
+    // to learn which gates fail now, once with that history in hand. Only
+    // `release-regression-review` reads it, so only its result changes.
+    if (job.release != null && previous !== null) {
+      const firstPass = gradeAudit({
+        corpus,
+        flags: job.flags,
+        evidence: toEvidence(runs, runs.map(() => '')),
+      });
+      const gates = await loadGateHistory(db, {
+        siteId: job.siteId,
+        auditId: job.auditId,
+        release: job.release,
+        checks: corpus.checks,
+        grade: firstPass,
+      });
+      runs = runProbes({ ...context, gates });
+    }
 
     const resultIds = await persistProbeRuns(db, {
       auditId: job.auditId,

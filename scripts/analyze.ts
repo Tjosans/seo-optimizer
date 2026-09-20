@@ -17,7 +17,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import { environmentOrigins, loadLighthouseMetricsFor, parseInputs, redirectMapUrls } from '@seo/core';
+import { environmentOrigins, indexNowKeyUrl, loadLighthouseMetricsFor, loadMerchantFeedFor, loadServerLogsFor, parseInputs, redirectMapUrls } from '@seo/core';
 import type { AuditInputs, Corpus } from '@seo/core';
 import { CURRENT_CORPUS_VERSION, loadCorpus } from '@seo/corpus';
 import { crawl } from '@seo/crawler';
@@ -137,6 +137,8 @@ interface Args {
   readonly baseline: Snapshot | null;
   /** Evidence a person supplied (`--inputs file.yaml`). */
   readonly inputs: AuditInputs;
+  /** The file `inputs` came from, so relative paths (server logs) resolve against it. */
+  readonly inputsFile: string | null;
 }
 
 function parseArgs(argv: readonly string[]): Args {
@@ -151,6 +153,7 @@ function parseArgs(argv: readonly string[]): Args {
   let out: string | null = null;
   let baseline: Snapshot | null = null;
   let inputs: AuditInputs = {};
+  let inputsFile: string | null = null;
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i] ?? '';
@@ -170,7 +173,7 @@ function parseArgs(argv: readonly string[]): Args {
       case '--out': out = next(); break;
       case '--no-save': save = false; break;
       case '--baseline': baseline = JSON.parse(readFileSync(next(), 'utf8')) as Snapshot; break;
-      case '--inputs': { const file = next(); inputs = loadLighthouseMetricsFor(parseInputs(parseYaml(readFileSync(file, 'utf8'))), file); break; }
+      case '--inputs': { const file = next(); inputs = loadLighthouseMetricsFor(parseInputs(parseYaml(readFileSync(file, 'utf8'))), file); inputsFile = file; break; }
       case '--file': {
         const text = readFileSync(next(), 'utf8');
         for (const line of text.split(/\r?\n/)) {
@@ -200,6 +203,7 @@ function parseArgs(argv: readonly string[]): Args {
     out,
     baseline,
     inputs,
+    inputsFile,
   };
 }
 
@@ -314,6 +318,7 @@ async function analyze(
         url: `${root}/`,
       })),
       redirectMapUrls: redirectMapUrls(inputs.redirectMap),
+      ...(indexNowKeyUrl(inputs.indexNow, origin) === undefined ? {} : { indexNowKeyUrl: indexNowKeyUrl(inputs.indexNow, origin) as string }),
     });
   } catch (cause) {
     return {
@@ -479,6 +484,7 @@ const stamp = (date: Date): string => date.toISOString().replace(/[:.]/g, '-').s
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
+  const inputs = args.inputsFile === null ? args.inputs : loadMerchantFeedFor(await loadServerLogsFor(args.inputs, args.inputsFile), args.inputsFile);
   const corpus = loadCorpus(join(ROOT, 'corpus', `v${CURRENT_CORPUS_VERSION}`));
   const startedAt = new Date();
   const started = Date.now();
@@ -493,7 +499,7 @@ async function main(): Promise<void> {
   const sites: SiteReport[] = [];
   for (const url of args.urls) {
     process.stdout.write(`\ncrawling ${url} ...`);
-    const site = await analyze(url, args.settings, corpus, args.baseline, args.inputs);
+    const site = await analyze(url, args.settings, corpus, args.baseline, inputs);
     sites.push(site);
     printSite(site);
   }

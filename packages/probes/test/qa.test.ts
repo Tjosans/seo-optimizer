@@ -12,6 +12,7 @@ import { extract } from '@seo/crawler';
 import type { AuxiliaryFetch, CrawledPage, CrawlResult, FetchResult, RedirectHop } from '@seo/crawler';
 import { probeById } from '@seo/probes';
 import type { Observation, SiteProbe } from '@seo/probes';
+import { urlTemplate } from '../src/probes/qa.js';
 
 const ORIGIN = 'https://www.example.com';
 
@@ -818,5 +819,196 @@ describe('prelaunch-baseline-snapshot (4.11)', () => {
 
   it('passes a comparable baseline with both sections supplied', () => {
     expect(check({ release: 'r1', previous: baseline(), inputs: both }).outcome).toBe('pass');
+  });
+});
+
+describe('quarterly-regression-crawl (7.3)', () => {
+  const previous = (over: Record<string, unknown> = {}) => ({
+    schema: 1,
+    origin: ORIGIN,
+    takenAt: '2026-08-01T00:00:00.000Z',
+    pages: [],
+    probes: [
+      { probeId: 'a', pageUrl: null, outcome: 'pass' },
+      { probeId: 'b', pageUrl: `${ORIGIN}/x`, outcome: 'pass' },
+      { probeId: 'c', pageUrl: null, outcome: 'fail' },
+    ],
+    ...over,
+  });
+  const run = (
+    prev: unknown,
+    runs: { probeId: string; pageUrl?: string; outcome: Observation['outcome'] }[] | undefined,
+    crawledAt = '2026-09-01T00:00:00.000Z',
+  ): Observation =>
+    (probeById('quarterly-regression-crawl') as SiteProbe).run({
+      origin: ORIGIN,
+      flags: [],
+      crawl: {
+        crawledAt,
+        seeds: [`${ORIGIN}/`],
+        pages: [],
+        robots: { groups: [], sitemaps: [], absent: true },
+        robotsTxt: null,
+        sitemapUrls: [],
+        sitemaps: [],
+        sitemapVideos: [],
+        sitemapNews: [],
+        blockedByRobots: [],
+        notReached: [],
+        auxiliary: [],
+      } satisfies CrawlResult,
+      ...(prev === undefined ? {} : { previous: prev as never }),
+      ...(runs === undefined
+        ? {}
+        : {
+            runs: runs.map(({ outcome, ...r }) => ({
+              ...r,
+              scope: r.pageUrl === undefined ? 'site' : 'page',
+              observation: { outcome, summary: '' },
+            })) as never,
+          }),
+    });
+
+  it('is not applicable without a previous audit', () => {
+    expect(run(undefined, []).outcome).toBe('not-applicable');
+  });
+
+  it('fails a probe that passed before and fails now, naming both audits', () => {
+    const result = run(previous(), [{ probeId: 'a', outcome: 'fail' }]);
+    expect(result.outcome).toBe('fail');
+    expect(result.summary).toContain('2026-08-01');
+    expect(result.summary).toContain('2026-09-01');
+  });
+
+  it('matches page-scoped probes by page', () => {
+    expect(run(previous(), [{ probeId: 'b', pageUrl: `${ORIGIN}/y`, outcome: 'fail' }]).outcome).toBe('pass');
+    expect(run(previous(), [{ probeId: 'b', pageUrl: `${ORIGIN}/x`, outcome: 'fail' }]).outcome).toBe('fail');
+  });
+
+  it('does not count a probe that failed before, or is not applicable now', () => {
+    const result = run(previous(), [
+      { probeId: 'c', outcome: 'fail' },
+      { probeId: 'a', outcome: 'not-applicable' },
+    ]);
+    expect(result.outcome).toBe('pass');
+  });
+
+  it('warns a previous audit more than 100 days old', () => {
+    const old = previous({ takenAt: '2026-05-01T00:00:00.000Z' });
+    expect(run(old, [{ probeId: 'a', outcome: 'pass' }]).outcome).toBe('warn');
+    expect(run(old, [{ probeId: 'a', outcome: 'fail' }]).outcome).toBe('fail');
+  });
+
+  it('reports error when the current results are unavailable', () => {
+    expect(run(previous(), undefined).outcome).toBe('error');
+  });
+});
+
+describe('conditional-template-monitor (6.9)', () => {
+  const pages = ['a-1', 'b-2', 'c-3', 'd-4'].map((slug) => `${ORIGIN}/blog/${slug}`);
+  const previous = {
+    schema: 1,
+    origin: ORIGIN,
+    takenAt: '2026-08-01T00:00:00.000Z',
+    pages: [],
+    probes: pages.map((pageUrl) => ({ probeId: 'p', pageUrl, outcome: 'pass' })),
+  };
+  const run = (prev: unknown, outcomes: Observation['outcome'][] | undefined): Observation =>
+    (probeById('conditional-template-monitor') as SiteProbe).run({
+      origin: ORIGIN,
+      flags: [],
+      crawl: {
+        crawledAt: '2026-09-01T00:00:00.000Z',
+        seeds: [`${ORIGIN}/`],
+        pages: [],
+        robots: { groups: [], sitemaps: [], absent: true },
+        robotsTxt: null,
+        sitemapUrls: [],
+        sitemaps: [],
+        sitemapVideos: [],
+        sitemapNews: [],
+        blockedByRobots: [],
+        notReached: [],
+        auxiliary: [],
+      } satisfies CrawlResult,
+      ...(prev === undefined ? {} : { previous: prev as never }),
+      ...(outcomes === undefined
+        ? {}
+        : {
+            runs: outcomes.map((outcome, i) => ({
+              probeId: 'p',
+              pageUrl: pages[i],
+              scope: 'page',
+              observation: { outcome, summary: '' },
+            })) as never,
+          }),
+    });
+
+  it('is not applicable without a previous audit', () => {
+    expect(run(undefined, []).outcome).toBe('not-applicable');
+  });
+
+  it('collapses ids and slugs into one template', () => {
+    expect(urlTemplate(`${ORIGIN}/blog/my-post-2`)).toBe('/blog/:slug');
+    expect(urlTemplate(`${ORIGIN}/p/48213/reviews`)).toBe('/p/:id/reviews');
+  });
+
+  it('fails a template where half or more of its pages regressed', () => {
+    const result = run(previous, ['fail', 'fail', 'pass', 'pass']);
+    expect(result.outcome).toBe('fail');
+    expect(result.summary).toContain('/blog/:slug');
+  });
+
+  it('passes when fewer than half regressed', () => {
+    expect(run(previous, ['fail', 'pass', 'pass', 'pass']).outcome).toBe('pass');
+  });
+
+  it('does not count a template of one page, or results that observed nothing', () => {
+    expect(run(previous, ['fail', 'not-applicable', 'error', 'error']).outcome).toBe('pass');
+  });
+
+  it('reports error when the current results are unavailable', () => {
+    expect(run(previous, undefined).outcome).toBe('error');
+  });
+});
+
+describe('release-regression-review (7.4)', () => {
+  const previous = { schema: 1, origin: ORIGIN, takenAt: '2026-08-01T00:00:00.000Z', pages: [], probes: [] };
+  const run = (over: Record<string, unknown>): Observation =>
+    (probeById('release-regression-review') as SiteProbe).run({
+      origin: ORIGIN,
+      flags: [],
+      crawl: {} as CrawlResult,
+      ...over,
+    } as never);
+  const gates = (over: Record<string, unknown> = {}) => ({
+    passedBefore: ['1.1', '1.2'],
+    failingNow: ['1.2', '1.3'],
+    reopened: [],
+    ...over,
+  });
+
+  it('is not applicable without a release or a previous audit', () => {
+    expect(run({ previous, gates: gates() }).outcome).toBe('not-applicable');
+    expect(run({ release: 'r1', gates: gates() }).outcome).toBe('not-applicable');
+  });
+
+  it('reports error when the gate history is unavailable', () => {
+    expect(run({ release: 'r1', previous }).outcome).toBe('error');
+  });
+
+  it('fails a gate that passed and fails now with no reopened run', () => {
+    const result = run({ release: 'r1', previous, gates: gates() });
+    expect(result.outcome).toBe('fail');
+    expect(result.summary).toContain('1.2');
+    expect(result.summary).not.toContain('1.3');
+  });
+
+  it('passes a regressed gate that was reopened', () => {
+    expect(run({ release: 'r1', previous, gates: gates({ reopened: ['1.2'] }) }).outcome).toBe('pass');
+  });
+
+  it('passes when nothing regressed', () => {
+    expect(run({ release: 'r1', previous, gates: gates({ failingNow: ['1.3'] }) }).outcome).toBe('pass');
   });
 });

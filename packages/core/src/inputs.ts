@@ -346,6 +346,231 @@ export interface ContentDecision extends InputRecord {
   readonly decidedAt: string;
 }
 
+/** The verdicts a content review can reach (3.5). */
+export const CONTENT_VERDICTS = ['helpful', 'needs-work', 'fails'] as const;
+export type ContentVerdict = (typeof CONTENT_VERDICTS)[number];
+
+/**
+ * A person's review of one priority page's content (3.5): whether it serves its
+ * stated purpose. `reviewer` answers for it, `reviewedAt` is an ISO 8601
+ * instant. Not an `InputRecord`: the reviewer and the review date are the owner
+ * and the recording date, so a second pair could only disagree.
+ */
+export interface ContentReview {
+  readonly url: string;
+  readonly reviewer: string;
+  readonly reviewedAt: string;
+  readonly verdict: ContentVerdict;
+}
+
+/**
+ * One row of the keyword-to-page map (0.2): the page, what it is for, and the
+ * queries it answers. Plain rows, not an `InputRecord`: the map is a working
+ * document and the detector judges it against the crawl, not its author.
+ */
+export interface KeywordMapEntry {
+  readonly url: string;
+  readonly purpose: string;
+  readonly queries: readonly string[];
+}
+
+/** One checkout path a person walked (4.10): what was tried, where, how it went, when. */
+export interface CheckoutCase {
+  readonly case: string;
+  readonly url: string;
+  readonly result: 'pass' | 'fail';
+  readonly testedAt: string;
+}
+
+/** The checkout cases a person tested by hand (4.10): a transaction is not something a crawl may make. */
+export interface CheckoutMatrixRecord extends InputRecord {
+  readonly cases: readonly CheckoutCase[];
+}
+
+/** One accessibility barrier a manual evaluation found: the WCAG criterion it breaks, where, and whether it is fixed (4.4). */
+export interface A11yBlocker {
+  /** The WCAG success criterion, as the evaluator cites it: `2.1.1`, `1.4.3 Contrast`… */
+  readonly criterion: string;
+  readonly url: string;
+  readonly resolved: boolean;
+}
+
+/**
+ * The manual accessibility evaluation (4.4): what was covered, how, what it
+ * could not see, the barriers it found and any conformance claim made. axe
+ * covers only part of WCAG, so this is the part a person answers for.
+ * `conformanceClaim` is blank when none is made (`WCAG 2.2 AA` when one is).
+ */
+export interface A11yEvaluationRecord extends InputRecord {
+  readonly scope: string;
+  readonly methods: readonly string[];
+  readonly limitations: readonly string[];
+  readonly blockers: readonly A11yBlocker[];
+  readonly conformanceClaim: string;
+}
+
+/**
+ * How the organisation names itself (0.5): its legal name, the name it trades
+ * under, and the profiles it stands behind (`sameAs`, absolute http(s) URLs).
+ * A person answers for it; markup that names another entity is measured
+ * against it.
+ */
+export interface BrandEntityRecord extends InputRecord {
+  readonly legalName: string;
+  readonly publicName: string;
+  readonly sameAs: readonly string[];
+}
+
+/**
+ * The competitor SERP baseline (0.1): who the site is measured against, for
+ * whom, where and in what language, and when the results were looked at. Blank
+ * fields and an empty list are accepted here and judged by the detector, which
+ * is what fails them; `competitors` are URLs or bare hosts.
+ */
+export interface CompetitorBaselineRecord extends InputRecord {
+  readonly audience: string;
+  readonly market: string;
+  readonly language: string;
+  readonly competitors: readonly string[];
+  /** When the baseline SERPs were captured; blank when not stated. */
+  readonly baselineAt: string;
+}
+
+/** Where a Google Business Profile stands in verification (2.12). */
+export const BUSINESS_PROFILE_VERIFICATIONS = ['verified', 'pending', 'unverified'] as const;
+
+/** One location as the business profile states it: what its page's markup must agree with. */
+export interface BusinessProfileLocation {
+  readonly name: string;
+  readonly address: string;
+  readonly phone: string;
+  readonly url: string;
+}
+
+/**
+ * The Google Business Profile record (2.12). Nothing observable says whether a
+ * business is eligible or verified, so a person states it. `eligible: false`
+ * needs no locations.
+ */
+export interface BusinessProfileRecord extends InputRecord {
+  readonly eligible: boolean;
+  readonly verification: (typeof BUSINESS_PROFILE_VERIFICATIONS)[number];
+  readonly locations: readonly BusinessProfileLocation[];
+}
+
+/**
+ * One production incident (7.1). `owner` and `remediation` are kept as text
+ * even when blank: an incident nobody owns is the finding, not a bad file.
+ */
+export interface IncidentEntry {
+  /** ISO 8601 instant. */
+  readonly openedAt: string;
+  readonly owner: string;
+  readonly remediation: string;
+  /** ISO 8601 instant; absent while the incident is open. */
+  readonly closedAt?: string;
+}
+
+/**
+ * The incident log and the cadence of alert tests (7.1). `testAlertIntervalDays`
+ * is how often the site says it proves its alerting works; `canary.lastTestAlertAt`
+ * is measured against it.
+ */
+export interface IncidentsRecord extends InputRecord {
+  readonly testAlertIntervalDays: number;
+  readonly entries: readonly IncidentEntry[];
+}
+
+/** The severities a `VulnerabilityEntry` can carry, worst first. */
+export const VULNERABILITY_SEVERITIES = ['critical', 'high', 'medium', 'low'] as const;
+
+/**
+ * One known vulnerability in the site's stack (7.10). `owner` is kept as text
+ * even when blank: an unfixed critical nobody owns is the finding, not a bad file.
+ */
+export interface VulnerabilityEntry {
+  /** A CVE, advisory or ticket id, as the site names it. */
+  readonly id: string;
+  readonly severity: (typeof VULNERABILITY_SEVERITIES)[number];
+  readonly owner: string;
+  /** ISO 8601 instant the fix shipped; absent while the vulnerability is open. */
+  readonly fixedAt?: string;
+}
+
+/** The open and fixed vulnerabilities the site tracks (7.10). */
+export interface VulnerabilitiesRecord extends InputRecord {
+  readonly entries: readonly VulnerabilityEntry[];
+}
+
+/**
+ * One place the site's reputation is reviewed off-page (7.6). `owner` is kept
+ * as text even when blank: a destination nobody owns holds the check.
+ */
+export interface ReviewDestination {
+  /** A review platform or directory, as the site names it. */
+  readonly destination: string;
+  /** ISO 8601 instant the destination's review policy was last read. */
+  readonly policyDate: string;
+  readonly owner: string;
+  /** ISO 8601 instant the destination is due to be looked at again. */
+  readonly recheckAt: string;
+}
+
+/** The review destinations the site is governed against (7.6). */
+export interface ReviewDestinationsRecord extends InputRecord {
+  readonly destinations: readonly ReviewDestination[];
+}
+
+/** One placement a digital PR campaign won (7.5). */
+export interface DigitalPrWin {
+  /** The page carrying the link, an absolute http(s) URL. */
+  readonly url: string;
+  /** ISO 8601 instant the link was won. */
+  readonly date: string;
+  /** Whether the link was bought; a paid link is a link scheme. */
+  readonly paid: boolean;
+}
+
+/** The digital PR plan, who runs it, and what it has won (7.5). */
+export interface DigitalPrRecord extends InputRecord {
+  /** What the campaign sets out to earn, as text. */
+  readonly plan: string;
+  readonly wins: readonly DigitalPrWin[];
+}
+
+/** One IndexNow submission the site's publishing pipeline made (2.10). */
+export interface IndexNowSubmission {
+  readonly url: string;
+  /** ISO 8601 instant. */
+  readonly sentAt: string;
+  /** The HTTP status IndexNow answered with. */
+  readonly status: number;
+}
+
+/**
+ * The IndexNow integration (2.10). The key and where its file lives are what
+ * the site says it registered; the log is what its pipeline says it sent.
+ * Neither is observable, so a person supplies them and the crawl fetches the
+ * key file once to see whether it holds the key.
+ */
+export interface IndexNowRecord extends InputRecord {
+  readonly key: string;
+  /** Absolute URL of the key file when it is not `/<key>.txt` at the root. */
+  readonly keyLocation?: string;
+  readonly log: readonly IndexNowSubmission[];
+}
+
+/** Where the IndexNow key file is expected: `keyLocation`, else `/<key>.txt` on the origin. */
+export function indexNowKeyUrl(record: IndexNowRecord | undefined, origin: string): string | undefined {
+  if (record === undefined || record.key === '') return undefined;
+  if (record.keyLocation !== undefined) return record.keyLocation;
+  try {
+    return new URL(`/${encodeURIComponent(record.key)}.txt`, origin).href;
+  } catch {
+    return undefined;
+  }
+}
+
 /** The search engines a Search Console export can speak for. */
 export const REPORTING_MEASURED_ENGINES = ['google'] as const;
 
@@ -549,8 +774,106 @@ export interface CruxRecord extends InputRecord {
   readonly populations: readonly FieldVitalsPopulation[];
 }
 
+/** What a tag does before the visitor has answered the consent banner. */
+export const ANALYTICS_CONSENT_DEFAULTS = ['granted', 'denied'] as const;
+
+/** Whether an event must reach the property or must be held back (`suppressed`, e.g. until consent). */
+export const ANALYTICS_EVENT_EXPECTATIONS = ['sent', 'suppressed'] as const;
+
+/** One event the site's tagging plan promises, the trigger that fires it and whether it should be sent. */
+export interface AnalyticsEvent {
+  readonly name: string;
+  /** What sets it off, in the owner's words: `page_view on load`, `click on #buy`… */
+  readonly trigger: string;
+  readonly expect: (typeof ANALYTICS_EVENT_EXPECTATIONS)[number];
+}
+
+/** One figure as a named source reports it. */
+export interface AnalyticsSourceFigure {
+  /** The tool the number comes from: `ga4`, `search-console`, `server-logs`… */
+  readonly name: string;
+  readonly value: number;
+}
+
+/** One metric over a period, reported by two sources that ought to agree. */
+export interface AnalyticsReconciliation {
+  /** `sessions`, `clicks`, `orders`… */
+  readonly metric: string;
+  /** The date range both figures cover, as exported: `2026-08-01/2026-08-31`. */
+  readonly period: string;
+  readonly sourceA: AnalyticsSourceFigure;
+  readonly sourceB: AnalyticsSourceFigure;
+  /** Why the two figures differ, in the owner's words (sampling, bot filtering, consent loss…). */
+  readonly explanation?: string;
+}
+
+/** How analytics is set up (measurement IDs, consent default, event plan) and what its numbers were reconciled against. */
+export interface AnalyticsRecord extends InputRecord {
+  readonly measurementIds: readonly string[];
+  readonly consentDefault: (typeof ANALYTICS_CONSENT_DEFAULTS)[number];
+  readonly events: readonly AnalyticsEvent[];
+  readonly reported: readonly AnalyticsReconciliation[];
+}
+
+/**
+ * One request from an access log. `path` is the URL path alone: the query
+ * string and fragment are dropped before storage, because they are where
+ * personal data (emails, tokens, session ids) ends up in a log.
+ */
+export interface ServerLogHit {
+  /** ISO 8601 instant. */
+  readonly at: string;
+  readonly method: string;
+  readonly path: string;
+  readonly status: number;
+  readonly userAgent: string;
+  /** The request carried a query string. Only that fact is kept, never its content. */
+  readonly parameterised?: boolean;
+}
+
+/**
+ * An access log in combined format, named by path. `hits` is filled by
+ * `loadServerLogs`, which reads the file a line at a time; `skippedLines`
+ * counts lines that were not combined format.
+ */
+export interface ServerLogsRecord extends InputRecord {
+  /** Path of the log file, relative to the inputs file. */
+  readonly path: string;
+  readonly hits?: readonly ServerLogHit[];
+  readonly skippedLines?: number;
+}
+
+/** One product a Merchant Center feed lists. `gtin` and `brand` are absent when the feed leaves them out. */
+export interface MerchantFeedItem {
+  readonly id: string;
+  readonly link: string;
+  readonly price: number;
+  /** ISO 4217 code. */
+  readonly currency: string;
+  /** As the feed words it, lower-cased: `in stock`, `out of stock`, `preorder`, `backorder`. */
+  readonly availability: string;
+  readonly gtin?: string;
+  readonly brand?: string;
+}
+
+/**
+ * A Merchant Center feed, named by path: RSS with the `g:` namespace, or TSV.
+ * `items` is filled by `loadMerchantFeed`, which reads the file strictly.
+ */
+export interface MerchantFeedRecord extends InputRecord {
+  /** Path of the feed file, relative to the inputs file. */
+  readonly path: string;
+  readonly items?: readonly MerchantFeedItem[];
+}
+
 /** Every section an audit can be given. */
 export interface AuditInputs {
+  /** A Merchant Center feed, reduced to items. */
+  readonly merchantFeed?: MerchantFeedRecord;
+  /** An access log in combined format, reduced to hits without query strings. */
+  readonly serverLogs?: ServerLogsRecord;
+  /** Analytics setup, event plan and cross-source reconciliation. */
+  readonly analytics?: AnalyticsRecord;
   /** Field Core Web Vitals populations, p75 per metric (6.2). */
   readonly crux?: CruxRecord;
   /** Lighthouse reports per URL and the performance policy (1.5, 4.5). */
@@ -583,10 +906,34 @@ export interface AuditInputs {
   readonly environments?: EnvironmentsRecord;
   /** What was decided for each declining URL (7.2). */
   readonly contentDecisions?: readonly ContentDecision[];
+  /** A person's review of each priority page's content (3.5). */
+  readonly contentReview?: readonly ContentReview[];
+  /** Which page answers which queries, and why it exists (0.2). */
+  readonly keywordMap?: readonly KeywordMapEntry[];
+  /** The checkout cases tested by hand (4.10). */
+  readonly checkoutMatrix?: CheckoutMatrixRecord;
+  /** The brand's legal and public names and the profiles it stands behind (0.5). */
+  readonly brandEntity?: BrandEntityRecord;
+  /** The competitors the site is benchmarked against in search results (0.1). */
+  readonly competitorBaseline?: CompetitorBaselineRecord;
+  /** Eligibility, verification and locations of the Google Business Profile (2.12). */
+  readonly businessProfile?: BusinessProfileRecord;
+  /** The IndexNow key, its file location and the submission log (2.10). */
+  readonly indexNow?: IndexNowRecord;
+  /** The incident log and how often alert tests must be run (7.1). */
+  readonly incidents?: IncidentsRecord;
+  /** The known vulnerabilities, their owners and fix dates (7.10). */
+  readonly vulnerabilities?: VulnerabilitiesRecord;
+  /** The off-page review destinations, their policy dates and recheck dates (7.6). */
+  readonly reviewDestinations?: ReviewDestinationsRecord;
+  /** The digital PR plan, its owner and the links it has won (7.5). */
+  readonly digitalPr?: DigitalPrRecord;
+  /** The manual accessibility evaluation: scope, methods, limitations, blockers, conformance claim (4.4). */
+  readonly a11yEvaluation?: A11yEvaluationRecord;
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics', 'serverLogs', 'merchantFeed', 'checkoutMatrix', 'a11yEvaluation', 'contentReview', 'brandEntity', 'keywordMap', 'competitorBaseline', 'businessProfile', 'indexNow', 'incidents', 'reviewDestinations', 'digitalPr', 'vulnerabilities'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -1205,7 +1552,765 @@ function parseContentDecisions(value: unknown, problem: (path: string, text: str
   return ok ? out : null;
 }
 
-const DISAVOW_KEYS = ['submitted', 'reasons', 'removalAttempts'];
+const CONTENT_REVIEW_KEYS = ['url', 'reviewer', 'reviewedAt', 'verdict'];
+
+function parseContentReview(value: unknown, problem: (path: string, text: string) => void): ContentReview[] | null {
+  if (!Array.isArray(value)) {
+    problem('contentReview', 'expected a list');
+    return null;
+  }
+  const out: ContentReview[] = [];
+  let ok = true;
+  const seen = new Set<string>();
+  value.forEach((node, index) => {
+    const path = `contentReview[${index}]`;
+    if (!isNode(node)) {
+      problem(path, 'expected a mapping');
+      ok = false;
+      return;
+    }
+    for (const key of Object.keys(node)) {
+      if (!CONTENT_REVIEW_KEYS.includes(key)) {
+        problem(`${path}.${key}`, 'unknown field');
+        ok = false;
+      }
+    }
+    const text = (key: string): string | null => {
+      const raw = node[key];
+      if (typeof raw === 'string' && raw.trim() !== '') return raw.trim();
+      problem(`${path}.${key}`, raw === undefined || raw === null || raw === '' ? 'required' : `expected text, got ${typeof raw} (quote it)`);
+      ok = false;
+      return null;
+    };
+    const url = text('url');
+    if (url !== null && !isHttpUrl(url)) {
+      problem(`${path}.url`, `expected an http(s) URL: ${url}`);
+      ok = false;
+    } else if (url !== null) {
+      if (seen.has(url)) {
+        problem(`${path}.url`, `duplicate review: ${url}`);
+        ok = false;
+      }
+      seen.add(url);
+    }
+    const reviewer = text('reviewer');
+    const verdict = text('verdict');
+    const known = verdict !== null && (CONTENT_VERDICTS as readonly string[]).includes(verdict);
+    if (verdict !== null && !known) {
+      problem(`${path}.verdict`, `expected one of ${CONTENT_VERDICTS.join(', ')}, got ${verdict}`);
+      ok = false;
+    }
+    const reviewedRaw = text('reviewedAt');
+    const ms = reviewedRaw === null ? null : instant(reviewedRaw);
+    if (reviewedRaw !== null && ms === null) {
+      problem(`${path}.reviewedAt`, `not a date and time: ${reviewedRaw}`);
+      ok = false;
+    }
+    if (url !== null && reviewer !== null && known && ms !== null) {
+      out.push({ url, reviewer, reviewedAt: new Date(ms).toISOString(), verdict: verdict as ContentVerdict });
+    }
+  });
+  return ok ? out : null;
+}
+
+const KEYWORD_MAP_KEYS = ['url', 'purpose', 'queries'];
+
+function parseKeywordMap(value: unknown, problem: (path: string, text: string) => void): KeywordMapEntry[] | null {
+  if (!Array.isArray(value)) {
+    problem('keywordMap', 'expected a list');
+    return null;
+  }
+  const out: KeywordMapEntry[] = [];
+  let ok = true;
+  const seen = new Set<string>();
+  value.forEach((node, index) => {
+    const path = `keywordMap[${index}]`;
+    if (!isNode(node)) {
+      problem(path, 'expected a mapping');
+      ok = false;
+      return;
+    }
+    for (const key of Object.keys(node)) {
+      if (!KEYWORD_MAP_KEYS.includes(key)) {
+        problem(`${path}.${key}`, 'unknown field');
+        ok = false;
+      }
+    }
+    const text = (key: string): string | null => {
+      const raw = node[key];
+      if (typeof raw === 'string' && raw.trim() !== '') return raw.trim();
+      problem(`${path}.${key}`, raw === undefined || raw === null || raw === '' ? 'required' : `expected text, got ${typeof raw} (quote it)`);
+      ok = false;
+      return null;
+    };
+    const url = text('url');
+    if (url !== null && !isHttpUrl(url)) {
+      problem(`${path}.url`, `expected an http(s) URL: ${url}`);
+      ok = false;
+    } else if (url !== null) {
+      if (seen.has(url)) {
+        problem(`${path}.url`, `duplicate mapping: ${url}`);
+        ok = false;
+      }
+      seen.add(url);
+    }
+    const purpose = text('purpose');
+    const queries: string[] = [];
+    const raw = node['queries'];
+    if (!Array.isArray(raw) || raw.length === 0) {
+      problem(`${path}.queries`, raw === undefined || raw === null ? 'required' : 'expected a non-empty list');
+      ok = false;
+    } else {
+      raw.forEach((item, at) => {
+        if (typeof item !== 'string' || item.trim() === '') {
+          problem(`${path}.queries[${at}]`, 'expected text');
+          ok = false;
+        } else queries.push(item.trim());
+      });
+    }
+    if (url !== null && purpose !== null) out.push({ url, purpose, queries });
+  });
+  return ok ? out : null;
+}
+
+const CHECKOUT_MATRIX_KEYS = ['cases'];
+
+function parseCheckoutMatrix(value: unknown, problem: (path: string, text: string) => void): CheckoutMatrixRecord | null {
+  const record = parseInputRecord('checkoutMatrix', value, problem, CHECKOUT_MATRIX_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`checkoutMatrix${path}`, text);
+    ok = false;
+  };
+  const raw = value['cases'];
+  if (!Array.isArray(raw)) {
+    fail('.cases', raw === undefined || raw === null ? 'required' : 'expected a list');
+    return null;
+  }
+  if (raw.length === 0) fail('.cases', 'expected at least one case');
+  const cases: CheckoutCase[] = [];
+  const seen = new Set<string>();
+  raw.forEach((node, index) => {
+    const path = `.cases[${index}]`;
+    if (!isNode(node)) {
+      fail(path, 'expected a mapping');
+      return;
+    }
+    for (const key of Object.keys(node)) {
+      if (!['case', 'url', 'result', 'testedAt'].includes(key)) fail(`${path}.${key}`, 'unknown field');
+    }
+    const text = (key: string): string | null => {
+      const field = node[key];
+      if (typeof field === 'string' && field.trim() !== '') return field.trim();
+      fail(`${path}.${key}`, field === undefined || field === null || field === '' ? 'required' : `expected text, got ${typeof field} (quote it)`);
+      return null;
+    };
+    const name = text('case');
+    if (name !== null) {
+      if (seen.has(name.toLowerCase())) fail(`${path}.case`, `duplicate case: ${name}`);
+      seen.add(name.toLowerCase());
+    }
+    const url = text('url');
+    if (url !== null && !isHttpUrl(url)) fail(`${path}.url`, `expected an http(s) URL: ${url}`);
+    const resultRaw = text('result');
+    const result = resultRaw === null ? null : resultRaw.toLowerCase();
+    if (result !== null && result !== 'pass' && result !== 'fail') fail(`${path}.result`, `expected pass or fail, got ${resultRaw}`);
+    const testedRaw = text('testedAt');
+    const ms = testedRaw === null ? null : instant(testedRaw);
+    if (testedRaw !== null && ms === null) fail(`${path}.testedAt`, `not a date and time: ${testedRaw}`);
+    if (name !== null && url !== null && isHttpUrl(url) && (result === 'pass' || result === 'fail') && ms !== null) {
+      cases.push({ case: name, url, result, testedAt: new Date(ms).toISOString() });
+    }
+  });
+  return ok ? { ...record, cases } : null;
+}
+
+const A11Y_EVALUATION_KEYS = ['scope', 'methods', 'limitations', 'blockers', 'conformanceClaim'];
+
+function parseA11yEvaluation(value: unknown, problem: (path: string, text: string) => void): A11yEvaluationRecord | null {
+  const record = parseInputRecord('a11yEvaluation', value, problem, A11Y_EVALUATION_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`a11yEvaluation${path}`, text);
+    ok = false;
+  };
+  const missing = (raw: unknown): boolean => raw === undefined || raw === null || raw === '';
+  const text = (node: Node, path: string, key: string): string | null => {
+    const raw = node[key];
+    if (typeof raw === 'string' && raw.trim() !== '') return raw.trim();
+    fail(`${path}.${key}`, missing(raw) ? 'required' : `expected text, got ${typeof raw} (quote it)`);
+    return null;
+  };
+  const lines = (key: 'methods' | 'limitations', atLeastOne: boolean): string[] => {
+    const raw = value[key];
+    const out: string[] = [];
+    if (!Array.isArray(raw)) {
+      fail(`.${key}`, missing(raw) ? 'required' : 'expected a list');
+      return out;
+    }
+    raw.forEach((item, index) => {
+      if (typeof item !== 'string' || item.trim() === '') fail(`.${key}[${index}]`, 'expected text');
+      else out.push(item.trim());
+    });
+    if (atLeastOne && raw.length === 0) fail(`.${key}`, 'expected at least one entry');
+    return out;
+  };
+
+  const scope = text(value, '', 'scope');
+  const methods = lines('methods', true);
+  const limitations = lines('limitations', false);
+
+  const blockers: A11yBlocker[] = [];
+  const blockersRaw = value['blockers'];
+  if (!Array.isArray(blockersRaw)) {
+    fail('.blockers', missing(blockersRaw) ? 'required' : 'expected a list');
+  } else {
+    blockersRaw.forEach((node, index) => {
+      const path = `.blockers[${index}]`;
+      if (!isNode(node)) {
+        fail(path, 'expected a mapping');
+        return;
+      }
+      for (const key of Object.keys(node)) {
+        if (!['criterion', 'url', 'resolved'].includes(key)) fail(`${path}.${key}`, 'unknown field');
+      }
+      const criterion = text(node, path, 'criterion');
+      const url = text(node, path, 'url');
+      if (url !== null && !isHttpUrl(url)) fail(`${path}.url`, `expected an http(s) URL: ${url}`);
+      const resolved = node['resolved'];
+      if (typeof resolved !== 'boolean') fail(`${path}.resolved`, missing(resolved) ? 'required' : 'expected true or false');
+      if (criterion !== null && url !== null && isHttpUrl(url) && typeof resolved === 'boolean') blockers.push({ criterion, url, resolved });
+    });
+  }
+
+  const claimRaw = value['conformanceClaim'];
+  if (!missing(claimRaw) && typeof claimRaw !== 'string') fail('.conformanceClaim', `expected text, got ${typeof claimRaw} (quote it)`);
+  if (!ok || scope === null) return null;
+  return { ...record, scope, methods, limitations, blockers, conformanceClaim: typeof claimRaw === 'string' ? claimRaw.trim() : '' };
+}
+
+const BRAND_ENTITY_KEYS = ['legalName', 'publicName', 'sameAs'];
+
+function parseBrandEntity(value: unknown, problem: (path: string, text: string) => void): BrandEntityRecord | null {
+  const record = parseInputRecord('brandEntity', value, problem, BRAND_ENTITY_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`brandEntity${path}`, text);
+    ok = false;
+  };
+  const missing = (raw: unknown): boolean => raw === undefined || raw === null || raw === '';
+  const name = (key: 'legalName' | 'publicName'): string | null => {
+    const raw = value[key];
+    if (typeof raw === 'string' && raw.trim() !== '') return raw.trim();
+    fail(`.${key}`, missing(raw) ? 'required' : `expected text, got ${typeof raw} (quote it)`);
+    return null;
+  };
+  const legalName = name('legalName');
+  const publicName = name('publicName');
+  const sameAs: string[] = [];
+  const raw = value['sameAs'];
+  if (!Array.isArray(raw)) {
+    fail('.sameAs', missing(raw) ? 'required' : 'expected a list');
+  } else {
+    raw.forEach((item, index) => {
+      if (typeof item !== 'string' || item.trim() === '') fail(`.sameAs[${index}]`, 'expected text');
+      else if (!isHttpUrl(item.trim())) fail(`.sameAs[${index}]`, `expected an http(s) URL: ${item}`);
+      else sameAs.push(item.trim());
+    });
+  }
+  if (!ok || legalName === null || publicName === null) return null;
+  return { ...record, legalName, publicName, sameAs };
+}
+
+const COMPETITOR_BASELINE_KEYS = ['audience', 'market', 'language', 'competitors', 'baselineAt'];
+
+function parseCompetitorBaseline(value: unknown, problem: (path: string, text: string) => void): CompetitorBaselineRecord | null {
+  const record = parseInputRecord('competitorBaseline', value, problem, COMPETITOR_BASELINE_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`competitorBaseline${path}`, text);
+    ok = false;
+  };
+  const missing = (raw: unknown): boolean => raw === undefined || raw === null;
+  const text = (key: 'audience' | 'market' | 'language'): string => {
+    const raw = value[key];
+    if (missing(raw)) return '';
+    if (typeof raw === 'string') return raw.trim();
+    fail(`.${key}`, `expected text, got ${typeof raw} (quote it)`);
+    return '';
+  };
+  const audience = text('audience');
+  const market = text('market');
+  const language = text('language');
+  const competitors: string[] = [];
+  const raw = value['competitors'];
+  if (!missing(raw)) {
+    if (!Array.isArray(raw)) fail('.competitors', 'expected a list');
+    else {
+      raw.forEach((item, index) => {
+        if (typeof item !== 'string' || item.trim() === '') fail(`.competitors[${index}]`, 'expected text');
+        else competitors.push(item.trim());
+      });
+    }
+  }
+  let baselineAt = '';
+  const at = value['baselineAt'];
+  if (!missing(at)) {
+    if (typeof at !== 'string') fail('.baselineAt', `expected text, got ${typeof at} (quote it)`);
+    else if (at.trim() !== '') {
+      const ms = instant(at);
+      if (ms === null) fail('.baselineAt', `not a date and time: ${at}`);
+      else baselineAt = new Date(ms).toISOString();
+    }
+  }
+  if (!ok) return null;
+  return { ...record, audience, market, language, competitors, baselineAt };
+}
+
+const BUSINESS_PROFILE_KEYS = ['eligible', 'verification', 'locations'];
+const BUSINESS_LOCATION_KEYS = ['name', 'address', 'phone', 'url'];
+
+function parseBusinessProfile(value: unknown, problem: (path: string, text: string) => void): BusinessProfileRecord | null {
+  const record = parseInputRecord('businessProfile', value, problem, BUSINESS_PROFILE_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`businessProfile${path}`, text);
+    ok = false;
+  };
+  const missing = (raw: unknown): boolean => raw === undefined || raw === null || raw === '';
+  const eligible = value['eligible'];
+  if (typeof eligible !== 'boolean') fail('.eligible', missing(eligible) ? 'required' : 'expected true or false');
+  const verificationRaw = value['verification'];
+  const verification = BUSINESS_PROFILE_VERIFICATIONS.find((v) => v === verificationRaw);
+  if (verification === undefined) {
+    fail('.verification', missing(verificationRaw) ? 'required' : `expected one of ${BUSINESS_PROFILE_VERIFICATIONS.join(', ')}`);
+  }
+  const locations: BusinessProfileLocation[] = [];
+  const raw = value['locations'];
+  if (!missing(raw)) {
+    if (!Array.isArray(raw)) fail('.locations', 'expected a list');
+    else {
+      raw.forEach((node, index) => {
+        const path = `.locations[${index}]`;
+        if (!isNode(node)) {
+          fail(path, 'expected a mapping');
+          return;
+        }
+        let good = true;
+        for (const key of Object.keys(node)) {
+          if (!BUSINESS_LOCATION_KEYS.includes(key)) {
+            fail(`${path}.${key}`, 'unknown field');
+            good = false;
+          }
+        }
+        const text = (key: string): string => {
+          const field = node[key];
+          if (typeof field === 'string' && field.trim() !== '') return field.trim();
+          fail(`${path}.${key}`, missing(field) ? 'required' : `expected text, got ${typeof field} (quote it)`);
+          good = false;
+          return '';
+        };
+        const name = text('name');
+        const address = text('address');
+        const phone = text('phone');
+        const url = text('url');
+        if (url !== '' && !isHttpUrl(url)) {
+          fail(`${path}.url`, `expected an http(s) URL: ${url}`);
+          good = false;
+        }
+        if (good) locations.push({ name, address, phone, url });
+      });
+    }
+  }
+  if (!ok || typeof eligible !== 'boolean' || verification === undefined) return null;
+  return { ...record, eligible, verification, locations };
+}
+
+const INDEXNOW_KEYS = ['key', 'keyLocation', 'log'];
+const INDEXNOW_LOG_KEYS = ['url', 'sentAt', 'status'];
+
+function parseIndexNow(value: unknown, problem: (path: string, text: string) => void): IndexNowRecord | null {
+  const record = parseInputRecord('indexNow', value, problem, INDEXNOW_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`indexNow${path}`, text);
+    ok = false;
+  };
+  const missing = (raw: unknown): boolean => raw === undefined || raw === null || raw === '';
+  const keyRaw = value['key'];
+  let key = '';
+  if (typeof keyRaw === 'string' && keyRaw.trim() !== '') key = keyRaw.trim();
+  else fail('.key', missing(keyRaw) ? 'required' : `expected text, got ${typeof keyRaw} (quote it)`);
+  const locationRaw = value['keyLocation'];
+  let keyLocation: string | undefined;
+  if (!missing(locationRaw)) {
+    if (typeof locationRaw !== 'string') fail('.keyLocation', `expected text, got ${typeof locationRaw} (quote it)`);
+    else if (!isHttpUrl(locationRaw.trim())) fail('.keyLocation', `expected an http(s) URL: ${locationRaw}`);
+    else keyLocation = locationRaw.trim();
+  }
+  const log: IndexNowSubmission[] = [];
+  const raw = value['log'];
+  if (!missing(raw)) {
+    if (!Array.isArray(raw)) fail('.log', 'expected a list');
+    else {
+      raw.forEach((node, index) => {
+        const path = `.log[${index}]`;
+        if (!isNode(node)) {
+          fail(path, 'expected a mapping');
+          return;
+        }
+        let good = true;
+        for (const field of Object.keys(node)) {
+          if (!INDEXNOW_LOG_KEYS.includes(field)) {
+            fail(`${path}.${field}`, 'unknown field');
+            good = false;
+          }
+        }
+        const url = node['url'];
+        if (typeof url !== 'string' || !isHttpUrl(url.trim())) {
+          fail(`${path}.url`, missing(url) ? 'required' : typeof url === 'string' ? `expected an http(s) URL: ${url}` : `expected text, got ${typeof url} (quote it)`);
+          good = false;
+        }
+        const sentRaw = node['sentAt'];
+        let sentAt = '';
+        if (typeof sentRaw !== 'string') {
+          fail(`${path}.sentAt`, missing(sentRaw) ? 'required' : `expected text, got ${typeof sentRaw} (quote it)`);
+          good = false;
+        } else {
+          const ms = instant(sentRaw);
+          if (ms === null) {
+            fail(`${path}.sentAt`, `not a date and time: ${sentRaw}`);
+            good = false;
+          } else sentAt = new Date(ms).toISOString();
+        }
+        const status = node['status'];
+        if (typeof status !== 'number' || !Number.isInteger(status) || status < 100 || status > 599) {
+          fail(`${path}.status`, missing(status) ? 'required' : 'expected an HTTP status number');
+          good = false;
+        }
+        if (good) log.push({ url: (url as string).trim(), sentAt, status: status as number });
+      });
+    }
+  }
+  if (!ok) return null;
+  return { ...record, key, ...(keyLocation === undefined ? {} : { keyLocation }), log };
+}
+
+const INCIDENTS_KEYS = ['testAlertIntervalDays', 'entries'];
+const INCIDENT_ENTRY_KEYS = ['openedAt', 'owner', 'remediation', 'closedAt'];
+
+function parseIncidents(value: unknown, problem: (path: string, text: string) => void): IncidentsRecord | null {
+  const record = parseInputRecord('incidents', value, problem, INCIDENTS_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`incidents${path}`, text);
+    ok = false;
+  };
+  const missing = (raw: unknown): boolean => raw === undefined || raw === null || raw === '';
+  const interval = value['testAlertIntervalDays'];
+  if (typeof interval !== 'number' || !Number.isFinite(interval) || interval <= 0) {
+    fail('.testAlertIntervalDays', missing(interval) ? 'required' : 'expected a positive number of days');
+  }
+  const entries: IncidentEntry[] = [];
+  const raw = value['entries'];
+  if (!missing(raw)) {
+    if (!Array.isArray(raw)) fail('.entries', 'expected a list');
+    else {
+      raw.forEach((node, index) => {
+        const path = `.entries[${index}]`;
+        if (!isNode(node)) {
+          fail(path, 'expected a mapping');
+          return;
+        }
+        let good = true;
+        for (const field of Object.keys(node)) {
+          if (!INCIDENT_ENTRY_KEYS.includes(field)) {
+            fail(`${path}.${field}`, 'unknown field');
+            good = false;
+          }
+        }
+        const stamp = (key: 'openedAt' | 'closedAt', required: boolean): string => {
+          const at = node[key];
+          if (missing(at)) {
+            if (required) {
+              fail(`${path}.${key}`, 'required');
+              good = false;
+            }
+            return '';
+          }
+          if (typeof at !== 'string') {
+            fail(`${path}.${key}`, `expected text, got ${typeof at} (quote it)`);
+            good = false;
+            return '';
+          }
+          const ms = instant(at);
+          if (ms === null) {
+            fail(`${path}.${key}`, `not a date and time: ${at}`);
+            good = false;
+            return '';
+          }
+          return new Date(ms).toISOString();
+        };
+        const text = (key: 'owner' | 'remediation'): string => {
+          const at = node[key];
+          if (missing(at)) return '';
+          if (typeof at !== 'string') {
+            fail(`${path}.${key}`, `expected text, got ${typeof at} (quote it)`);
+            good = false;
+            return '';
+          }
+          return at.trim();
+        };
+        const openedAt = stamp('openedAt', true);
+        const closedAt = stamp('closedAt', false);
+        const owner = text('owner');
+        const remediation = text('remediation');
+        if (good && closedAt !== '' && closedAt < openedAt) {
+          fail(`${path}.closedAt`, 'closed before it was opened');
+          good = false;
+        }
+        if (good) entries.push({ openedAt, owner, remediation, ...(closedAt === '' ? {} : { closedAt }) });
+      });
+    }
+  }
+  if (!ok) return null;
+  return { ...record, testAlertIntervalDays: interval as number, entries };
+}
+
+const VULNERABILITIES_KEYS = ['entries'];
+const VULNERABILITY_ENTRY_KEYS = ['id', 'severity', 'owner', 'fixedAt'];
+
+function parseVulnerabilities(value: unknown, problem: (path: string, text: string) => void): VulnerabilitiesRecord | null {
+  const record = parseInputRecord('vulnerabilities', value, problem, VULNERABILITIES_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`vulnerabilities${path}`, text);
+    ok = false;
+  };
+  const missing = (raw: unknown): boolean => raw === undefined || raw === null || raw === '';
+  const entries: VulnerabilityEntry[] = [];
+  const raw = value['entries'];
+  if (raw === undefined || raw === null) fail('.entries', 'required');
+  else if (!Array.isArray(raw)) fail('.entries', 'expected a list');
+  else {
+    raw.forEach((node, index) => {
+      const path = `.entries[${index}]`;
+      if (!isNode(node)) {
+        fail(path, 'expected a mapping');
+        return;
+      }
+      let good = true;
+      for (const field of Object.keys(node)) {
+        if (!VULNERABILITY_ENTRY_KEYS.includes(field)) {
+          fail(`${path}.${field}`, 'unknown field');
+          good = false;
+        }
+      }
+      const id = node['id'];
+      if (typeof id !== 'string' || id.trim() === '') {
+        fail(`${path}.id`, missing(id) || typeof id === 'string' ? 'required' : `expected text, got ${typeof id} (quote it)`);
+        good = false;
+      }
+      const severity = node['severity'];
+      if (typeof severity !== 'string' || !(VULNERABILITY_SEVERITIES as readonly string[]).includes(severity)) {
+        fail(`${path}.severity`, missing(severity) ? 'required' : `expected one of ${VULNERABILITY_SEVERITIES.join(', ')}`);
+        good = false;
+      }
+      let owner = '';
+      const rawOwner = node['owner'];
+      if (!missing(rawOwner)) {
+        if (typeof rawOwner !== 'string') {
+          fail(`${path}.owner`, `expected text, got ${typeof rawOwner} (quote it)`);
+          good = false;
+        } else owner = rawOwner.trim();
+      }
+      let fixedAt = '';
+      const rawFixed = node['fixedAt'];
+      if (!missing(rawFixed)) {
+        if (typeof rawFixed !== 'string') {
+          fail(`${path}.fixedAt`, `expected text, got ${typeof rawFixed} (quote it)`);
+          good = false;
+        } else {
+          const ms = instant(rawFixed);
+          if (ms === null) {
+            fail(`${path}.fixedAt`, `not a date and time: ${rawFixed}`);
+            good = false;
+          } else fixedAt = new Date(ms).toISOString();
+        }
+      }
+      if (good) {
+        entries.push({
+          id: (id as string).trim(),
+          severity: severity as VulnerabilityEntry['severity'],
+          owner,
+          ...(fixedAt === '' ? {} : { fixedAt }),
+        });
+      }
+    });
+  }
+  if (!ok) return null;
+  return { ...record, entries };
+}
+
+const DIGITAL_PR_KEYS = ['plan', 'wins'];
+const DIGITAL_PR_WIN_KEYS = ['url', 'date', 'paid'];
+
+function parseDigitalPr(value: unknown, problem: (path: string, text: string) => void): DigitalPrRecord | null {
+  const record = parseInputRecord('digitalPr', value, problem, DIGITAL_PR_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`digitalPr${path}`, text);
+    ok = false;
+  };
+  const missing = (raw: unknown): boolean => raw === undefined || raw === null || raw === '';
+  let plan = '';
+  const rawPlan = value['plan'];
+  if (missing(rawPlan)) fail('.plan', 'required');
+  else if (typeof rawPlan !== 'string') fail('.plan', `expected text, got ${typeof rawPlan} (quote it)`);
+  else if (rawPlan.trim() === '') fail('.plan', 'required');
+  else plan = rawPlan.trim();
+  const wins: DigitalPrWin[] = [];
+  const raw = value['wins'];
+  if (raw === undefined || raw === null) fail('.wins', 'required');
+  else if (!Array.isArray(raw)) fail('.wins', 'expected a list');
+  else {
+    raw.forEach((node, index) => {
+      const path = `.wins[${index}]`;
+      if (!isNode(node)) {
+        fail(path, 'expected a mapping');
+        return;
+      }
+      let good = true;
+      for (const field of Object.keys(node)) {
+        if (!DIGITAL_PR_WIN_KEYS.includes(field)) {
+          fail(`${path}.${field}`, 'unknown field');
+          good = false;
+        }
+      }
+      const url = node['url'];
+      if (typeof url !== 'string' || !isHttpUrl(url.trim())) {
+        fail(`${path}.url`, 'expected an http(s) URL');
+        good = false;
+      }
+      const date = node['date'];
+      let stamp = '';
+      if (missing(date)) {
+        fail(`${path}.date`, 'required');
+        good = false;
+      } else if (typeof date !== 'string') {
+        fail(`${path}.date`, `expected text, got ${typeof date} (quote it)`);
+        good = false;
+      } else {
+        const ms = instant(date);
+        if (ms === null) {
+          fail(`${path}.date`, `not a date and time: ${date}`);
+          good = false;
+        } else stamp = new Date(ms).toISOString();
+      }
+      const paid = node['paid'];
+      if (typeof paid !== 'boolean') {
+        fail(`${path}.paid`, missing(paid) ? 'required' : 'expected true or false');
+        good = false;
+      }
+      if (good) wins.push({ url: (url as string).trim(), date: stamp, paid: paid as boolean });
+    });
+  }
+  if (!ok) return null;
+  return { ...record, plan, wins };
+}
+
+const REVIEW_DESTINATIONS_KEYS = ['destinations'];
+const REVIEW_DESTINATION_KEYS = ['destination', 'policyDate', 'owner', 'recheckAt'];
+
+function parseReviewDestinations(value: unknown, problem: (path: string, text: string) => void): ReviewDestinationsRecord | null {
+  const record = parseInputRecord('reviewDestinations', value, problem, REVIEW_DESTINATIONS_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`reviewDestinations${path}`, text);
+    ok = false;
+  };
+  const missing = (raw: unknown): boolean => raw === undefined || raw === null || raw === '';
+  const destinations: ReviewDestination[] = [];
+  const raw = value['destinations'];
+  if (missing(raw)) fail('.destinations', 'required');
+  else if (!Array.isArray(raw)) fail('.destinations', 'expected a list');
+  else {
+    raw.forEach((node, index) => {
+      const path = `.destinations[${index}]`;
+      if (!isNode(node)) {
+        fail(path, 'expected a mapping');
+        return;
+      }
+      let good = true;
+      for (const field of Object.keys(node)) {
+        if (!REVIEW_DESTINATION_KEYS.includes(field)) {
+          fail(`${path}.${field}`, 'unknown field');
+          good = false;
+        }
+      }
+      const text = (key: 'destination' | 'owner', required: boolean): string => {
+        const at = node[key];
+        if (missing(at)) {
+          if (required) {
+            fail(`${path}.${key}`, 'required');
+            good = false;
+          }
+          return '';
+        }
+        if (typeof at !== 'string') {
+          fail(`${path}.${key}`, `expected text, got ${typeof at} (quote it)`);
+          good = false;
+          return '';
+        }
+        const trimmed = at.trim();
+        if (required && trimmed === '') {
+          fail(`${path}.${key}`, 'required');
+          good = false;
+        }
+        return trimmed;
+      };
+      const stamp = (key: 'policyDate' | 'recheckAt'): string => {
+        const at = node[key];
+        if (missing(at)) {
+          fail(`${path}.${key}`, 'required');
+          good = false;
+          return '';
+        }
+        if (typeof at !== 'string') {
+          fail(`${path}.${key}`, `expected text, got ${typeof at} (quote it)`);
+          good = false;
+          return '';
+        }
+        const ms = instant(at);
+        if (ms === null) {
+          fail(`${path}.${key}`, `not a date and time: ${at}`);
+          good = false;
+          return '';
+        }
+        return new Date(ms).toISOString();
+      };
+      const destination = text('destination', true);
+      const owner = text('owner', false);
+      const policyDate = stamp('policyDate');
+      const recheckAt = stamp('recheckAt');
+      if (good) destinations.push({ destination, policyDate, owner, recheckAt });
+    });
+  }
+  if (!ok) return null;
+  return { ...record, destinations };
+}
+
+const DISAVOW_KEYS =['submitted', 'reasons', 'removalAttempts'];
 
 function parseDisavow(value: unknown, problem: (path: string, text: string) => void): DisavowRecord | null {
   const record = parseInputRecord('disavow', value, problem, DISAVOW_KEYS);
@@ -1713,6 +2818,138 @@ function parseAiBaseline(value: unknown, problem: (path: string, text: string) =
   return ok ? { ...record, reports } : null;
 }
 
+const ANALYTICS_KEYS = ['measurementIds', 'consentDefault', 'events', 'reported'];
+const ANALYTICS_EVENT_KEYS = ['name', 'trigger', 'expect'];
+const ANALYTICS_REPORTED_KEYS = ['metric', 'period', 'sourceA', 'sourceB', 'explanation'];
+const ANALYTICS_FIGURE_KEYS = ['name', 'value'];
+
+function parseAnalytics(value: unknown, problem: (path: string, text: string) => void): AnalyticsRecord | null {
+  const record = parseInputRecord('analytics', value, problem, ANALYTICS_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`analytics${path}`, text);
+    ok = false;
+  };
+  const absent = (raw: unknown): boolean => raw === undefined || raw === null || raw === '';
+  const text = (node: Node, path: string, key: string): string | null => {
+    const raw = node[key];
+    if (typeof raw === 'string' && raw.trim() !== '') return raw.trim();
+    fail(`${path}.${key}`, absent(raw) ? 'required' : `expected text, got ${typeof raw} (quote it)`);
+    return null;
+  };
+  const oneOf = <T extends string>(node: Node, path: string, key: string, allowed: readonly T[]): T | null => {
+    const raw = text(node, path, key);
+    if (raw === null) return null;
+    if (allowed.includes(raw as T)) return raw as T;
+    fail(`${path}.${key}`, `expected one of ${allowed.join(', ')}: ${raw}`);
+    return null;
+  };
+  const list = (key: string): unknown[] | null => {
+    const raw = value[key];
+    if (absent(raw)) {
+      fail(`.${key}`, 'required');
+      return null;
+    }
+    if (!Array.isArray(raw)) {
+      fail(`.${key}`, 'expected a list');
+      return null;
+    }
+    return raw;
+  };
+
+  const measurementIds: string[] = [];
+  const rawIds = list('measurementIds');
+  if (rawIds !== null) {
+    if (rawIds.length === 0) fail('.measurementIds', 'expected at least one measurement ID');
+    rawIds.forEach((id, index) => {
+      if (typeof id !== 'string' || id.trim() === '') fail(`.measurementIds[${index}]`, absent(id) ? 'required' : `expected text, got ${typeof id} (quote it)`);
+      else if (measurementIds.includes(id.trim())) fail(`.measurementIds[${index}]`, `duplicate measurement ID: ${id.trim()}`);
+      else measurementIds.push(id.trim());
+    });
+  }
+  const consentDefault = oneOf(value, '', 'consentDefault', ANALYTICS_CONSENT_DEFAULTS);
+
+  const events: AnalyticsEvent[] = [];
+  const rawEvents = list('events');
+  if (rawEvents !== null) {
+    const seen = new Set<string>();
+    rawEvents.forEach((node, index) => {
+      const path = `.events[${index}]`;
+      if (!isNode(node)) {
+        fail(path, 'expected a mapping');
+        return;
+      }
+      for (const key of Object.keys(node)) if (!ANALYTICS_EVENT_KEYS.includes(key)) fail(`${path}.${key}`, 'unknown field');
+      const name = text(node, path, 'name');
+      const trigger = text(node, path, 'trigger');
+      const expect = oneOf(node, path, 'expect', ANALYTICS_EVENT_EXPECTATIONS);
+      if (name !== null && trigger !== null) {
+        const key = `${name}\n${trigger}`;
+        if (seen.has(key)) fail(`${path}.name`, `duplicate event: ${name}`);
+        seen.add(key);
+      }
+      if (name !== null && trigger !== null && expect !== null) events.push({ name, trigger, expect });
+    });
+  }
+
+  const reported: AnalyticsReconciliation[] = [];
+  const rawReported = list('reported');
+  if (rawReported !== null) {
+    const seen = new Set<string>();
+    rawReported.forEach((node, index) => {
+      const path = `.reported[${index}]`;
+      if (!isNode(node)) {
+        fail(path, 'expected a mapping');
+        return;
+      }
+      for (const key of Object.keys(node)) if (!ANALYTICS_REPORTED_KEYS.includes(key)) fail(`${path}.${key}`, 'unknown field');
+      const metric = text(node, path, 'metric');
+      const period = text(node, path, 'period');
+      const figure = (key: 'sourceA' | 'sourceB'): AnalyticsSourceFigure | null => {
+        const raw = node[key];
+        const where = `${path}.${key}`;
+        if (absent(raw)) {
+          fail(where, 'required');
+          return null;
+        }
+        if (!isNode(raw)) {
+          fail(where, 'expected a mapping with name and value');
+          return null;
+        }
+        for (const field of Object.keys(raw)) if (!ANALYTICS_FIGURE_KEYS.includes(field)) fail(`${where}.${field}`, 'unknown field');
+        const name = text(raw, where, 'name');
+        const n = raw['value'];
+        if (typeof n !== 'number' || !Number.isFinite(n) || n < 0) {
+          fail(`${where}.value`, absent(n) ? 'required' : 'expected a number of 0 or more');
+          return null;
+        }
+        return name === null ? null : { name, value: n };
+      };
+      const sourceA = figure('sourceA');
+      const sourceB = figure('sourceB');
+      if (sourceA !== null && sourceB !== null && sourceA.name === sourceB.name) {
+        fail(`${path}.sourceB`, `reconciliation needs two different sources, both are ${sourceA.name}`);
+      }
+      if (metric !== null && period !== null) {
+        const key = `${metric}\n${period}`;
+        if (seen.has(key)) fail(`${path}.metric`, `duplicate row: ${metric} ${period}`);
+        seen.add(key);
+      }
+      let explanation: string | undefined;
+      const rawExplanation = node['explanation'];
+      if (!absent(rawExplanation)) {
+        if (typeof rawExplanation === 'string' && rawExplanation.trim() !== '') explanation = rawExplanation.trim();
+        else fail(`${path}.explanation`, `expected text, got ${typeof rawExplanation} (quote it)`);
+      }
+      if (metric !== null && period !== null && sourceA !== null && sourceB !== null) {
+        reported.push({ metric, period, sourceA, sourceB, ...(explanation === undefined ? {} : { explanation }) });
+      }
+    });
+  }
+  return ok && consentDefault !== null ? { ...record, measurementIds, consentDefault, events, reported } : null;
+}
+
 const CRUX_KEYS = ['populations'];
 const POPULATION_KEYS = ['source', 'target', 'formFactor', 'periodStart', 'periodEnd', 'lcpMs', 'inpMs', 'cls', 'actions'];
 const FIELD_ACTION_KEYS = ['metric', 'owner', 'retestAt'];
@@ -1893,6 +3130,28 @@ function parseLighthouse(value: unknown, problem: (path: string, text: string) =
   return ok ? { ...record, reports, ...(perfPolicy !== undefined ? { perfPolicy } : {}) } : null;
 }
 
+const SERVER_LOGS_KEYS = ['path'];
+
+function parseServerLogs(value: unknown, problem: (path: string, text: string) => void): ServerLogsRecord | null {
+  const record = parseInputRecord('serverLogs', value, problem, SERVER_LOGS_KEYS);
+  if (record === null || !isNode(value)) return null;
+  const raw = value['path'];
+  if (typeof raw === 'string' && raw.trim() !== '') return { ...record, path: raw.trim() };
+  problem('serverLogs.path', raw === undefined || raw === null || raw === '' ? 'required' : `expected text, got ${typeof raw} (quote it)`);
+  return null;
+}
+
+const MERCHANT_FEED_KEYS = ['path'];
+
+function parseMerchantFeed(value: unknown, problem: (path: string, text: string) => void): MerchantFeedRecord | null {
+  const record = parseInputRecord('merchantFeed', value, problem, MERCHANT_FEED_KEYS);
+  if (record === null || !isNode(value)) return null;
+  const raw = value['path'];
+  if (typeof raw === 'string' && raw.trim() !== '') return { ...record, path: raw.trim() };
+  problem('merchantFeed.path', raw === undefined || raw === null || raw === '' ? 'required' : `expected text, got ${typeof raw} (quote it)`);
+  return null;
+}
+
 /**
  * Check a parsed inputs value's shape and return it typed. `undefined` and
  * `null` are no inputs. Throws `InputsError` listing every problem found:
@@ -1909,6 +3168,9 @@ export function parseInputs(value: unknown): AuditInputs {
     problems.push(`${path}: ${text}`);
   };
   const inputs: {
+    analytics?: AnalyticsRecord;
+    serverLogs?: ServerLogsRecord;
+    merchantFeed?: MerchantFeedRecord;
     crux?: CruxRecord;
     lighthouse?: LighthouseRecord;
     experiments?: readonly ExperimentRecord[];
@@ -1925,7 +3187,79 @@ export function parseInputs(value: unknown): AuditInputs {
     disavow?: DisavowRecord;
     bingWebmaster?: BingWebmasterRecord;
     aiBaseline?: AiBaselineRecord;
+    checkoutMatrix?: CheckoutMatrixRecord;
+    a11yEvaluation?: A11yEvaluationRecord;
+    contentReview?: readonly ContentReview[];
+    brandEntity?: BrandEntityRecord;
+    competitorBaseline?: CompetitorBaselineRecord;
+    keywordMap?: readonly KeywordMapEntry[];
+    businessProfile?: BusinessProfileRecord;
+    indexNow?: IndexNowRecord;
+    incidents?: IncidentsRecord;
+    reviewDestinations?: ReviewDestinationsRecord;
+    digitalPr?: DigitalPrRecord;
+    vulnerabilities?: VulnerabilitiesRecord;
   } = {};
+  if (value['vulnerabilities'] !== undefined && value['vulnerabilities'] !== null) {
+    const vulnerabilities = parseVulnerabilities(value['vulnerabilities'], problem);
+    if (vulnerabilities !== null) inputs.vulnerabilities = vulnerabilities;
+  }
+  if (value['digitalPr'] !== undefined && value['digitalPr'] !== null) {
+    const digitalPr = parseDigitalPr(value['digitalPr'], problem);
+    if (digitalPr !== null) inputs.digitalPr = digitalPr;
+  }
+  if (value['reviewDestinations'] !== undefined && value['reviewDestinations'] !== null) {
+    const reviewDestinations = parseReviewDestinations(value['reviewDestinations'], problem);
+    if (reviewDestinations !== null) inputs.reviewDestinations = reviewDestinations;
+  }
+  if (value['incidents'] !== undefined && value['incidents'] !== null) {
+    const incidents = parseIncidents(value['incidents'], problem);
+    if (incidents !== null) inputs.incidents = incidents;
+  }
+  if (value['indexNow'] !== undefined && value['indexNow'] !== null) {
+    const indexNow = parseIndexNow(value['indexNow'], problem);
+    if (indexNow !== null) inputs.indexNow = indexNow;
+  }
+  if (value['businessProfile'] !== undefined && value['businessProfile'] !== null) {
+    const businessProfile = parseBusinessProfile(value['businessProfile'], problem);
+    if (businessProfile !== null) inputs.businessProfile = businessProfile;
+  }
+  if (value['competitorBaseline'] !== undefined && value['competitorBaseline'] !== null) {
+    const competitorBaseline = parseCompetitorBaseline(value['competitorBaseline'], problem);
+    if (competitorBaseline !== null) inputs.competitorBaseline = competitorBaseline;
+  }
+  if (value['keywordMap'] !== undefined && value['keywordMap'] !== null) {
+    const keywordMap = parseKeywordMap(value['keywordMap'], problem);
+    if (keywordMap !== null) inputs.keywordMap = keywordMap;
+  }
+  if (value['brandEntity'] !== undefined && value['brandEntity'] !== null) {
+    const brandEntity = parseBrandEntity(value['brandEntity'], problem);
+    if (brandEntity !== null) inputs.brandEntity = brandEntity;
+  }
+  if (value['contentReview'] !== undefined && value['contentReview'] !== null) {
+    const contentReview = parseContentReview(value['contentReview'], problem);
+    if (contentReview !== null) inputs.contentReview = contentReview;
+  }
+  if (value['a11yEvaluation'] !== undefined && value['a11yEvaluation'] !== null) {
+    const a11yEvaluation = parseA11yEvaluation(value['a11yEvaluation'], problem);
+    if (a11yEvaluation !== null) inputs.a11yEvaluation = a11yEvaluation;
+  }
+  if (value['analytics'] !== undefined && value['analytics'] !== null) {
+    const analytics = parseAnalytics(value['analytics'], problem);
+    if (analytics !== null) inputs.analytics = analytics;
+  }
+  if (value['serverLogs'] !== undefined && value['serverLogs'] !== null) {
+    const serverLogs = parseServerLogs(value['serverLogs'], problem);
+    if (serverLogs !== null) inputs.serverLogs = serverLogs;
+  }
+  if (value['checkoutMatrix'] !== undefined && value['checkoutMatrix'] !== null) {
+    const checkoutMatrix = parseCheckoutMatrix(value['checkoutMatrix'], problem);
+    if (checkoutMatrix !== null) inputs.checkoutMatrix = checkoutMatrix;
+  }
+  if (value['merchantFeed'] !== undefined && value['merchantFeed'] !== null) {
+    const merchantFeed = parseMerchantFeed(value['merchantFeed'], problem);
+    if (merchantFeed !== null) inputs.merchantFeed = merchantFeed;
+  }
   if (value['crux'] !== undefined && value['crux'] !== null) {
     const crux = parseCrux(value['crux'], problem);
     if (crux !== null) inputs.crux = crux;

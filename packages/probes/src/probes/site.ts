@@ -6,7 +6,7 @@
 
 import { extract, isAllowed, isSameSite, normalizeUrl, pathDepth } from '@seo/crawler';
 import type { CrawledPage } from '@seo/crawler';
-import { DOMAIN_HISTORY_REQUIRED_CHECKS, REPORTING_MEASURED_ENGINES, inputRecordProblem,isProductToken, isUserDirectedAgent } from '@seo/core';
+import { DOMAIN_HISTORY_REQUIRED_CHECKS, REPORTING_MEASURED_ENGINES, indexNowKeyUrl, inputRecordProblem,isProductToken, isUserDirectedAgent } from '@seo/core';
 import type { SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
 import { checkLanguageTag } from './language-tags.js';
@@ -1848,7 +1848,362 @@ export const aiVisibilityBaseline: SiteProbe = {
   },
 };
 
+const RECONCILIATION_FAIL_GAP = 0.1;
+const RECONCILIATION_WARN_GAP = 0.05;
+
+/** The gap between two figures as a share of the larger one; 0 when both are 0. */
+function figureGap(a: number, b: number): number {
+  const larger = Math.max(a, b);
+  return larger === 0 ? 0 : Math.abs(a - b) / larger;
+}
+
+export const analyticsReconciliation: SiteProbe = {
+  id: 'analytics-reconciliation',
+  scope: 'site',
+  title: 'Analytics figures agree with a second source, or the gap is explained',
+  run({ crawl, inputs }) {
+    const record = inputs?.analytics;
+    if (record === undefined || record.reported.length === 0) return notApplicable('No reported analytics figures were supplied to reconcile.');
+
+    const describe = (row: (typeof record.reported)[number], gap: number): string =>
+      `${row.metric} ${row.period}: ${row.sourceA.name} ${row.sourceA.value} vs ${row.sourceB.name} ${row.sourceB.value} (${(gap * 100).toFixed(1)}% apart)`;
+    const unexplained: string[] = [];
+    const drifting: string[] = [];
+    for (const row of record.reported) {
+      const gap = figureGap(row.sourceA.value, row.sourceB.value);
+      if (gap > RECONCILIATION_FAIL_GAP && row.explanation === undefined) unexplained.push(describe(row, gap));
+      else if (gap > RECONCILIATION_WARN_GAP) drifting.push(describe(row, gap));
+    }
+    const data = { pairs: record.reported.length, unexplained: unexplained.slice(0, 10), drifting: drifting.slice(0, 10) };
+
+    if (unexplained.length > 0) {
+      return fail(`${unexplained.length} reported pair(s) are more than 10% apart with no explanation: ${unexplained.slice(0, 3).join('; ')}.`, data);
+    }
+    if (drifting.length > 0) {
+      return warn(`${drifting.length} reported pair(s) are more than 5% apart: ${drifting.slice(0, 3).join('; ')}.`, data);
+    }
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) return warn(`The analytics record is held for review (${problem}).`, data);
+    return pass(`All ${record.reported.length} reported pair(s) agree within 5%.`, data);
+  },
+};
+
+const LOG_CRAWLER = /googlebot|bingbot/i;
+const LOG_5XX_FAIL_RATE = 0.01;
+const LOG_PARAMETER_WARN_SHARE = 0.25;
+
+export const logFileAnalysis: SiteProbe = {
+  id: 'log-file-analysis',
+  scope: 'site',
+  title: 'Search crawlers meet few server errors, stay out of disallowed URLs and are not spent on parameters',
+  run({ crawl, origin, inputs }) {
+    const record = inputs?.serverLogs;
+    if (record === undefined) return notApplicable('No server log was supplied.');
+    if (record.hits === undefined) return notApplicable('The server log was named but not read, so it holds no hits.');
+
+    // The user agent is a claim: nothing here verifies the address it came from.
+    const hits = record.hits.filter((hit) => LOG_CRAWLER.test(hit.userAgent));
+    if (hits.length === 0) return notApplicable('The server log holds no hits whose user agent claims Googlebot or Bingbot.');
+
+    const errors = hits.filter((hit) => hit.status >= 500 && hit.status <= 599);
+    const errorRate = errors.length / hits.length;
+    const blocked = hits.filter((hit) => {
+      const agent = /googlebot/i.test(hit.userAgent) ? 'Googlebot' : 'Bingbot';
+      return !isAllowed(crawl.robots, agent, new URL(hit.path, origin).toString());
+    });
+    const disallowedPaths = [...new Set(blocked.map((hit) => hit.path))].slice(0, 10);
+    const parameterised = hits.filter((hit) => hit.parameterised === true);
+    const share = parameterised.length / hits.length;
+    const data = {
+      claimedCrawlerHits: hits.length,
+      verified: false,
+      skippedLines: record.skippedLines ?? 0,
+      errors: errors.length,
+      errorRate,
+      disallowedHits: blocked.length,
+      disallowedPaths,
+      parameterHits: parameterised.length,
+      parameterShare: share,
+    };
+    const claim = 'user agents claiming Googlebot or Bingbot, unverified';
+
+    if (errorRate > LOG_5XX_FAIL_RATE) {
+      return fail(`${errors.length} of ${hits.length} hits from ${claim}, got a 5xx (${(errorRate * 100).toFixed(1)}%, over 1%).`, data);
+    }
+    if (blocked.length > 0) {
+      return fail(`${blocked.length} hit(s) from ${claim}, reached URLs robots.txt disallows: ${disallowedPaths.slice(0, 3).join(', ')}.`, data);
+    }
+    if (share > LOG_PARAMETER_WARN_SHARE) {
+      return warn(`Parameter URLs take ${(share * 100).toFixed(0)}% of ${hits.length} hits from ${claim}, over a quarter.`, data);
+    }
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) return warn(`The server log record is held for review (${problem}).`, data);
+    return pass(`${hits.length} hit(s) from ${claim}: 5xx under 1%, none on disallowed URLs, parameter URLs under a quarter.`, data);
+  },
+};
+
+/** A competitor entry (a URL or a bare host) reduced to its host, without `www.`. */
+const competitorHost = (entry: string): string | null => {
+  try {
+    return new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(entry) ? entry : `https://${entry}`).hostname.replace(/^www\./i, '').toLowerCase();
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * 0.1 asks who the site is measured against. The baseline is supplied
+ * (`competitorBaseline`: audience, market, language, competitors, baselineAt);
+ * the crawl can only say whether it is whole and whether a "competitor" is the
+ * site itself. Fails a blank field, no competitors, and a competitor on the
+ * site's own host (`www.` ignored). Otherwise records the rules, holding for
+ * review on an unowned or overdue record: whether these are the right
+ * competitors is a person's call. Without the section, `not-applicable`.
+ */
+export const competitorSerpBaseline: SiteProbe = {
+  id: 'competitor-serp-baseline',
+  scope: 'site',
+  title: 'The competitor baseline names an audience, market, language, date and competitors other than the site',
+  run({ crawl, inputs, origin }) {
+    const record = inputs?.competitorBaseline;
+    if (record === undefined) return notApplicable('No competitor baseline was supplied.');
+
+    const missing: string[] = [];
+    if (record.audience === '') missing.push('audience');
+    if (record.market === '') missing.push('market');
+    if (record.language === '') missing.push('language');
+    if (record.competitors.length === 0) missing.push('competitors');
+    if (record.baselineAt === '') missing.push('baselineAt');
+
+    let own: string;
+    try {
+      own = new URL(origin).hostname.replace(/^www\./i, '').toLowerCase();
+    } catch {
+      return errored(`The site origin is not a URL: ${origin}.`);
+    }
+    const ownHost = record.competitors.filter((entry) => competitorHost(entry) === own);
+
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    const data = {
+      audience: record.audience,
+      market: record.market,
+      language: record.language,
+      competitors: record.competitors.length,
+      baselineAt: record.baselineAt === '' ? null : record.baselineAt,
+      missing,
+      ownHost,
+    };
+    const failures: string[] = [];
+    if (missing.length > 0) failures.push(`The competitor baseline is missing ${missing.join(', ')}`);
+    if (ownHost.length > 0) failures.push(`${ownHost.length} listed competitor(s) are on the site's own host (${ownHost.slice(0, 3).join(', ')})`);
+    if (failures.length > 0) return fail(`${failures.join('; ')}.`, data);
+    if (problem !== null) return warn(`The competitor baseline is held for review (${problem}).`, data);
+    return pass(`The baseline names ${record.competitors.length} competitor(s) for ${record.audience} in ${record.market} (${record.language}), captured ${record.baselineAt}. A person still confirms they are the right ones.`, data);
+  },
+};
+
+/** IndexNow's own ceiling: one URL is not worth submitting more often than this in a day. */
+const INDEXNOW_MAX_PER_DAY = 5;
+
+const bareHost = (url: string): string | null => {
+  try {
+    return new URL(url).hostname.replace(/^www\./i, '').toLowerCase();
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * 2.10 asks whether IndexNow is set up and used properly. The key and the
+ * submission log are supplied (`indexNow`); the crawl fetched the key file once
+ * (`indexnow-key` auxiliary). Fails a key file that is missing or does not hold
+ * the key, a logged URL on another host (`www.` ignored), and one URL sent more
+ * than five times in a UTC day. A crawl that did not request the file holds the
+ * check. Without the section, `not-applicable`.
+ */
+export const indexnowIntegration: SiteProbe = {
+  id: 'indexnow-integration',
+  scope: 'site',
+  title: 'The IndexNow key file holds the key and submissions stay on the host, at most five a day per URL',
+  run({ crawl, inputs, origin }) {
+    const record = inputs?.indexNow;
+    if (record === undefined) return notApplicable('No IndexNow record was supplied.');
+
+    const own = bareHost(origin);
+    if (own === null) return errored(`The site origin is not a URL: ${origin}.`);
+    const keyUrl = indexNowKeyUrl(record, origin);
+    const aside = crawl.auxiliary.find((entry) => entry.reason === 'indexnow-key');
+
+    const foreign = [...new Set(record.log.filter((entry) => bareHost(entry.url) !== own).map((entry) => entry.url))];
+    const perDay = new Map<string, number>();
+    for (const entry of record.log) {
+      const key = `${entry.sentAt.slice(0, 10)} ${entry.url}`;
+      perDay.set(key, (perDay.get(key) ?? 0) + 1);
+    }
+    const repeated = [...perDay].filter(([, count]) => count > INDEXNOW_MAX_PER_DAY).map(([key, count]) => `${key.slice(11)} on ${key.slice(0, 10)} (${count}x)`);
+
+    let keyFile: 'holds-key' | 'wrong-content' | 'missing' | 'not-requested';
+    let seen: string | null = null;
+    if (aside === undefined) keyFile = 'not-requested';
+    else if (aside.fetch.error !== null || aside.fetch.status === null || aside.fetch.status >= 400) keyFile = 'missing';
+    else {
+      seen = (aside.fetch.body !== '' ? aside.fetch.body : aside.fetch.bytes === undefined ? '' : new TextDecoder().decode(aside.fetch.bytes)).trim();
+      keyFile = seen === record.key ? 'holds-key' : 'wrong-content';
+    }
+
+    const data = {
+      keyUrl: keyUrl ?? null,
+      keyFile,
+      status: aside?.fetch.status ?? null,
+      logged: record.log.length,
+      foreign: foreign.slice(0, 10),
+      repeated: repeated.slice(0, 10),
+    };
+    const failures: string[] = [];
+    if (keyFile === 'missing') failures.push(`The IndexNow key file ${keyUrl} did not answer (${aside?.fetch.status ?? aside?.fetch.error})`);
+    if (keyFile === 'wrong-content') failures.push(`The IndexNow key file ${keyUrl} does not hold the key`);
+    if (foreign.length > 0) failures.push(`${foreign.length} logged URL(s) are on another host (${foreign.slice(0, 3).join(', ')})`);
+    if (repeated.length > 0) failures.push(`${repeated.length} URL(s) were sent more than ${INDEXNOW_MAX_PER_DAY} times in a day (${repeated.slice(0, 3).join(', ')})`);
+    if (failures.length > 0) return fail(`${failures.join('; ')}.`, data);
+    if (keyFile === 'not-requested') return warn('The crawl did not request the IndexNow key file, so it is unverified.', data);
+
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) return warn(`The IndexNow record is held for review (${problem}).`, data);
+    return pass(`The IndexNow key file holds the key and ${record.log.length} logged submission(s) stay on ${own}, none repeated more than ${INDEXNOW_MAX_PER_DAY} times a day.`, data);
+  },
+};
+
+const DAY_MS = 86_400_000;
+
+/**
+ * 7.1 asks whether incidents have an owner and a fix and whether alerting is
+ * still proven to work. The incident log and the test-alert interval are
+ * supplied (`incidents`); the last test alert is read from `canary`. Fails an
+ * incident with no owner or remediation, and a test alert older than the
+ * interval, measured at the crawl's time. No test alert on record holds the
+ * check. Without the section, `not-applicable`.
+ */
+export const monitoringIncidentSla: SiteProbe = {
+  id: 'monitoring-incident-sla',
+  scope: 'site',
+  title: 'Every incident has an owner and a remediation, and the last test alert is within its interval',
+  run({ crawl, inputs }) {
+    const record = inputs?.incidents;
+    if (record === undefined) return notApplicable('No incidents record was supplied.');
+
+    const at = crawl.crawledAt ?? null;
+    const unowned = record.entries.filter((entry) => entry.owner === '').map((entry) => entry.openedAt);
+    const unremediated = record.entries.filter((entry) => entry.remediation === '').map((entry) => entry.openedAt);
+    const lastTest = inputs?.canary?.lastTestAlertAt ?? null;
+    const ageDays = lastTest === null || at === null ? null : (Date.parse(at) - Date.parse(lastTest)) / DAY_MS;
+    const stale = ageDays !== null && ageDays > record.testAlertIntervalDays;
+
+    const data = {
+      incidents: record.entries.length,
+      open: record.entries.filter((entry) => entry.closedAt === undefined).length,
+      unowned: unowned.slice(0, 10),
+      unremediated: unremediated.slice(0, 10),
+      testAlertIntervalDays: record.testAlertIntervalDays,
+      lastTestAlertAt: lastTest,
+      testAlertAgeDays: ageDays === null ? null : Math.floor(ageDays),
+    };
+    const failures: string[] = [];
+    if (unowned.length > 0) failures.push(`${unowned.length} incident(s) have no owner (opened ${unowned.slice(0, 3).join(', ')})`);
+    if (unremediated.length > 0) failures.push(`${unremediated.length} incident(s) have no remediation (opened ${unremediated.slice(0, 3).join(', ')})`);
+    if (stale) failures.push(`The last test alert (${lastTest}) is ${Math.floor(ageDays)} days old, past the ${record.testAlertIntervalDays}-day interval`);
+    if (failures.length > 0) return fail(`${failures.join('; ')}.`, data);
+    if (lastTest === null) return warn('No test alert is on record (canary.lastTestAlertAt), so alerting is unproven.', data);
+
+    const problem = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) return warn(`The incidents record is held for review (${problem}).`, data);
+    return pass(`${record.entries.length} incident(s) all have an owner and a remediation, and the last test alert is within ${record.testAlertIntervalDays} days.`, data);
+  },
+};
+
+/**
+ * 7.6 asks whether off-page reputation is governed: each review destination
+ * has a policy date, an owner and a recheck date that has not lapsed. The list
+ * is supplied (`reviewDestinations`); a destination past `recheckAt`, measured
+ * at the crawl's time, fails. A destination with no owner, or no destination
+ * listed, holds the check. Self-serving review markup is `review-integrity`'s
+ * (3.13) and is not read here. Without the section, `not-applicable`.
+ */
+export const offpageReputationGovernance: SiteProbe = {
+  id: 'offpage-reputation-governance',
+  scope: 'site',
+  title: 'Every review destination has an owner and a recheck that has not lapsed',
+  run({ crawl, inputs }) {
+    const record = inputs?.reviewDestinations;
+    if (record === undefined) return notApplicable('No reviewDestinations record was supplied.');
+
+    const at = crawl.crawledAt ?? null;
+    const overdue = at === null ? [] : record.destinations.filter((entry) => Date.parse(entry.recheckAt) < Date.parse(at));
+    const unowned = record.destinations.filter((entry) => entry.owner === '');
+    const data = {
+      destinations: record.destinations.length,
+      overdue: overdue.slice(0, 10).map((entry) => ({ destination: entry.destination, recheckAt: entry.recheckAt })),
+      unowned: unowned.slice(0, 10).map((entry) => entry.destination),
+    };
+    if (overdue.length > 0) {
+      const names = overdue.slice(0, 3).map((entry) => `${entry.destination} (due ${entry.recheckAt})`).join(', ');
+      return fail(`${overdue.length} review destination(s) are past their recheck date: ${names}.`, data);
+    }
+    if (record.destinations.length === 0) return warn('The reviewDestinations record lists no destination.', data);
+    if (unowned.length > 0) return warn(`${unowned.length} review destination(s) have no owner (${unowned.slice(0, 3).map((entry) => entry.destination).join(', ')}).`, data);
+
+    const problem = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) return warn(`The reviewDestinations record is held for review (${problem}).`, data);
+    return pass(`${record.destinations.length} review destination(s) all have an owner and a recheck date still ahead.`, data);
+  },
+};
+
+/**
+ * 7.5 asks whether digital PR is planned, owned and earns its links. The plan
+ * and the wins are supplied (`digitalPr`). Fails a win marked paid (a paid link
+ * is a link scheme) and a plan with no owner. No win yet, or an overdue record,
+ * holds the check; whether the wins are good coverage is a person's call.
+ * Without the section, `not-applicable`.
+ */
+export const digitalPrTracking: SiteProbe = {
+  id: 'digital-pr-tracking',
+  scope: 'site',
+  title: 'The digital PR plan has an owner and none of its recorded wins is a paid link',
+  run({ crawl, inputs }) {
+    const record = inputs?.digitalPr;
+    if (record === undefined) return notApplicable('No digitalPr record was supplied.');
+
+    const paid = record.wins.filter((win) => win.paid);
+    const unowned = record.owner.trim() === '';
+    const data = {
+      plan: record.plan,
+      wins: record.wins.length,
+      paid: paid.slice(0, 10).map((win) => win.url),
+      owner: unowned ? null : record.owner,
+    };
+    const failures: string[] = [];
+    if (paid.length > 0) failures.push(`${paid.length} win(s) are marked paid, and a paid link is a link scheme (${paid.slice(0, 3).map((win) => win.url).join(', ')})`);
+    if (unowned) failures.push('The digital PR plan has no owner');
+    if (failures.length > 0) return fail(`${failures.join('; ')}.`, data);
+    if (record.wins.length === 0) return warn('The digitalPr record lists no win yet.', data);
+
+    const at = crawl.crawledAt ?? null;
+    const problem = at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) return warn(`The digitalPr record is held for review (${problem}).`, data);
+    return pass(`The digital PR plan is owned by ${record.owner} and its ${record.wins.length} recorded win(s) are all earned. A person still judges the coverage.`, data);
+  },
+};
+
 export const siteProbes = [
+  digitalPrTracking,
+  offpageReputationGovernance,
+  monitoringIncidentSla,
+  indexnowIntegration,
+  logFileAnalysis,
+  analyticsReconciliation,
   aiVisibilityBaseline,
   bingOnboarding,
   backlinkMonitor,
@@ -1876,4 +2231,5 @@ export const siteProbes = [
   hostRedirect,
   faviconSiteName,
   aiCrawlerDirectiveVerify,
+  competitorSerpBaseline,
 ];

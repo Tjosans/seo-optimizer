@@ -208,6 +208,55 @@ describe.skipIf(!url)('an audit across a restart', () => {
       await scheduler.close();
     });
 
+    it("closes out an audit created inside the cutoff's own millisecond", async () => {
+      // The row CI produced and a laptop did not. `timestamptz` keeps
+      // microseconds and a JS `Date` keeps milliseconds, so a cutoff parsed
+      // into one is truncated downwards, and every row written inside that
+      // millisecond after the truncation point reads as newer than a cutoff it
+      // is genuinely older than. Those rows are precisely the ones the sweep
+      // exists to close, and they stayed `pending` instead.
+      const scheduler = new AuditScheduler({
+        db,
+        corpus,
+        crawl: BUDGET,
+        store: store(),
+        paused: true,
+      });
+      await scheduler.recover();
+      const cutoff = scheduler.cutoff;
+      // Postgres's own text — `2026-09-20 20:00:23.123456+00` — and not a
+      // `Date` round trip, which would read `2026-09-20T20:00:23.123Z` with
+      // the microseconds already gone. This is the assertion that fails if the
+      // clock is ever parsed into a `Date` again; the sweep below is what that
+      // costs.
+      expect(cutoff).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?[+-]\d{2}/);
+
+      const [orphan] = await db
+        .insert(audits)
+        .values({ siteId, corpusVersion: '4.4' })
+        .returning({ id: audits.id });
+      // Put the row inside the cutoff's own millisecond, at the truncation
+      // point itself: strictly before the real cutoff, and not before a cutoff
+      // that was rounded down to it. `least` keeps the row strictly earlier in
+      // the one case per thousand where the clock lands on a whole
+      // millisecond and there is no room inside it.
+      await db.execute(
+        sql`update ${audits}
+            set created_at = least(
+              date_trunc('millisecond', ${cutoff}::timestamptz),
+              ${cutoff}::timestamptz - interval '1 microsecond'
+            )
+            where ${audits.id} = ${orphan!.id}`,
+      );
+
+      expect(await scheduler.reconcile(scope())).toBeGreaterThanOrEqual(1);
+      const row = await auditRow(orphan!.id);
+      expect(row?.status).toBe('failed');
+      expect(row?.error).toBe(ORPHANED_AUDIT_ERROR);
+
+      await scheduler.close();
+    });
+
     it('leaves a recovered audit alone', async () => {
       const dying = new AuditScheduler({
         db,

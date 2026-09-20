@@ -514,3 +514,15 @@ describe('lighthouse', () => {
 function fileURLToPathSafe(url: URL): string {
   return decodeURIComponent(url.pathname.replace(/^\/([A-Za-z]:)/, '$1'));
 }
+
+describe('checkoutMatrix', () => {
+  const row = { case: 'guest checkout', url: 'https://example.com/cart', result: 'pass', testedAt: '2026-09-10T09:00:00Z' };
+  const base = { owner: 'Jane', recordedAt: '2026-09-10T09:00:00Z' };
+
+  it('reads cases and refuses bad ones', () => {
+    expect(parseInputs({ checkoutMatrix: { ...base, cases: [row] } }).checkoutMatrix?.cases[0]).toMatchObject({ case: 'guest checkout', result: 'pass' });
+    expect(() => parseInputs({ checkoutMatrix: { ...base, cases: [{ ...row, result: 'maybe' }, row, row] } })).toThrow(/result[\s\S]*duplicate case/);
+    expect(() => parseInputs({ checkoutMatrix: { ...base, cases: [{ ...row, url: '/cart', testedAt: 'soon' }] } })).toThrow(/http\(s\) URL[\s\S]*testedAt/);
+    expect(() => parseInputs({ checkoutMatrix: { ...base, cases: [] } })).toThrow(/at least one case/);
+  });
+});

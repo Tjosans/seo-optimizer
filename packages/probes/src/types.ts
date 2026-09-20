@@ -51,6 +51,11 @@ export interface SiteContext {
    * A detector whose section is missing reports `not-applicable`.
    */
   readonly inputs?: AuditInputs | null;
+  /**
+   * What every other probe observed in this run. Only set for a probe that
+   * declares `afterOthers`, which `runProbes` runs last.
+   */
+  readonly runs?: readonly ProbeRun[];
 }
 
 export interface PageContext {
@@ -74,6 +79,8 @@ export interface PageProbe extends ProbeBase {
 
 export interface SiteProbe extends ProbeBase {
   readonly scope: 'site';
+  /** Reads `SiteContext.runs`: run after every probe that does not. */
+  readonly afterOthers?: boolean;
   run(context: SiteContext): Observation;
 }
 

@@ -1294,7 +1294,84 @@ export const prelaunchBaselineSnapshot: SiteProbe = {
   },
 };
 
+/** A previous audit older than this is no longer a quarterly comparison. */
+const QUARTERLY_MAX_AGE_DAYS = 100;
+
+/**
+ * `quarterly-regression-crawl` (7.3): every probe that passed in the previous
+ * audit and fails in this one is a regression, named with both audits. Compares
+ * outcomes per probe and page, so one page slipping on a page-scoped probe is
+ * reported even when the rest still pass. `not-applicable` without a previous
+ * audit.
+ *
+ * Fails on any regression. Warns a previous audit more than 100 days old,
+ * measured at the crawl's time, and a run that cannot see the current results.
+ * A probe that errored or was not applicable now is not a regression: nothing
+ * observed the site getting worse.
+ */
+export const quarterlyRegressionCrawl: SiteProbe = {
+  id: 'quarterly-regression-crawl',
+  scope: 'site',
+  afterOthers: true,
+  title: 'The quarterly crawl shows no probe that passed last time and fails now',
+  run({ crawl, previous, runs }) {
+    if (previous === undefined || previous === null) {
+      return notApplicable('No previous audit was supplied to compare against.');
+    }
+    if (runs === undefined) {
+      return errored('The current probe results were not available to compare.');
+    }
+
+    const key = (probeId: string, pageUrl: string | null | undefined): string => `${probeId}\n${pageUrl ?? ''}`;
+    const wasPassing = new Set<string>();
+    for (const before of previous.probes) {
+      if (before.probeId !== 'quarterly-regression-crawl' && before.outcome === 'pass') {
+        wasPassing.add(key(before.probeId, before.pageUrl));
+      }
+    }
+
+    const regressions: { probeId: string; pageUrl: string | null }[] = [];
+    for (const run of runs) {
+      if (run.observation.outcome !== 'fail') continue;
+      if (wasPassing.has(key(run.probeId, run.pageUrl))) {
+        regressions.push({ probeId: run.probeId, pageUrl: run.pageUrl ?? null });
+      }
+    }
+
+    const now = crawl.crawledAt ?? null;
+    const ageDays =
+      now === null ? null : Math.floor((Date.parse(now) - Date.parse(previous.takenAt)) / 86_400_000);
+    const data = {
+      previousAudit: previous.takenAt,
+      currentAudit: now,
+      ageDays,
+      regressions,
+    };
+    const between = `audit of ${previous.takenAt} and audit of ${now ?? 'this crawl'}`;
+
+    if (regressions.length > 0) {
+      const named = regressions
+        .slice(0, 10)
+        .map((r) => (r.pageUrl === null ? r.probeId : `${r.probeId} (${r.pageUrl})`))
+        .join(', ');
+      const more = regressions.length > 10 ? `, and ${regressions.length - 10} more` : '';
+      return fail(
+        `${regressions.length} probe result${regressions.length === 1 ? '' : 's'} passed in the ${between} and now fail: ${named}${more}.`,
+        data,
+      );
+    }
+    if (ageDays !== null && ageDays > QUARTERLY_MAX_AGE_DAYS) {
+      return warn(
+        `The previous audit is ${ageDays} days old (more than ${QUARTERLY_MAX_AGE_DAYS}), so this is not a quarterly comparison; no regression against it.`,
+        data,
+      );
+    }
+    return pass(`No probe that passed in the ${between} fails now.`, data);
+  },
+};
+
 export const qaProbes = [
+  quarterlyRegressionCrawl,
   prelaunchBaselineSnapshot,
   migrationRedirectTest,
   migrationRedirectsLive,

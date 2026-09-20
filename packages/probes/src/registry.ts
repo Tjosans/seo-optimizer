@@ -63,8 +63,13 @@ const isHtml = (page: CrawledPage): boolean => page.extracted !== null;
  */
 export function runProbes(site: SiteContext, probes: readonly Probe[] = PROBES): ProbeRun[] {
   const runs: ProbeRun[] = [];
+  const last: SiteProbe[] = [];
 
   for (const probe of probes) {
+    if (probe.scope === 'site' && probe.afterOthers === true) {
+      last.push(probe);
+      continue;
+    }
     if (probe.scope === 'site') {
       runs.push({ probeId: probe.id, scope: 'site', observation: guard(() => probe.run(site)) });
       continue;
@@ -78,6 +83,14 @@ export function runProbes(site: SiteContext, probes: readonly Probe[] = PROBES):
         observation: guard(() => probe.run({ page, site })),
       });
     }
+  }
+  const others = [...runs];
+  for (const probe of last) {
+    runs.push({
+      probeId: probe.id,
+      scope: 'site',
+      observation: guard(() => probe.run({ ...site, runs: others })),
+    });
   }
   return runs;
 }

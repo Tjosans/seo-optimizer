@@ -820,3 +820,85 @@ describe('prelaunch-baseline-snapshot (4.11)', () => {
     expect(check({ release: 'r1', previous: baseline(), inputs: both }).outcome).toBe('pass');
   });
 });
+
+describe('quarterly-regression-crawl (7.3)', () => {
+  const previous = (over: Record<string, unknown> = {}) => ({
+    schema: 1,
+    origin: ORIGIN,
+    takenAt: '2026-08-01T00:00:00.000Z',
+    pages: [],
+    probes: [
+      { probeId: 'a', pageUrl: null, outcome: 'pass' },
+      { probeId: 'b', pageUrl: `${ORIGIN}/x`, outcome: 'pass' },
+      { probeId: 'c', pageUrl: null, outcome: 'fail' },
+    ],
+    ...over,
+  });
+  const run = (
+    prev: unknown,
+    runs: { probeId: string; pageUrl?: string; outcome: Observation['outcome'] }[] | undefined,
+    crawledAt = '2026-09-01T00:00:00.000Z',
+  ): Observation =>
+    (probeById('quarterly-regression-crawl') as SiteProbe).run({
+      origin: ORIGIN,
+      flags: [],
+      crawl: {
+        crawledAt,
+        seeds: [`${ORIGIN}/`],
+        pages: [],
+        robots: { groups: [], sitemaps: [], absent: true },
+        robotsTxt: null,
+        sitemapUrls: [],
+        sitemaps: [],
+        sitemapVideos: [],
+        sitemapNews: [],
+        blockedByRobots: [],
+        notReached: [],
+        auxiliary: [],
+      } satisfies CrawlResult,
+      ...(prev === undefined ? {} : { previous: prev as never }),
+      ...(runs === undefined
+        ? {}
+        : {
+            runs: runs.map(({ outcome, ...r }) => ({
+              ...r,
+              scope: r.pageUrl === undefined ? 'site' : 'page',
+              observation: { outcome, summary: '' },
+            })) as never,
+          }),
+    });
+
+  it('is not applicable without a previous audit', () => {
+    expect(run(undefined, []).outcome).toBe('not-applicable');
+  });
+
+  it('fails a probe that passed before and fails now, naming both audits', () => {
+    const result = run(previous(), [{ probeId: 'a', outcome: 'fail' }]);
+    expect(result.outcome).toBe('fail');
+    expect(result.summary).toContain('2026-08-01');
+    expect(result.summary).toContain('2026-09-01');
+  });
+
+  it('matches page-scoped probes by page', () => {
+    expect(run(previous(), [{ probeId: 'b', pageUrl: `${ORIGIN}/y`, outcome: 'fail' }]).outcome).toBe('pass');
+    expect(run(previous(), [{ probeId: 'b', pageUrl: `${ORIGIN}/x`, outcome: 'fail' }]).outcome).toBe('fail');
+  });
+
+  it('does not count a probe that failed before, or is not applicable now', () => {
+    const result = run(previous(), [
+      { probeId: 'c', outcome: 'fail' },
+      { probeId: 'a', outcome: 'not-applicable' },
+    ]);
+    expect(result.outcome).toBe('pass');
+  });
+
+  it('warns a previous audit more than 100 days old', () => {
+    const old = previous({ takenAt: '2026-05-01T00:00:00.000Z' });
+    expect(run(old, [{ probeId: 'a', outcome: 'pass' }]).outcome).toBe('warn');
+    expect(run(old, [{ probeId: 'a', outcome: 'fail' }]).outcome).toBe('fail');
+  });
+
+  it('reports error when the current results are unavailable', () => {
+    expect(run(previous(), undefined).outcome).toBe('error');
+  });
+});

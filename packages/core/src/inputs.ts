@@ -481,6 +481,25 @@ export interface IncidentsRecord extends InputRecord {
   readonly entries: readonly IncidentEntry[];
 }
 
+/**
+ * One place the site's reputation is reviewed off-page (7.6). `owner` is kept
+ * as text even when blank: a destination nobody owns holds the check.
+ */
+export interface ReviewDestination {
+  /** A review platform or directory, as the site names it. */
+  readonly destination: string;
+  /** ISO 8601 instant the destination's review policy was last read. */
+  readonly policyDate: string;
+  readonly owner: string;
+  /** ISO 8601 instant the destination is due to be looked at again. */
+  readonly recheckAt: string;
+}
+
+/** The review destinations the site is governed against (7.6). */
+export interface ReviewDestinationsRecord extends InputRecord {
+  readonly destinations: readonly ReviewDestination[];
+}
+
 /** One IndexNow submission the site's publishing pipeline made (2.10). */
 export interface IndexNowSubmission {
   readonly url: string;
@@ -865,12 +884,14 @@ export interface AuditInputs {
   readonly indexNow?: IndexNowRecord;
   /** The incident log and how often alert tests must be run (7.1). */
   readonly incidents?: IncidentsRecord;
+  /** The off-page review destinations, their policy dates and recheck dates (7.6). */
+  readonly reviewDestinations?: ReviewDestinationsRecord;
   /** The manual accessibility evaluation: scope, methods, limitations, blockers, conformance claim (4.4). */
   readonly a11yEvaluation?: A11yEvaluationRecord;
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics', 'serverLogs', 'merchantFeed', 'checkoutMatrix', 'a11yEvaluation', 'contentReview', 'brandEntity', 'keywordMap', 'competitorBaseline', 'businessProfile', 'indexNow', 'incidents'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics', 'serverLogs', 'merchantFeed', 'checkoutMatrix', 'a11yEvaluation', 'contentReview', 'brandEntity', 'keywordMap', 'competitorBaseline', 'businessProfile', 'indexNow', 'incidents', 'reviewDestinations'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -2021,6 +2042,88 @@ function parseIncidents(value: unknown, problem: (path: string, text: string) =>
   return { ...record, testAlertIntervalDays: interval as number, entries };
 }
 
+const REVIEW_DESTINATIONS_KEYS = ['destinations'];
+const REVIEW_DESTINATION_KEYS = ['destination', 'policyDate', 'owner', 'recheckAt'];
+
+function parseReviewDestinations(value: unknown, problem: (path: string, text: string) => void): ReviewDestinationsRecord | null {
+  const record = parseInputRecord('reviewDestinations', value, problem, REVIEW_DESTINATIONS_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`reviewDestinations${path}`, text);
+    ok = false;
+  };
+  const missing = (raw: unknown): boolean => raw === undefined || raw === null || raw === '';
+  const destinations: ReviewDestination[] = [];
+  const raw = value['destinations'];
+  if (missing(raw)) fail('.destinations', 'required');
+  else if (!Array.isArray(raw)) fail('.destinations', 'expected a list');
+  else {
+    raw.forEach((node, index) => {
+      const path = `.destinations[${index}]`;
+      if (!isNode(node)) {
+        fail(path, 'expected a mapping');
+        return;
+      }
+      let good = true;
+      for (const field of Object.keys(node)) {
+        if (!REVIEW_DESTINATION_KEYS.includes(field)) {
+          fail(`${path}.${field}`, 'unknown field');
+          good = false;
+        }
+      }
+      const text = (key: 'destination' | 'owner', required: boolean): string => {
+        const at = node[key];
+        if (missing(at)) {
+          if (required) {
+            fail(`${path}.${key}`, 'required');
+            good = false;
+          }
+          return '';
+        }
+        if (typeof at !== 'string') {
+          fail(`${path}.${key}`, `expected text, got ${typeof at} (quote it)`);
+          good = false;
+          return '';
+        }
+        const trimmed = at.trim();
+        if (required && trimmed === '') {
+          fail(`${path}.${key}`, 'required');
+          good = false;
+        }
+        return trimmed;
+      };
+      const stamp = (key: 'policyDate' | 'recheckAt'): string => {
+        const at = node[key];
+        if (missing(at)) {
+          fail(`${path}.${key}`, 'required');
+          good = false;
+          return '';
+        }
+        if (typeof at !== 'string') {
+          fail(`${path}.${key}`, `expected text, got ${typeof at} (quote it)`);
+          good = false;
+          return '';
+        }
+        const ms = instant(at);
+        if (ms === null) {
+          fail(`${path}.${key}`, `not a date and time: ${at}`);
+          good = false;
+          return '';
+        }
+        return new Date(ms).toISOString();
+      };
+      const destination = text('destination', true);
+      const owner = text('owner', false);
+      const policyDate = stamp('policyDate');
+      const recheckAt = stamp('recheckAt');
+      if (good) destinations.push({ destination, policyDate, owner, recheckAt });
+    });
+  }
+  if (!ok) return null;
+  return { ...record, destinations };
+}
+
 const DISAVOW_KEYS =['submitted', 'reasons', 'removalAttempts'];
 
 function parseDisavow(value: unknown, problem: (path: string, text: string) => void): DisavowRecord | null {
@@ -2907,7 +3010,12 @@ export function parseInputs(value: unknown): AuditInputs {
     businessProfile?: BusinessProfileRecord;
     indexNow?: IndexNowRecord;
     incidents?: IncidentsRecord;
+    reviewDestinations?: ReviewDestinationsRecord;
   } = {};
+  if (value['reviewDestinations'] !== undefined && value['reviewDestinations'] !== null) {
+    const reviewDestinations = parseReviewDestinations(value['reviewDestinations'], problem);
+    if (reviewDestinations !== null) inputs.reviewDestinations = reviewDestinations;
+  }
   if (value['incidents'] !== undefined && value['incidents'] !== null) {
     const incidents = parseIncidents(value['incidents'], problem);
     if (incidents !== null) inputs.incidents = incidents;

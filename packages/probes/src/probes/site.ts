@@ -2124,7 +2124,45 @@ export const monitoringIncidentSla: SiteProbe = {
   },
 };
 
+/**
+ * 7.6 asks whether off-page reputation is governed: each review destination
+ * has a policy date, an owner and a recheck date that has not lapsed. The list
+ * is supplied (`reviewDestinations`); a destination past `recheckAt`, measured
+ * at the crawl's time, fails. A destination with no owner, or no destination
+ * listed, holds the check. Self-serving review markup is `review-integrity`'s
+ * (3.13) and is not read here. Without the section, `not-applicable`.
+ */
+export const offpageReputationGovernance: SiteProbe = {
+  id: 'offpage-reputation-governance',
+  scope: 'site',
+  title: 'Every review destination has an owner and a recheck that has not lapsed',
+  run({ crawl, inputs }) {
+    const record = inputs?.reviewDestinations;
+    if (record === undefined) return notApplicable('No reviewDestinations record was supplied.');
+
+    const at = crawl.crawledAt ?? null;
+    const overdue = at === null ? [] : record.destinations.filter((entry) => Date.parse(entry.recheckAt) < Date.parse(at));
+    const unowned = record.destinations.filter((entry) => entry.owner === '');
+    const data = {
+      destinations: record.destinations.length,
+      overdue: overdue.slice(0, 10).map((entry) => ({ destination: entry.destination, recheckAt: entry.recheckAt })),
+      unowned: unowned.slice(0, 10).map((entry) => entry.destination),
+    };
+    if (overdue.length > 0) {
+      const names = overdue.slice(0, 3).map((entry) => `${entry.destination} (due ${entry.recheckAt})`).join(', ');
+      return fail(`${overdue.length} review destination(s) are past their recheck date: ${names}.`, data);
+    }
+    if (record.destinations.length === 0) return warn('The reviewDestinations record lists no destination.', data);
+    if (unowned.length > 0) return warn(`${unowned.length} review destination(s) have no owner (${unowned.slice(0, 3).map((entry) => entry.destination).join(', ')}).`, data);
+
+    const problem = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) return warn(`The reviewDestinations record is held for review (${problem}).`, data);
+    return pass(`${record.destinations.length} review destination(s) all have an owner and a recheck date still ahead.`, data);
+  },
+};
+
 export const siteProbes = [
+  offpageReputationGovernance,
   monitoringIncidentSla,
   indexnowIntegration,
   logFileAnalysis,

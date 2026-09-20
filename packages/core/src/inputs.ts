@@ -359,6 +359,28 @@ export interface CheckoutMatrixRecord extends InputRecord {
   readonly cases: readonly CheckoutCase[];
 }
 
+/** One accessibility barrier a manual evaluation found: the WCAG criterion it breaks, where, and whether it is fixed (4.4). */
+export interface A11yBlocker {
+  /** The WCAG success criterion, as the evaluator cites it: `2.1.1`, `1.4.3 Contrast`… */
+  readonly criterion: string;
+  readonly url: string;
+  readonly resolved: boolean;
+}
+
+/**
+ * The manual accessibility evaluation (4.4): what was covered, how, what it
+ * could not see, the barriers it found and any conformance claim made. axe
+ * covers only part of WCAG, so this is the part a person answers for.
+ * `conformanceClaim` is blank when none is made (`WCAG 2.2 AA` when one is).
+ */
+export interface A11yEvaluationRecord extends InputRecord {
+  readonly scope: string;
+  readonly methods: readonly string[];
+  readonly limitations: readonly string[];
+  readonly blockers: readonly A11yBlocker[];
+  readonly conformanceClaim: string;
+}
+
 /** The search engines a Search Console export can speak for. */
 export const REPORTING_MEASURED_ENGINES = ['google'] as const;
 
@@ -696,10 +718,12 @@ export interface AuditInputs {
   readonly contentDecisions?: readonly ContentDecision[];
   /** The checkout cases tested by hand (4.10). */
   readonly checkoutMatrix?: CheckoutMatrixRecord;
+  /** The manual accessibility evaluation: scope, methods, limitations, blockers, conformance claim (4.4). */
+  readonly a11yEvaluation?: A11yEvaluationRecord;
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics', 'serverLogs', 'merchantFeed', 'checkoutMatrix'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics', 'serverLogs', 'merchantFeed', 'checkoutMatrix', 'a11yEvaluation'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -1371,7 +1395,72 @@ function parseCheckoutMatrix(value: unknown, problem: (path: string, text: strin
   return ok ? { ...record, cases } : null;
 }
 
-const DISAVOW_KEYS = ['submitted', 'reasons', 'removalAttempts'];
+const A11Y_EVALUATION_KEYS = ['scope', 'methods', 'limitations', 'blockers', 'conformanceClaim'];
+
+function parseA11yEvaluation(value: unknown, problem: (path: string, text: string) => void): A11yEvaluationRecord | null {
+  const record = parseInputRecord('a11yEvaluation', value, problem, A11Y_EVALUATION_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`a11yEvaluation${path}`, text);
+    ok = false;
+  };
+  const missing = (raw: unknown): boolean => raw === undefined || raw === null || raw === '';
+  const text = (node: Node, path: string, key: string): string | null => {
+    const raw = node[key];
+    if (typeof raw === 'string' && raw.trim() !== '') return raw.trim();
+    fail(`${path}.${key}`, missing(raw) ? 'required' : `expected text, got ${typeof raw} (quote it)`);
+    return null;
+  };
+  const lines = (key: 'methods' | 'limitations', atLeastOne: boolean): string[] => {
+    const raw = value[key];
+    const out: string[] = [];
+    if (!Array.isArray(raw)) {
+      fail(`.${key}`, missing(raw) ? 'required' : 'expected a list');
+      return out;
+    }
+    raw.forEach((item, index) => {
+      if (typeof item !== 'string' || item.trim() === '') fail(`.${key}[${index}]`, 'expected text');
+      else out.push(item.trim());
+    });
+    if (atLeastOne && raw.length === 0) fail(`.${key}`, 'expected at least one entry');
+    return out;
+  };
+
+  const scope = text(value, '', 'scope');
+  const methods = lines('methods', true);
+  const limitations = lines('limitations', false);
+
+  const blockers: A11yBlocker[] = [];
+  const blockersRaw = value['blockers'];
+  if (!Array.isArray(blockersRaw)) {
+    fail('.blockers', missing(blockersRaw) ? 'required' : 'expected a list');
+  } else {
+    blockersRaw.forEach((node, index) => {
+      const path = `.blockers[${index}]`;
+      if (!isNode(node)) {
+        fail(path, 'expected a mapping');
+        return;
+      }
+      for (const key of Object.keys(node)) {
+        if (!['criterion', 'url', 'resolved'].includes(key)) fail(`${path}.${key}`, 'unknown field');
+      }
+      const criterion = text(node, path, 'criterion');
+      const url = text(node, path, 'url');
+      if (url !== null && !isHttpUrl(url)) fail(`${path}.url`, `expected an http(s) URL: ${url}`);
+      const resolved = node['resolved'];
+      if (typeof resolved !== 'boolean') fail(`${path}.resolved`, missing(resolved) ? 'required' : 'expected true or false');
+      if (criterion !== null && url !== null && isHttpUrl(url) && typeof resolved === 'boolean') blockers.push({ criterion, url, resolved });
+    });
+  }
+
+  const claimRaw = value['conformanceClaim'];
+  if (!missing(claimRaw) && typeof claimRaw !== 'string') fail('.conformanceClaim', `expected text, got ${typeof claimRaw} (quote it)`);
+  if (!ok || scope === null) return null;
+  return { ...record, scope, methods, limitations, blockers, conformanceClaim: typeof claimRaw === 'string' ? claimRaw.trim() : '' };
+}
+
+const DISAVOW_KEYS =['submitted', 'reasons', 'removalAttempts'];
 
 function parseDisavow(value: unknown, problem: (path: string, text: string) => void): DisavowRecord | null {
   const record = parseInputRecord('disavow', value, problem, DISAVOW_KEYS);
@@ -2249,7 +2338,12 @@ export function parseInputs(value: unknown): AuditInputs {
     bingWebmaster?: BingWebmasterRecord;
     aiBaseline?: AiBaselineRecord;
     checkoutMatrix?: CheckoutMatrixRecord;
+    a11yEvaluation?: A11yEvaluationRecord;
   } = {};
+  if (value['a11yEvaluation'] !== undefined && value['a11yEvaluation'] !== null) {
+    const a11yEvaluation = parseA11yEvaluation(value['a11yEvaluation'], problem);
+    if (a11yEvaluation !== null) inputs.a11yEvaluation = a11yEvaluation;
+  }
   if (value['analytics'] !== undefined && value['analytics'] !== null) {
     const analytics = parseAnalytics(value['analytics'], problem);
     if (analytics !== null) inputs.analytics = analytics;

@@ -23,9 +23,10 @@
  * video without a caption track may have its captions burned into the picture.
  */
 
+import { inputRecordProblem } from '@seo/core';
 import type { Extracted } from '@seo/crawler';
 
-import type { PageProbe } from '../types.js';
+import type { PageProbe, SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
 
 /**
@@ -179,6 +180,67 @@ export const axeAccessibility: PageProbe = {
 };
 
 /**
+ * The manual evaluation behind 4.4: what a person found that axe cannot, and
+ * what they claim as a result. It is supplied (`a11yEvaluation`), never
+ * observed. Fails an open blocker, and a conformance claim standing beside any
+ * critical axe violation the crawl recorded, since a claim the tool contradicts
+ * is not one to launch on. Absent is `not-applicable`; a record with no owner
+ * or past its review holds the check with a warn. The check is `assisted`, so
+ * even a pass is a proposal.
+ */
+export const manualA11yEvaluation: SiteProbe = {
+  id: 'manual-a11y-evaluation',
+  scope: 'site',
+  title: 'The manual accessibility evaluation has no open blocker and no claim axe contradicts',
+  run({ crawl, inputs }) {
+    const record = inputs?.a11yEvaluation;
+    if (record === undefined) return notApplicable('No manual accessibility evaluation was supplied.');
+
+    const open = record.blockers.filter((blocker) => !blocker.resolved);
+    const claim = record.conformanceClaim.trim();
+    const critical: { url: string; ids: string[] }[] = [];
+    let audited = 0;
+    for (const page of crawl.pages) {
+      const result = page.rendered?.render.accessibility;
+      if (result === undefined || result.error !== null) continue;
+      audited += 1;
+      const ids = result.violations.filter((v) => v.impact === 'critical').map((v) => v.id);
+      if (ids.length > 0) critical.push({ url: page.normalizedUrl, ids });
+    }
+    const data = {
+      scope: record.scope,
+      methods: record.methods,
+      limitations: record.limitations,
+      conformanceClaim: claim,
+      blockers: record.blockers.length,
+      openBlockers: open.map((blocker) => ({ criterion: blocker.criterion, url: blocker.url })),
+      pagesAudited: audited,
+      criticalViolations: critical.slice(0, 10),
+    };
+
+    const failures: string[] = [];
+    if (open.length > 0) {
+      failures.push(`${open.length} accessibility blocker(s) are still open (${open.slice(0, 3).map((b) => b.criterion).join(', ')})`);
+    }
+    if (claim !== '' && critical.length > 0) {
+      failures.push(`the evaluation claims "${claim}" while axe found critical violations on ${critical.length} page(s)`);
+    }
+    if (failures.length > 0) return fail(`${failures.join('; ')}.`, data);
+
+    const at = crawl.crawledAt ?? null;
+    const held = at === null ? (record.owner.trim() === '' ? 'no owner' : null) : inputRecordProblem(record, new Date(at));
+    if (held !== null) return warn(`The manual accessibility evaluation is held for review (${held}).`, data);
+    if (claim !== '' && audited === 0) {
+      return warn(`The evaluation claims "${claim}", but axe was not run on any page, so the claim could not be set against it.`, data);
+    }
+    return pass(
+      `No open blocker across ${record.blockers.length} recorded${claim === '' ? ', and no conformance claim is made' : `, and axe contradicts no "${claim}" claim`}. A person still confirms the evaluation's scope and limitations.`,
+      data,
+    );
+  },
+};
+
+/**
  * The phone render against the desktop one: corpus check 4.3.
  *
  * Google indexes the mobile rendering, so what a phone drops is what search
@@ -253,4 +315,4 @@ export const mobileJourneyQa: PageProbe = {
   },
 };
 
-export const accessibilityProbes = [contentAccessibility, axeAccessibility, mobileJourneyQa];
+export const accessibilityProbes = [contentAccessibility, axeAccessibility, manualA11yEvaluation, mobileJourneyQa];

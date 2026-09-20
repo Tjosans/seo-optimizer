@@ -324,6 +324,26 @@ checkoutMatrix:
   owner: Jane Doe
   recordedAt: 2026-09-10T09:00:00Z
 
+# a11yEvaluation (4.4): the manual accessibility evaluation. scope says what was
+# covered; methods (at least one) and limitations are lists of text. blockers
+# are barriers found, each with its WCAG criterion, URL and whether it is
+# resolved; an open one fails the check. conformanceClaim is blank when none is
+# made; a claim beside any critical axe violation fails the check.
+a11yEvaluation:
+  scope: checkout, account and the ten launch templates
+  methods:
+    - keyboard walk-through
+    - NVDA on Firefox
+  limitations:
+    - no mobile screen reader pass
+  blockers:
+    - criterion: 2.1.1 Keyboard
+      url: https://example.com/checkout
+      resolved: true
+  conformanceClaim: WCAG 2.2 AA
+  owner: Jane Doe
+  recordedAt: 2026-09-10T09:00:00Z
+
 # crux (6.2): field Core Web Vitals, one population per source, target and
 # device segment. source is crux-origin, crux-url, search-console-group or
 # rum; never label one as another. lcpMs, inpMs and cls are the p75 values;

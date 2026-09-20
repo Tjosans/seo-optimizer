@@ -314,3 +314,33 @@ crux:
           retestAt: 2026-10-01T00:00:00Z
   owner: Jane Doe
   recordedAt: 2026-09-10T09:00:00Z
+
+# analytics: how measurement is set up and what its numbers were checked
+# against. measurementIds lists every property the site sends to.
+# consentDefault is what tags do before the visitor answers the banner
+# (granted or denied). events is the tagging plan: the trigger that fires
+# each one and whether it should be sent or suppressed. reported puts one
+# metric over one period from two different sources side by side, so the
+# gap between them can be judged. All four keys are required.
+analytics:
+  measurementIds:
+    - G-ABC123DEF4
+  consentDefault: denied
+  events:
+    - name: purchase
+      trigger: order confirmation page loads
+      expect: sent
+    - name: page_view
+      trigger: page load before consent
+      expect: suppressed
+  reported:
+    - metric: sessions
+      period: 2026-08-01/2026-08-31
+      sourceA:
+        name: ga4
+        value: 48200
+      sourceB:
+        name: server-logs
+        value: 51900
+  owner: Jane Doe
+  recordedAt: 2026-09-10T09:00:00Z

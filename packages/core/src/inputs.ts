@@ -549,8 +549,49 @@ export interface CruxRecord extends InputRecord {
   readonly populations: readonly FieldVitalsPopulation[];
 }
 
+/** What a tag does before the visitor has answered the consent banner. */
+export const ANALYTICS_CONSENT_DEFAULTS = ['granted', 'denied'] as const;
+
+/** Whether an event must reach the property or must be held back (`suppressed`, e.g. until consent). */
+export const ANALYTICS_EVENT_EXPECTATIONS = ['sent', 'suppressed'] as const;
+
+/** One event the site's tagging plan promises, the trigger that fires it and whether it should be sent. */
+export interface AnalyticsEvent {
+  readonly name: string;
+  /** What sets it off, in the owner's words: `page_view on load`, `click on #buy`… */
+  readonly trigger: string;
+  readonly expect: (typeof ANALYTICS_EVENT_EXPECTATIONS)[number];
+}
+
+/** One figure as a named source reports it. */
+export interface AnalyticsSourceFigure {
+  /** The tool the number comes from: `ga4`, `search-console`, `server-logs`… */
+  readonly name: string;
+  readonly value: number;
+}
+
+/** One metric over a period, reported by two sources that ought to agree. */
+export interface AnalyticsReconciliation {
+  /** `sessions`, `clicks`, `orders`… */
+  readonly metric: string;
+  /** The date range both figures cover, as exported: `2026-08-01/2026-08-31`. */
+  readonly period: string;
+  readonly sourceA: AnalyticsSourceFigure;
+  readonly sourceB: AnalyticsSourceFigure;
+}
+
+/** How analytics is set up (measurement IDs, consent default, event plan) and what its numbers were reconciled against. */
+export interface AnalyticsRecord extends InputRecord {
+  readonly measurementIds: readonly string[];
+  readonly consentDefault: (typeof ANALYTICS_CONSENT_DEFAULTS)[number];
+  readonly events: readonly AnalyticsEvent[];
+  readonly reported: readonly AnalyticsReconciliation[];
+}
+
 /** Every section an audit can be given. */
 export interface AuditInputs {
+  /** Analytics setup, event plan and cross-source reconciliation. */
+  readonly analytics?: AnalyticsRecord;
   /** Field Core Web Vitals populations, p75 per metric (6.2). */
   readonly crux?: CruxRecord;
   /** Lighthouse reports per URL and the performance policy (1.5, 4.5). */
@@ -586,7 +627,7 @@ export interface AuditInputs {
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -1713,6 +1754,130 @@ function parseAiBaseline(value: unknown, problem: (path: string, text: string) =
   return ok ? { ...record, reports } : null;
 }
 
+const ANALYTICS_KEYS = ['measurementIds', 'consentDefault', 'events', 'reported'];
+const ANALYTICS_EVENT_KEYS = ['name', 'trigger', 'expect'];
+const ANALYTICS_REPORTED_KEYS = ['metric', 'period', 'sourceA', 'sourceB'];
+const ANALYTICS_FIGURE_KEYS = ['name', 'value'];
+
+function parseAnalytics(value: unknown, problem: (path: string, text: string) => void): AnalyticsRecord | null {
+  const record = parseInputRecord('analytics', value, problem, ANALYTICS_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`analytics${path}`, text);
+    ok = false;
+  };
+  const absent = (raw: unknown): boolean => raw === undefined || raw === null || raw === '';
+  const text = (node: Node, path: string, key: string): string | null => {
+    const raw = node[key];
+    if (typeof raw === 'string' && raw.trim() !== '') return raw.trim();
+    fail(`${path}.${key}`, absent(raw) ? 'required' : `expected text, got ${typeof raw} (quote it)`);
+    return null;
+  };
+  const oneOf = <T extends string>(node: Node, path: string, key: string, allowed: readonly T[]): T | null => {
+    const raw = text(node, path, key);
+    if (raw === null) return null;
+    if (allowed.includes(raw as T)) return raw as T;
+    fail(`${path}.${key}`, `expected one of ${allowed.join(', ')}: ${raw}`);
+    return null;
+  };
+  const list = (key: string): unknown[] | null => {
+    const raw = value[key];
+    if (absent(raw)) {
+      fail(`.${key}`, 'required');
+      return null;
+    }
+    if (!Array.isArray(raw)) {
+      fail(`.${key}`, 'expected a list');
+      return null;
+    }
+    return raw;
+  };
+
+  const measurementIds: string[] = [];
+  const rawIds = list('measurementIds');
+  if (rawIds !== null) {
+    if (rawIds.length === 0) fail('.measurementIds', 'expected at least one measurement ID');
+    rawIds.forEach((id, index) => {
+      if (typeof id !== 'string' || id.trim() === '') fail(`.measurementIds[${index}]`, absent(id) ? 'required' : `expected text, got ${typeof id} (quote it)`);
+      else if (measurementIds.includes(id.trim())) fail(`.measurementIds[${index}]`, `duplicate measurement ID: ${id.trim()}`);
+      else measurementIds.push(id.trim());
+    });
+  }
+  const consentDefault = oneOf(value, '', 'consentDefault', ANALYTICS_CONSENT_DEFAULTS);
+
+  const events: AnalyticsEvent[] = [];
+  const rawEvents = list('events');
+  if (rawEvents !== null) {
+    const seen = new Set<string>();
+    rawEvents.forEach((node, index) => {
+      const path = `.events[${index}]`;
+      if (!isNode(node)) {
+        fail(path, 'expected a mapping');
+        return;
+      }
+      for (const key of Object.keys(node)) if (!ANALYTICS_EVENT_KEYS.includes(key)) fail(`${path}.${key}`, 'unknown field');
+      const name = text(node, path, 'name');
+      const trigger = text(node, path, 'trigger');
+      const expect = oneOf(node, path, 'expect', ANALYTICS_EVENT_EXPECTATIONS);
+      if (name !== null && trigger !== null) {
+        const key = `${name}\n${trigger}`;
+        if (seen.has(key)) fail(`${path}.name`, `duplicate event: ${name}`);
+        seen.add(key);
+      }
+      if (name !== null && trigger !== null && expect !== null) events.push({ name, trigger, expect });
+    });
+  }
+
+  const reported: AnalyticsReconciliation[] = [];
+  const rawReported = list('reported');
+  if (rawReported !== null) {
+    const seen = new Set<string>();
+    rawReported.forEach((node, index) => {
+      const path = `.reported[${index}]`;
+      if (!isNode(node)) {
+        fail(path, 'expected a mapping');
+        return;
+      }
+      for (const key of Object.keys(node)) if (!ANALYTICS_REPORTED_KEYS.includes(key)) fail(`${path}.${key}`, 'unknown field');
+      const metric = text(node, path, 'metric');
+      const period = text(node, path, 'period');
+      const figure = (key: 'sourceA' | 'sourceB'): AnalyticsSourceFigure | null => {
+        const raw = node[key];
+        const where = `${path}.${key}`;
+        if (absent(raw)) {
+          fail(where, 'required');
+          return null;
+        }
+        if (!isNode(raw)) {
+          fail(where, 'expected a mapping with name and value');
+          return null;
+        }
+        for (const field of Object.keys(raw)) if (!ANALYTICS_FIGURE_KEYS.includes(field)) fail(`${where}.${field}`, 'unknown field');
+        const name = text(raw, where, 'name');
+        const n = raw['value'];
+        if (typeof n !== 'number' || !Number.isFinite(n) || n < 0) {
+          fail(`${where}.value`, absent(n) ? 'required' : 'expected a number of 0 or more');
+          return null;
+        }
+        return name === null ? null : { name, value: n };
+      };
+      const sourceA = figure('sourceA');
+      const sourceB = figure('sourceB');
+      if (sourceA !== null && sourceB !== null && sourceA.name === sourceB.name) {
+        fail(`${path}.sourceB`, `reconciliation needs two different sources, both are ${sourceA.name}`);
+      }
+      if (metric !== null && period !== null) {
+        const key = `${metric}\n${period}`;
+        if (seen.has(key)) fail(`${path}.metric`, `duplicate row: ${metric} ${period}`);
+        seen.add(key);
+      }
+      if (metric !== null && period !== null && sourceA !== null && sourceB !== null) reported.push({ metric, period, sourceA, sourceB });
+    });
+  }
+  return ok && consentDefault !== null ? { ...record, measurementIds, consentDefault, events, reported } : null;
+}
+
 const CRUX_KEYS = ['populations'];
 const POPULATION_KEYS = ['source', 'target', 'formFactor', 'periodStart', 'periodEnd', 'lcpMs', 'inpMs', 'cls', 'actions'];
 const FIELD_ACTION_KEYS = ['metric', 'owner', 'retestAt'];
@@ -1909,6 +2074,7 @@ export function parseInputs(value: unknown): AuditInputs {
     problems.push(`${path}: ${text}`);
   };
   const inputs: {
+    analytics?: AnalyticsRecord;
     crux?: CruxRecord;
     lighthouse?: LighthouseRecord;
     experiments?: readonly ExperimentRecord[];
@@ -1926,6 +2092,10 @@ export function parseInputs(value: unknown): AuditInputs {
     bingWebmaster?: BingWebmasterRecord;
     aiBaseline?: AiBaselineRecord;
   } = {};
+  if (value['analytics'] !== undefined && value['analytics'] !== null) {
+    const analytics = parseAnalytics(value['analytics'], problem);
+    if (analytics !== null) inputs.analytics = analytics;
+  }
   if (value['crux'] !== undefined && value['crux'] !== null) {
     const crux = parseCrux(value['crux'], problem);
     if (crux !== null) inputs.crux = crux;

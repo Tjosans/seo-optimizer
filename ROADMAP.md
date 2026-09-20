@@ -167,6 +167,7 @@ Every v5.0 detector not yet implemented has its own line below, preceded by the 
   - NOTE: iteration 2 (completed) failed its tests and was stashed as 'roadmap-runner iteration 2 (20260920-045509): Implement detector `template-lab-perf` (4.5, a launch gate, ...' (see git stash list).
   - NOTE: iteration 1 (completed) failed its tests and was stashed as 'roadmap-runner iteration 1 (20260920-045509): Implement detector `template-lab-perf` (4.5, a launch gate, ...' (see git stash list).
 - [ ] Add the `crux` input section: a CrUX API response per origin or URL (p75 LCP, INP, CLS, form factor, collection period), stored verbatim and reduced to what grading needs, strict, with an example
+  - NOTE: iteration 4 (completed) failed its tests and was stashed as 'roadmap-runner iteration 4 (20260920-045509): Add the `crux` input section: a CrUX API response per origin...' (see git stash list).
 - [ ] Implement detector `field-cwv-monitor` (6.2, @seo/probes `delivery.ts`, site scope): grade each p75 as Good, Needs Improvement or Poor by Google's thresholds; fail a Poor metric with no action record; a missing metric is unavailable, never Good. Never claim the site has Good field Core Web Vitals
 - [ ] Implement detector `prelaunch-baseline-snapshot` (4.11, @seo/probes `qa.ts`, site scope): fail a release audit with no `previous` baseline, and a baseline crawled with a different page budget or render setting; warn a baseline with no CrUX or Lighthouse section, recorded as unavailable
 

@@ -292,6 +292,15 @@ lighthouse:
   owner: Jane Doe
   recordedAt: 2026-09-01T09:00:00Z
 
+# serverLogs (7.8): an access log in combined format, by file path (relative to
+# this file). Each line is read into { at, method, path, status, userAgent };
+# the query string is dropped before anything is stored, so no personal data
+# in a URL is kept. Lines that are not combined format are counted and skipped.
+serverLogs:
+  path: logs/access.log
+  owner: Jane Doe
+  recordedAt: 2026-09-01T09:00:00Z
+
 # crux (6.2): field Core Web Vitals, one population per source, target and
 # device segment. source is crux-origin, crux-url, search-console-group or
 # rum; never label one as another. lcpMs, inpMs and cls are the p75 values;

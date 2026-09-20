@@ -174,7 +174,7 @@ Every v5.0 detector not yet implemented has its own line below, preceded by the 
 - [x] Implement detector `analytics-reconciliation` (6.7, @seo/probes `site.ts`, site scope): fail a `reported` pair more than 10% apart with no explanation, and warn one more than 5% apart; `not-applicable` without `reported`
 
 #### Server logs, feeds, and a person's records
-- [ ] Add the `serverLogs` input section: a path to an access log in combined format, parsed a line at a time into `{ at, method, path, status, userAgent }`, with query strings dropped before storage so no personal data is kept
+- [x] Add the `serverLogs` input section: a path to an access log in combined format, parsed a line at a time into `{ at, method, path, status, userAgent }`, with query strings dropped before storage so no personal data is kept
 - [ ] Implement detector `log-file-analysis` (7.8, @seo/probes `site.ts`, site scope): over hits whose user agent claims Googlebot or Bingbot (unverified, and said so), fail a 5xx rate over 1% and hits on URLs robots.txt disallows; warn when parameter URLs take over a quarter of crawler hits
 - [ ] Add the `merchantFeed` input section: a path to a Merchant Center feed (RSS with the `g:` namespace, or TSV), parsed into `{ id, link, price, currency, availability, gtin, brand }` per item, strict, with an example
 - [ ] Implement detector `merchant-feed-parity` (2.11, a launch gate, @seo/probes `commerce.ts`, site scope): for each feed item whose link was crawled, fail a price, currency, availability or gtin that disagrees with that page's Product JSON-LD; warn items the crawl did not reach
@@ -228,6 +228,7 @@ Every v5.0 detector not yet implemented has its own line below, preceded by the 
 
 ## Decisions
 
+- 2026-09-20: `serverLogs` is stored as a path plus `hits` filled by `loadServerLogs` (async, line-streamed, beside `loadLighthouseMetrics`); lines that are not combined format are counted in `skippedLines` rather than refused, because real logs carry junk lines, and the client address, referrer and query string are never kept so no personal data is stored.
 - 2026-09-20: `analytics-consent-matrix` skips the missing-event check when `consentDefault` is `denied`, and reads only triggers with no interaction word (click, submit, scroll…) as on-load, because an event the plan says is sent cannot be demanded of a tag that must be silent, and a render before interaction cannot see what a visitor's action fires.
 - 2026-09-20: `analytics.reported` sources are `{ name, value }` mappings and must differ; the roadmap gave only `sourceA`/`sourceB`, and a figure needs its tool named and a number to reconcile, while two rows from one source would reconcile nothing.
 - 2026-09-20: `analytics-reconciliation` measures a gap as |A−B| over the larger figure, and reads "explanation" from a new optional `explanation` text on each `reported` row; an explained gap over 10% still warns, since a person's reason narrows a finding but does not make the figures agree.

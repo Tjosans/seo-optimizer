@@ -590,8 +590,36 @@ export interface AnalyticsRecord extends InputRecord {
   readonly reported: readonly AnalyticsReconciliation[];
 }
 
+/**
+ * One request from an access log. `path` is the URL path alone: the query
+ * string and fragment are dropped before storage, because they are where
+ * personal data (emails, tokens, session ids) ends up in a log.
+ */
+export interface ServerLogHit {
+  /** ISO 8601 instant. */
+  readonly at: string;
+  readonly method: string;
+  readonly path: string;
+  readonly status: number;
+  readonly userAgent: string;
+}
+
+/**
+ * An access log in combined format, named by path. `hits` is filled by
+ * `loadServerLogs`, which reads the file a line at a time; `skippedLines`
+ * counts lines that were not combined format.
+ */
+export interface ServerLogsRecord extends InputRecord {
+  /** Path of the log file, relative to the inputs file. */
+  readonly path: string;
+  readonly hits?: readonly ServerLogHit[];
+  readonly skippedLines?: number;
+}
+
 /** Every section an audit can be given. */
 export interface AuditInputs {
+  /** An access log in combined format, reduced to hits without query strings. */
+  readonly serverLogs?: ServerLogsRecord;
   /** Analytics setup, event plan and cross-source reconciliation. */
   readonly analytics?: AnalyticsRecord;
   /** Field Core Web Vitals populations, p75 per metric (6.2). */
@@ -629,7 +657,7 @@ export interface AuditInputs {
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics', 'serverLogs'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -2068,6 +2096,17 @@ function parseLighthouse(value: unknown, problem: (path: string, text: string) =
   return ok ? { ...record, reports, ...(perfPolicy !== undefined ? { perfPolicy } : {}) } : null;
 }
 
+const SERVER_LOGS_KEYS = ['path'];
+
+function parseServerLogs(value: unknown, problem: (path: string, text: string) => void): ServerLogsRecord | null {
+  const record = parseInputRecord('serverLogs', value, problem, SERVER_LOGS_KEYS);
+  if (record === null || !isNode(value)) return null;
+  const raw = value['path'];
+  if (typeof raw === 'string' && raw.trim() !== '') return { ...record, path: raw.trim() };
+  problem('serverLogs.path', raw === undefined || raw === null || raw === '' ? 'required' : `expected text, got ${typeof raw} (quote it)`);
+  return null;
+}
+
 /**
  * Check a parsed inputs value's shape and return it typed. `undefined` and
  * `null` are no inputs. Throws `InputsError` listing every problem found:
@@ -2085,6 +2124,7 @@ export function parseInputs(value: unknown): AuditInputs {
   };
   const inputs: {
     analytics?: AnalyticsRecord;
+    serverLogs?: ServerLogsRecord;
     crux?: CruxRecord;
     lighthouse?: LighthouseRecord;
     experiments?: readonly ExperimentRecord[];
@@ -2105,6 +2145,10 @@ export function parseInputs(value: unknown): AuditInputs {
   if (value['analytics'] !== undefined && value['analytics'] !== null) {
     const analytics = parseAnalytics(value['analytics'], problem);
     if (analytics !== null) inputs.analytics = analytics;
+  }
+  if (value['serverLogs'] !== undefined && value['serverLogs'] !== null) {
+    const serverLogs = parseServerLogs(value['serverLogs'], problem);
+    if (serverLogs !== null) inputs.serverLogs = serverLogs;
   }
   if (value['crux'] !== undefined && value['crux'] !== null) {
     const crux = parseCrux(value['crux'], problem);

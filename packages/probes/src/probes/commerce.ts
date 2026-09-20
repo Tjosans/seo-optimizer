@@ -24,6 +24,7 @@
 
 import { normalizeUrl } from '@seo/crawler';
 import type { CrawledPage } from '@seo/crawler';
+import { inputRecordProblem } from '@seo/core';
 import type { SiteProbe } from '../types.js';
 import { fail, notApplicable, pass, warn } from '../types.js';
 
@@ -527,8 +528,8 @@ function hasIdentifier(node: Record<string, unknown>): boolean {
  * enough for the surface it is trying to reach — a Product rich result needs a
  * name and at least one of offers, review or aggregateRating; an offer with no
  * price or currency is not an offer a consumer can act on. `merchant-feed-parity`
- * is the check's other detector, unimplemented here: it needs a Merchant Center
- * feed to compare markup against, which this engine does not fetch.
+ * is the check's other detector: it compares markup against a Merchant Center
+ * feed a person supplied.
  *
  * Image, an identifier and a declared availability are recommended rather than
  * required, so their absence holds the check for a person rather than failing
@@ -622,4 +623,135 @@ export const productSchema: SiteProbe = {
   },
 };
 
-export const commerceProbes = [productVariantCanonical, productLifecycleState, productSchema];
+/**
+ * Availability with spacing and case removed: `availabilityStates` has already
+ * lower-cased the schema.org term (`instock`), and the feed spells it `in stock`.
+ */
+const availabilityKey = (term: string): string => term.replace(/[\s_]/g, '').toLowerCase();
+
+const gtinDigits = (value: unknown): string | null =>
+  typeof value === 'string' || typeof value === 'number'
+    ? String(value).replace(/\D/g, '').replace(/^0+/, '') || null
+    : null;
+
+const priceOf = (offer: Record<string, unknown>): number | null => {
+  const spec = offer['priceSpecification'];
+  const raw = offer['price'] ?? (typeof spec === 'object' && spec !== null ? (spec as Record<string, unknown>)['price'] : undefined);
+  if (typeof raw !== 'string' && typeof raw !== 'number') return null;
+  const value = Number(String(raw).replace(/,/g, '.'));
+  return Number.isFinite(value) ? value : null;
+};
+
+const currencyOf = (offer: Record<string, unknown>): string | null => {
+  const spec = offer['priceSpecification'];
+  const raw = offer['priceCurrency'] ?? (typeof spec === 'object' && spec !== null ? (spec as Record<string, unknown>)['priceCurrency'] : undefined);
+  return typeof raw === 'string' && raw.trim() !== '' ? raw.trim().toUpperCase() : null;
+};
+
+/**
+ * 2.11's feed half: whether what a Merchant Center feed says about a product is
+ * what its page says. Google disapproves items whose feed price or availability
+ * differs from the landing page, so a disagreement is a fail; it reads only the
+ * feed a person supplied and the pages the crawl already fetched.
+ *
+ * A field the page does not state at all is not a disagreement, so it holds the
+ * check with a warn, as does a feed item whose link the crawl did not reach:
+ * parity is only observed by looking. Several offers on a page (variants) agree
+ * with the feed when any one of them does.
+ */
+export const merchantFeedParity: SiteProbe = {
+  id: 'merchant-feed-parity',
+  scope: 'site',
+  title: 'Merchant Center feed items agree with their pages\' Product structured data',
+  run({ crawl, inputs }) {
+    const record = inputs?.merchantFeed;
+    if (record === undefined) return notApplicable('No Merchant Center feed was supplied.');
+    if (record.items === undefined) return notApplicable('The feed was named but not read, so it holds no items.');
+    if (record.items.length === 0) return notApplicable('The feed holds no items.');
+
+    const at = crawl.crawledAt ?? null;
+    const held = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (held !== null) {
+      return warn(`The supplied feed cannot be relied on (${held}); it was not compared.`, { items: record.items.length });
+    }
+
+    const byUrl = new Map<string, CrawledPage>();
+    for (const page of crawl.pages) {
+      if (page.extracted !== null && page.fetch.status === 200) byUrl.set(page.normalizedUrl, page);
+    }
+
+    const failures: ProductIssue[] = [];
+    const gaps: ProductIssue[] = [];
+    const unreached: string[] = [];
+    let compared = 0;
+
+    for (const item of record.items) {
+      const url = normalizeUrl(item.link) ?? item.link;
+      const page = byUrl.get(url);
+      if (page === undefined) {
+        unreached.push(item.link);
+        continue;
+      }
+      const node = productNode(page);
+      if (node === null) {
+        gaps.push({ url, issue: `item ${item.id}: the page carries no Product structured data to compare` });
+        continue;
+      }
+      compared += 1;
+      const offers = offerNodes(node);
+      const label = `item ${item.id}`;
+
+      const prices = offers.map(priceOf).filter((v): v is number => v !== null);
+      if (prices.length === 0) gaps.push({ url, issue: `${label}: the page states no price` });
+      else if (!prices.some((v) => Math.abs(v - item.price) < 0.005)) {
+        failures.push({ url, issue: `${label}: feed price ${item.price} but the page says ${prices.join(', ')}` });
+      }
+
+      const currencies = offers.map(currencyOf).filter((v): v is string => v !== null);
+      if (currencies.length === 0) gaps.push({ url, issue: `${label}: the page states no currency` });
+      else if (!currencies.includes(item.currency.toUpperCase())) {
+        failures.push({ url, issue: `${label}: feed currency ${item.currency} but the page says ${[...new Set(currencies)].join(', ')}` });
+      }
+
+      const states = availabilityStates(node).map(availabilityKey);
+      if (states.length === 0) gaps.push({ url, issue: `${label}: the page states no availability` });
+      else if (!states.includes(availabilityKey(item.availability))) {
+        failures.push({ url, issue: `${label}: feed availability "${item.availability}" but the page says ${[...new Set(states)].join(', ')}` });
+      }
+
+      if (item.gtin !== undefined) {
+        const feedGtin = gtinDigits(item.gtin);
+        const pageGtins = [node, ...offers]
+          .flatMap((n) => ['gtin', 'gtin8', 'gtin12', 'gtin13', 'gtin14'].map((key) => gtinDigits(n[key])))
+          .filter((v): v is string => v !== null);
+        if (pageGtins.length === 0) gaps.push({ url, issue: `${label}: the page states no gtin` });
+        else if (feedGtin !== null && !pageGtins.includes(feedGtin)) {
+          failures.push({ url, issue: `${label}: feed gtin ${item.gtin} but the page says ${[...new Set(pageGtins)].join(', ')}` });
+        }
+      }
+    }
+
+    const data = {
+      items: record.items.length,
+      compared,
+      unreached: unreached.length,
+      samples: failures.slice(0, 10),
+      gapSamples: gaps.slice(0, 10),
+      unreachedSamples: unreached.slice(0, 10),
+    };
+
+    if (failures.length > 0) {
+      return fail(`${failures.length} feed value(s) disagree with their product pages across ${compared} compared item(s).`, data);
+    }
+    if (unreached.length > 0 || gaps.length > 0) {
+      return warn(
+        `No disagreement found, but ${unreached.length} of ${record.items.length} feed item(s) were not reached by the crawl ` +
+          `and ${gaps.length} page value(s) could not be compared.`,
+        data,
+      );
+    }
+    return pass(`All ${compared} feed item(s) agree with their product pages on price, currency, availability and gtin.`, data);
+  },
+};
+
+export const commerceProbes = [productVariantCanonical, productLifecycleState, productSchema, merchantFeedParity];

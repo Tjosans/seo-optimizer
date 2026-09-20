@@ -9,6 +9,7 @@ import { inputRecordProblem } from '@seo/core';
 import type { AuxiliaryFetch, FetchResult } from '@seo/crawler';
 import type { PageProbe, SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
+import { matrixMatcher } from './site.js';
 
 export const httpStatus: PageProbe = {
   id: 'http-status',
@@ -598,7 +599,89 @@ export const labPerfBudget: SiteProbe = {
   },
 };
 
-const MEDIA_LCP_TAGS = new Set(['img', 'image', 'video', 'picture', 'source']);
+/**
+ * v5.0 4.5 asks that every launch template has been measured against the
+ * performance budget. Each priority `urlMatrix` pattern is a launch template;
+ * the Lighthouse reports whose URL the pattern matches are its evidence. A
+ * template fails with no report, with only reports older than the policy's
+ * `revision` (measured against a budget that has since changed), and with a
+ * current report over a threshold or run under another test profile. A current
+ * report missing a metric, unread or undated holds the check with a `warn`, as
+ * does an unowned or overdue record. Rows for another environment or private
+ * access are set aside. Without a policy or a priority row there is no budget
+ * or no template, so the check is `not-applicable`.
+ */
+export const templateLabPerf: SiteProbe = {
+  id: 'template-lab-perf',
+  scope: 'site',
+  title: 'Every launch template has a Lighthouse report inside the performance budget',
+  run({ crawl, inputs, origin }) {
+    const record = inputs?.lighthouse;
+    const policy = record?.perfPolicy;
+    if (record === undefined || policy === undefined) return notApplicable('No performance policy was supplied.');
+    const rows = (inputs?.urlMatrix ?? []).filter(
+      (row) => row.priority === true && row.access !== 'private' &&
+        (row.environment === undefined || row.environment === 'production'),
+    );
+    if (rows.length === 0) return notApplicable('The URL matrix names no priority template.');
+
+    const revision = Date.parse(policy.revision);
+    const failures: string[] = [];
+    const held: string[] = [];
+    const limits = Object.entries(policy.thresholds) as [keyof typeof policy.thresholds, number][];
+    for (const row of rows) {
+      const { test } = matrixMatcher(row.pattern, origin);
+      const reports = record.reports.filter((r) => {
+        const url = normalizeUrl(r.url);
+        return url !== null && test(url);
+      });
+      if (reports.length === 0) {
+        failures.push(`${row.pattern}: no Lighthouse report`);
+        continue;
+      }
+      const stale = reports.filter((r) => r.metrics?.fetchedAt !== undefined && Date.parse(r.metrics.fetchedAt) < revision);
+      const current = reports.filter((r) => !stale.includes(r));
+      if (current.length === 0) {
+        failures.push(`${row.pattern}: every report predates the policy revision ${policy.revision}`);
+        continue;
+      }
+      for (const report of current) {
+        const metrics = report.metrics;
+        if (metrics === undefined) {
+          held.push(`${row.pattern}: the report for ${report.url} has not been read`);
+          continue;
+        }
+        if (metrics.testProfile !== policy.testProfile) {
+          failures.push(`${row.pattern}: run as ${metrics.testProfile ?? 'an unknown profile'}, the policy is ${policy.testProfile}`);
+          continue;
+        }
+        const over: string[] = [];
+        const missing: string[] = [];
+        for (const [key, limit] of limits) {
+          const value = metrics[key];
+          if (value === undefined) missing.push(key);
+          else if (value > limit) over.push(`${key} ${value} over ${limit}`);
+        }
+        if (over.length > 0) failures.push(`${row.pattern}: ${over.join(', ')}`);
+        else if (missing.length > 0) held.push(`${row.pattern}: the report holds no ${missing.join(', ')}`);
+        else if (metrics.fetchedAt === undefined) held.push(`${row.pattern}: the report carries no run date`);
+      }
+    }
+
+    const data = { templates: rows.length, failures: failures.slice(0, 10), held: held.slice(0, 10) };
+    if (failures.length > 0) return fail(`${failures.length} launch template problem(s): ${failures.slice(0, 3).join(' | ')}.`, data);
+
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' || policy.owner.trim() === ''
+      ? 'the performance policy has no owner'
+      : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) held.push(problem);
+    if (held.length > 0) return warn(`Launch template performance is not settled: ${held.slice(0, 3).join('; ')}.`, data);
+    return pass(`${rows.length} launch template(s) have a current report inside the ${policy.testProfile} policy.`, data);
+  },
+};
+
+const MEDIA_LCP_TAGS =new Set(['img', 'image', 'video', 'picture', 'source']);
 
 /** The `@font-face` rules in the page's own `<style>` blocks that name no `font-display`. */
 function fontFacesWithoutDisplay(html: string): { total: number; without: number } {
@@ -771,6 +854,7 @@ export const deliveryProbes = [
   privateResponseCaching,
   indexabilityMatrixReconciliation,
   labPerfBudget,
+  templateLabPerf,
   lcpElementStrategy,
   fieldCwvMonitor,
 ];

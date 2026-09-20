@@ -2161,7 +2161,44 @@ export const offpageReputationGovernance: SiteProbe = {
   },
 };
 
+/**
+ * 7.5 asks whether digital PR is planned, owned and earns its links. The plan
+ * and the wins are supplied (`digitalPr`). Fails a win marked paid (a paid link
+ * is a link scheme) and a plan with no owner. No win yet, or an overdue record,
+ * holds the check; whether the wins are good coverage is a person's call.
+ * Without the section, `not-applicable`.
+ */
+export const digitalPrTracking: SiteProbe = {
+  id: 'digital-pr-tracking',
+  scope: 'site',
+  title: 'The digital PR plan has an owner and none of its recorded wins is a paid link',
+  run({ crawl, inputs }) {
+    const record = inputs?.digitalPr;
+    if (record === undefined) return notApplicable('No digitalPr record was supplied.');
+
+    const paid = record.wins.filter((win) => win.paid);
+    const unowned = record.owner.trim() === '';
+    const data = {
+      plan: record.plan,
+      wins: record.wins.length,
+      paid: paid.slice(0, 10).map((win) => win.url),
+      owner: unowned ? null : record.owner,
+    };
+    const failures: string[] = [];
+    if (paid.length > 0) failures.push(`${paid.length} win(s) are marked paid, and a paid link is a link scheme (${paid.slice(0, 3).map((win) => win.url).join(', ')})`);
+    if (unowned) failures.push('The digital PR plan has no owner');
+    if (failures.length > 0) return fail(`${failures.join('; ')}.`, data);
+    if (record.wins.length === 0) return warn('The digitalPr record lists no win yet.', data);
+
+    const at = crawl.crawledAt ?? null;
+    const problem = at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) return warn(`The digitalPr record is held for review (${problem}).`, data);
+    return pass(`The digital PR plan is owned by ${record.owner} and its ${record.wins.length} recorded win(s) are all earned. A person still judges the coverage.`, data);
+  },
+};
+
 export const siteProbes = [
+  digitalPrTracking,
   offpageReputationGovernance,
   monitoringIncidentSla,
   indexnowIntegration,

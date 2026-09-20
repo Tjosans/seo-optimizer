@@ -411,6 +411,18 @@ reviewDestinations:
   owner: Jane Doe
   recordedAt: 2026-09-10T09:00:00Z
 
+# digitalPr (7.5): the digital PR plan and the links it has won. A win with
+# paid: true fails (a paid link is a link scheme), as does a record with no
+# owner; a plan with no wins yet holds the check.
+digitalPr:
+  plan: Earn coverage with an annual industry benchmark report
+  wins:
+    - url: https://news.example.org/benchmark-report
+      date: 2026-08-20T09:00:00Z
+      paid: false
+  owner: Jane Doe
+  recordedAt: 2026-09-10T09:00:00Z
+
 # brandEntity (0.5): how the organisation names itself. legalName and
 # publicName are text; sameAs lists the profiles it stands behind (http(s)
 # URLs). An Organization sameAs in the markup that is not listed here, or a

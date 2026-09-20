@@ -500,6 +500,23 @@ export interface ReviewDestinationsRecord extends InputRecord {
   readonly destinations: readonly ReviewDestination[];
 }
 
+/** One placement a digital PR campaign won (7.5). */
+export interface DigitalPrWin {
+  /** The page carrying the link, an absolute http(s) URL. */
+  readonly url: string;
+  /** ISO 8601 instant the link was won. */
+  readonly date: string;
+  /** Whether the link was bought; a paid link is a link scheme. */
+  readonly paid: boolean;
+}
+
+/** The digital PR plan, who runs it, and what it has won (7.5). */
+export interface DigitalPrRecord extends InputRecord {
+  /** What the campaign sets out to earn, as text. */
+  readonly plan: string;
+  readonly wins: readonly DigitalPrWin[];
+}
+
 /** One IndexNow submission the site's publishing pipeline made (2.10). */
 export interface IndexNowSubmission {
   readonly url: string;
@@ -886,12 +903,14 @@ export interface AuditInputs {
   readonly incidents?: IncidentsRecord;
   /** The off-page review destinations, their policy dates and recheck dates (7.6). */
   readonly reviewDestinations?: ReviewDestinationsRecord;
+  /** The digital PR plan, its owner and the links it has won (7.5). */
+  readonly digitalPr?: DigitalPrRecord;
   /** The manual accessibility evaluation: scope, methods, limitations, blockers, conformance claim (4.4). */
   readonly a11yEvaluation?: A11yEvaluationRecord;
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics', 'serverLogs', 'merchantFeed', 'checkoutMatrix', 'a11yEvaluation', 'contentReview', 'brandEntity', 'keywordMap', 'competitorBaseline', 'businessProfile', 'indexNow', 'incidents', 'reviewDestinations'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics', 'serverLogs', 'merchantFeed', 'checkoutMatrix', 'a11yEvaluation', 'contentReview', 'brandEntity', 'keywordMap', 'competitorBaseline', 'businessProfile', 'indexNow', 'incidents', 'reviewDestinations', 'digitalPr'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -2042,6 +2061,74 @@ function parseIncidents(value: unknown, problem: (path: string, text: string) =>
   return { ...record, testAlertIntervalDays: interval as number, entries };
 }
 
+const DIGITAL_PR_KEYS = ['plan', 'wins'];
+const DIGITAL_PR_WIN_KEYS = ['url', 'date', 'paid'];
+
+function parseDigitalPr(value: unknown, problem: (path: string, text: string) => void): DigitalPrRecord | null {
+  const record = parseInputRecord('digitalPr', value, problem, DIGITAL_PR_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`digitalPr${path}`, text);
+    ok = false;
+  };
+  const missing = (raw: unknown): boolean => raw === undefined || raw === null || raw === '';
+  let plan = '';
+  const rawPlan = value['plan'];
+  if (missing(rawPlan)) fail('.plan', 'required');
+  else if (typeof rawPlan !== 'string') fail('.plan', `expected text, got ${typeof rawPlan} (quote it)`);
+  else if (rawPlan.trim() === '') fail('.plan', 'required');
+  else plan = rawPlan.trim();
+  const wins: DigitalPrWin[] = [];
+  const raw = value['wins'];
+  if (raw === undefined || raw === null) fail('.wins', 'required');
+  else if (!Array.isArray(raw)) fail('.wins', 'expected a list');
+  else {
+    raw.forEach((node, index) => {
+      const path = `.wins[${index}]`;
+      if (!isNode(node)) {
+        fail(path, 'expected a mapping');
+        return;
+      }
+      let good = true;
+      for (const field of Object.keys(node)) {
+        if (!DIGITAL_PR_WIN_KEYS.includes(field)) {
+          fail(`${path}.${field}`, 'unknown field');
+          good = false;
+        }
+      }
+      const url = node['url'];
+      if (typeof url !== 'string' || !isHttpUrl(url.trim())) {
+        fail(`${path}.url`, 'expected an http(s) URL');
+        good = false;
+      }
+      const date = node['date'];
+      let stamp = '';
+      if (missing(date)) {
+        fail(`${path}.date`, 'required');
+        good = false;
+      } else if (typeof date !== 'string') {
+        fail(`${path}.date`, `expected text, got ${typeof date} (quote it)`);
+        good = false;
+      } else {
+        const ms = instant(date);
+        if (ms === null) {
+          fail(`${path}.date`, `not a date and time: ${date}`);
+          good = false;
+        } else stamp = new Date(ms).toISOString();
+      }
+      const paid = node['paid'];
+      if (typeof paid !== 'boolean') {
+        fail(`${path}.paid`, missing(paid) ? 'required' : 'expected true or false');
+        good = false;
+      }
+      if (good) wins.push({ url: (url as string).trim(), date: stamp, paid: paid as boolean });
+    });
+  }
+  if (!ok) return null;
+  return { ...record, plan, wins };
+}
+
 const REVIEW_DESTINATIONS_KEYS = ['destinations'];
 const REVIEW_DESTINATION_KEYS = ['destination', 'policyDate', 'owner', 'recheckAt'];
 
@@ -3011,7 +3098,12 @@ export function parseInputs(value: unknown): AuditInputs {
     indexNow?: IndexNowRecord;
     incidents?: IncidentsRecord;
     reviewDestinations?: ReviewDestinationsRecord;
+    digitalPr?: DigitalPrRecord;
   } = {};
+  if (value['digitalPr'] !== undefined && value['digitalPr'] !== null) {
+    const digitalPr = parseDigitalPr(value['digitalPr'], problem);
+    if (digitalPr !== null) inputs.digitalPr = digitalPr;
+  }
   if (value['reviewDestinations'] !== undefined && value['reviewDestinations'] !== null) {
     const reviewDestinations = parseReviewDestinations(value['reviewDestinations'], problem);
     if (reviewDestinations !== null) inputs.reviewDestinations = reviewDestinations;

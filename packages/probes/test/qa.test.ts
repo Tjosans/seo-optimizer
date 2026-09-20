@@ -902,3 +902,44 @@ describe('quarterly-regression-crawl (7.3)', () => {
     expect(run(previous(), undefined).outcome).toBe('error');
   });
 });
+
+describe('release-regression-review (7.4)', () => {
+  const previous = { schema: 1, origin: ORIGIN, takenAt: '2026-08-01T00:00:00.000Z', pages: [], probes: [] };
+  const run = (over: Record<string, unknown>): Observation =>
+    (probeById('release-regression-review') as SiteProbe).run({
+      origin: ORIGIN,
+      flags: [],
+      crawl: {} as CrawlResult,
+      ...over,
+    } as never);
+  const gates = (over: Record<string, unknown> = {}) => ({
+    passedBefore: ['1.1', '1.2'],
+    failingNow: ['1.2', '1.3'],
+    reopened: [],
+    ...over,
+  });
+
+  it('is not applicable without a release or a previous audit', () => {
+    expect(run({ previous, gates: gates() }).outcome).toBe('not-applicable');
+    expect(run({ release: 'r1', gates: gates() }).outcome).toBe('not-applicable');
+  });
+
+  it('reports error when the gate history is unavailable', () => {
+    expect(run({ release: 'r1', previous }).outcome).toBe('error');
+  });
+
+  it('fails a gate that passed and fails now with no reopened run', () => {
+    const result = run({ release: 'r1', previous, gates: gates() });
+    expect(result.outcome).toBe('fail');
+    expect(result.summary).toContain('1.2');
+    expect(result.summary).not.toContain('1.3');
+  });
+
+  it('passes a regressed gate that was reopened', () => {
+    expect(run({ release: 'r1', previous, gates: gates({ reopened: ['1.2'] }) }).outcome).toBe('pass');
+  });
+
+  it('passes when nothing regressed', () => {
+    expect(run({ release: 'r1', previous, gates: gates({ failingNow: ['1.3'] }) }).outcome).toBe('pass');
+  });
+});

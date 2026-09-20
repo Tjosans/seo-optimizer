@@ -26,6 +26,20 @@ export interface Observation {
   readonly data?: Readonly<Record<string, unknown>>;
 }
 
+/**
+ * How each launch gate stood in the previous audit and now, and which the
+ * release's review log has reopened. Check states are the grader's, not a
+ * probe's, so whoever runs the probes supplies them — like `previous`.
+ */
+export interface ReleaseGateHistory {
+  /** Launch-gate check ids that were passed in the previous audit. */
+  readonly passedBefore: readonly string[];
+  /** Launch-gate check ids that fail in this audit. */
+  readonly failingNow: readonly string[];
+  /** Check ids with a `reopened` review run in the release. */
+  readonly reopened: readonly string[];
+}
+
 export interface SiteContext {
   readonly origin: string;
   readonly crawl: CrawlResult;
@@ -46,6 +60,8 @@ export interface SiteContext {
    * one. Only a release audit is owed a baseline.
    */
   readonly release?: string | null;
+  /** Launch-gate history for a release audit, or null/absent when not supplied. */
+  readonly gates?: ReleaseGateHistory | null;
   /**
    * Evidence a person supplied (`AuditInputs`), or null/absent when none was.
    * A detector whose section is missing reports `not-applicable`.

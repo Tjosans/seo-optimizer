@@ -1370,7 +1370,55 @@ export const quarterlyRegressionCrawl: SiteProbe = {
   },
 };
 
+/**
+ * `release-regression-review` (7.4): a launch gate that passed in the previous
+ * audit and fails in this one is a regression, and a release owes it a
+ * `reopened` review run. `not-applicable` when the audit names no release or
+ * has no previous audit.
+ *
+ * Fails a regressed gate with no reopened run in the release. A regressed gate
+ * that was reopened is the process working, and passes. Reports `error` when
+ * the gate history was not supplied: nobody saw the gates.
+ */
+export const releaseRegressionReview: SiteProbe = {
+  id: 'release-regression-review',
+  scope: 'site',
+  title: 'A launch gate that regressed since the last audit has been reopened for review',
+  run({ previous, release, gates }) {
+    if (release === undefined || release === null) {
+      return notApplicable('This audit is not of a release, so no review run is owed.');
+    }
+    if (previous === undefined || previous === null) {
+      return notApplicable('No previous audit was supplied to compare the launch gates against.');
+    }
+    if (gates === undefined || gates === null) {
+      return errored('The launch-gate history was not available to compare.');
+    }
+
+    const failing = new Set(gates.failingNow);
+    const reopened = new Set(gates.reopened);
+    const regressed = [...new Set(gates.passedBefore)].filter((id) => failing.has(id)).sort();
+    const unreviewed = regressed.filter((id) => !reopened.has(id));
+    const data = { release, previousAudit: previous.takenAt, regressed, unreviewed };
+
+    if (unreviewed.length > 0) {
+      return fail(
+        `${unreviewed.length} launch gate${unreviewed.length === 1 ? '' : 's'} passed in the audit of ${previous.takenAt} and now fail with no reopened review run in release "${release}": ${unreviewed.join(', ')}.`,
+        data,
+      );
+    }
+    if (regressed.length > 0) {
+      return pass(
+        `${regressed.length} regressed launch gate${regressed.length === 1 ? ' has' : 's have'} been reopened in release "${release}": ${regressed.join(', ')}.`,
+        data,
+      );
+    }
+    return pass(`No launch gate that passed in the audit of ${previous.takenAt} fails now.`, data);
+  },
+};
+
 export const qaProbes = [
+  releaseRegressionReview,
   quarterlyRegressionCrawl,
   prelaunchBaselineSnapshot,
   migrationRedirectTest,

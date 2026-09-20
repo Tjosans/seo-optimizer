@@ -225,6 +225,7 @@ Every v5.0 detector not yet implemented has its own line below, preceded by the 
 - [x] Create attestation interface for confirming checks
 
 ## Blocked
+- 2026-09-20 (resolved): both tasks named below are done and ticked; the entry stays because the history is the value.
 - 2026-09-19: "Carry `AuditInputs` through a real audit" waits on "Add supplied evidence to the probe context" (itself blocked after 3 attempts): `AuditInputs`, `parseInputs` and `SiteContext.inputs` do not exist yet, and this task only wires them through `audits.inputs`, `submit`, `runAudit` and `POST /audits`. Unblock the first task, then retry this one (superseded the same day: the first task was never genuinely blocked, see the entry above on truncated prompts; both are open again)
 
 ## Decisions

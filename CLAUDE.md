@@ -148,7 +148,7 @@ Key scripts:
 - A warning holds a check `in-progress` with basis `held-by-warning`, on an `assisted` check as on an automated one, so the person confirming it sees the warning rather than "none failed".
 - A detector that is unimplemented, errored, or observed nothing leaves the check `not-started` / `unknown`. Missing evidence is never good news, and never bad news either.
 - Scope comes from `sites.flags`: an empty profile leaves conditional checks at `review`; a filled-in one narrows non-matching checks to `no` with a written rationale.
-- Roughly half of v5.0's 134 detectors exist, so today most automated checks cannot be graded end to end and most audits come back mostly ungraded. That is the honest answer, not a bug. `npm run probes:matrix` prints the current figure; do not quote one from memory.
+- Every one of v5.0's 134 detectors now exists, so every automated check has a detector behind it. That is not the same as a fully graded audit: an `assisted` check still waits on a person, and a detector whose evidence the site does not supply reports `not-applicable` rather than a verdict. `npm run probes:matrix` prints the current figure; do not quote one from memory.
 - A row a human attested is never overwritten by a re-grade, and it counts in the frozen readiness until its `attestationExpiresAt`; readiness is assessed at `gradedAt`, and a lapsed attestation stays on the record but holds its gate.
 
 ### What READY FOR CUTOVER adds
@@ -258,4 +258,12 @@ scripts/{analyze,compare,compile-corpus,probe-matrix,record-release,triage}.ts  
 
 ## What to pick up next
 
-`ROADMAP.md` Phase 4 is the current phase. The job queue (`@seo/queue`), the audit scheduler (`@seo/scheduler`), the grader (`@seo/grader`) and durable queue storage (`@seo/job-store`) are in; lease expiry (@seo/job-store, @seo/queue) is in, so a second worker can share a queue namespace, and lanes hold across workers, so two of them never crawl one host together; what remains is detector coverage, the single thing most limiting what an audit can say (`npm run probes:matrix` prints the current figure); `ROADMAP.md` lists one checkbox per remaining detector, with the evidence each needs (a supplied input, a mobile render, a previous audit) scheduled ahead of it — Releases and review runs are stored and READY FOR CUTOVER is frozen onto an audit that names a release; until the audit API exists they are entered from a file with `npm run release`. Phases 5-8 cover rendered crawl, external body storage, the audit API, and the dashboard.
+Every checkbox in `ROADMAP.md` phases 0-8 is ticked as of 2026-09-20: the queue, scheduler, grader and durable job store; lease expiry, so a second worker can share a namespace and lanes hold across workers; the rendered crawl; external body storage end to end; the HTTP audit API under `apps/api`; the dashboard; and all 134 of v5.0's detectors.
+
+That means the next phase has to be decided rather than read off. Three things are known to be worth doing and are not written down as tasks yet:
+
+- **`npm run db:migrate` exits 1 and prints nothing**, on a database whose 10 migrations are all applied and whose schema is current. CI runs the same command without complaint. Harmless today, misleading the first time it matters.
+- **The detectors have never been run against a large real site.** `npm run analyze -- <url>` works, but coverage proven by fixtures is not coverage proven by the web, and a detector that reports `error` on real markup is indistinguishable from one that is merely unimplemented until someone looks.
+- **Nothing has been cut as a release.** There is no version, no changelog and no published package.
+
+Add whichever of these is next as a checkbox under a new phase heading before starting it.

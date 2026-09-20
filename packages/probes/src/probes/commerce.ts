@@ -754,4 +754,44 @@ export const merchantFeedParity: SiteProbe = {
   },
 };
 
-export const commerceProbes = [productVariantCanonical, productLifecycleState, productSchema, merchantFeedParity];
+export const productCheckoutQa: SiteProbe = {
+  id: 'product-checkout-qa',
+  scope: 'site',
+  title: 'The checkout cases a person tested passed, and their URLs answer 200',
+  run({ crawl, inputs }) {
+    const record = inputs?.checkoutMatrix;
+    if (record === undefined) return notApplicable('No checkout matrix was supplied; a catalogue without a checkout has nothing to test.');
+
+    const byUrl = new Map<string, CrawledPage>();
+    for (const page of crawl.pages) byUrl.set(page.normalizedUrl, page);
+
+    const failed = record.cases.filter((c) => c.result === 'fail');
+    const badStatus: { case: string; url: string; status: number | null }[] = [];
+    const unreached: string[] = [];
+    for (const c of record.cases) {
+      const page = byUrl.get(normalizeUrl(c.url) ?? c.url);
+      if (page === undefined) unreached.push(c.case);
+      else if (page.fetch.status !== 200) badStatus.push({ case: c.case, url: c.url, status: page.fetch.status ?? null });
+    }
+    const data = { cases: record.cases.length, failed: failed.map((c) => c.case), badStatus, unreached };
+
+    if (failed.length > 0 || badStatus.length > 0) {
+      const parts: string[] = [];
+      if (failed.length > 0) parts.push(`${failed.length} case(s) failed when tested (${failed.slice(0, 3).map((c) => c.case).join(', ')})`);
+      if (badStatus.length > 0) {
+        parts.push(`${badStatus.length} case URL(s) did not answer 200 to the crawl (${badStatus.slice(0, 3).map((c) => `${c.case}: ${c.status}`).join(', ')})`);
+      }
+      return fail(`${parts.join('; ')}.`, data);
+    }
+
+    const at = crawl.crawledAt ?? null;
+    const held = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (held !== null) return warn(`The checkout matrix is held for review (${held}).`, data);
+    if (unreached.length > 0) {
+      return warn(`Every case passed, but the crawl did not reach the URL of ${unreached.length} of ${record.cases.length} case(s).`, data);
+    }
+    return pass(`All ${record.cases.length} checkout case(s) passed and their URLs answer 200.`, data);
+  },
+};
+
+export const commerceProbes = [productVariantCanonical, productLifecycleState, productSchema, merchantFeedParity, productCheckoutQa];

@@ -312,6 +312,18 @@ merchantFeed:
   owner: Jane Doe
   recordedAt: 2026-09-01T09:00:00Z
 
+# checkoutMatrix (4.10): the checkout paths a person walked by hand; a crawl
+# may not place an order. result is pass or fail. A failed case, or a case URL
+# the crawl got a non-200 from, fails the check.
+checkoutMatrix:
+  cases:
+    - case: guest checkout, in-stock item
+      url: https://example.com/checkout
+      result: pass
+      testedAt: 2026-09-10T09:00:00Z
+  owner: Jane Doe
+  recordedAt: 2026-09-10T09:00:00Z
+
 # crux (6.2): field Core Web Vitals, one population per source, target and
 # device segment. source is crux-origin, crux-url, search-console-group or
 # rum; never label one as another. lcpMs, inpMs and cls are the p75 values;

@@ -346,6 +346,19 @@ export interface ContentDecision extends InputRecord {
   readonly decidedAt: string;
 }
 
+/** One checkout path a person walked (4.10): what was tried, where, how it went, when. */
+export interface CheckoutCase {
+  readonly case: string;
+  readonly url: string;
+  readonly result: 'pass' | 'fail';
+  readonly testedAt: string;
+}
+
+/** The checkout cases a person tested by hand (4.10): a transaction is not something a crawl may make. */
+export interface CheckoutMatrixRecord extends InputRecord {
+  readonly cases: readonly CheckoutCase[];
+}
+
 /** The search engines a Search Console export can speak for. */
 export const REPORTING_MEASURED_ENGINES = ['google'] as const;
 
@@ -681,10 +694,12 @@ export interface AuditInputs {
   readonly environments?: EnvironmentsRecord;
   /** What was decided for each declining URL (7.2). */
   readonly contentDecisions?: readonly ContentDecision[];
+  /** The checkout cases tested by hand (4.10). */
+  readonly checkoutMatrix?: CheckoutMatrixRecord;
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics', 'serverLogs', 'merchantFeed'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics', 'serverLogs', 'merchantFeed', 'checkoutMatrix'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -1301,6 +1316,59 @@ function parseContentDecisions(value: unknown, problem: (path: string, text: str
     if (url !== null && decision !== null && ms !== null) out.push({ ...record, url, decision, decidedAt: new Date(ms).toISOString() });
   });
   return ok ? out : null;
+}
+
+const CHECKOUT_MATRIX_KEYS = ['cases'];
+
+function parseCheckoutMatrix(value: unknown, problem: (path: string, text: string) => void): CheckoutMatrixRecord | null {
+  const record = parseInputRecord('checkoutMatrix', value, problem, CHECKOUT_MATRIX_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`checkoutMatrix${path}`, text);
+    ok = false;
+  };
+  const raw = value['cases'];
+  if (!Array.isArray(raw)) {
+    fail('.cases', raw === undefined || raw === null ? 'required' : 'expected a list');
+    return null;
+  }
+  if (raw.length === 0) fail('.cases', 'expected at least one case');
+  const cases: CheckoutCase[] = [];
+  const seen = new Set<string>();
+  raw.forEach((node, index) => {
+    const path = `.cases[${index}]`;
+    if (!isNode(node)) {
+      fail(path, 'expected a mapping');
+      return;
+    }
+    for (const key of Object.keys(node)) {
+      if (!['case', 'url', 'result', 'testedAt'].includes(key)) fail(`${path}.${key}`, 'unknown field');
+    }
+    const text = (key: string): string | null => {
+      const field = node[key];
+      if (typeof field === 'string' && field.trim() !== '') return field.trim();
+      fail(`${path}.${key}`, field === undefined || field === null || field === '' ? 'required' : `expected text, got ${typeof field} (quote it)`);
+      return null;
+    };
+    const name = text('case');
+    if (name !== null) {
+      if (seen.has(name.toLowerCase())) fail(`${path}.case`, `duplicate case: ${name}`);
+      seen.add(name.toLowerCase());
+    }
+    const url = text('url');
+    if (url !== null && !isHttpUrl(url)) fail(`${path}.url`, `expected an http(s) URL: ${url}`);
+    const resultRaw = text('result');
+    const result = resultRaw === null ? null : resultRaw.toLowerCase();
+    if (result !== null && result !== 'pass' && result !== 'fail') fail(`${path}.result`, `expected pass or fail, got ${resultRaw}`);
+    const testedRaw = text('testedAt');
+    const ms = testedRaw === null ? null : instant(testedRaw);
+    if (testedRaw !== null && ms === null) fail(`${path}.testedAt`, `not a date and time: ${testedRaw}`);
+    if (name !== null && url !== null && isHttpUrl(url) && (result === 'pass' || result === 'fail') && ms !== null) {
+      cases.push({ case: name, url, result, testedAt: new Date(ms).toISOString() });
+    }
+  });
+  return ok ? { ...record, cases } : null;
 }
 
 const DISAVOW_KEYS = ['submitted', 'reasons', 'removalAttempts'];
@@ -2180,6 +2248,7 @@ export function parseInputs(value: unknown): AuditInputs {
     disavow?: DisavowRecord;
     bingWebmaster?: BingWebmasterRecord;
     aiBaseline?: AiBaselineRecord;
+    checkoutMatrix?: CheckoutMatrixRecord;
   } = {};
   if (value['analytics'] !== undefined && value['analytics'] !== null) {
     const analytics = parseAnalytics(value['analytics'], problem);
@@ -2188,6 +2257,10 @@ export function parseInputs(value: unknown): AuditInputs {
   if (value['serverLogs'] !== undefined && value['serverLogs'] !== null) {
     const serverLogs = parseServerLogs(value['serverLogs'], problem);
     if (serverLogs !== null) inputs.serverLogs = serverLogs;
+  }
+  if (value['checkoutMatrix'] !== undefined && value['checkoutMatrix'] !== null) {
+    const checkoutMatrix = parseCheckoutMatrix(value['checkoutMatrix'], problem);
+    if (checkoutMatrix !== null) inputs.checkoutMatrix = checkoutMatrix;
   }
   if (value['merchantFeed'] !== undefined && value['merchantFeed'] !== null) {
     const merchantFeed = parseMerchantFeed(value['merchantFeed'], problem);

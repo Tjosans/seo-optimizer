@@ -481,6 +481,27 @@ export interface IncidentsRecord extends InputRecord {
   readonly entries: readonly IncidentEntry[];
 }
 
+/** The severities a `VulnerabilityEntry` can carry, worst first. */
+export const VULNERABILITY_SEVERITIES = ['critical', 'high', 'medium', 'low'] as const;
+
+/**
+ * One known vulnerability in the site's stack (7.10). `owner` is kept as text
+ * even when blank: an unfixed critical nobody owns is the finding, not a bad file.
+ */
+export interface VulnerabilityEntry {
+  /** A CVE, advisory or ticket id, as the site names it. */
+  readonly id: string;
+  readonly severity: (typeof VULNERABILITY_SEVERITIES)[number];
+  readonly owner: string;
+  /** ISO 8601 instant the fix shipped; absent while the vulnerability is open. */
+  readonly fixedAt?: string;
+}
+
+/** The open and fixed vulnerabilities the site tracks (7.10). */
+export interface VulnerabilitiesRecord extends InputRecord {
+  readonly entries: readonly VulnerabilityEntry[];
+}
+
 /**
  * One place the site's reputation is reviewed off-page (7.6). `owner` is kept
  * as text even when blank: a destination nobody owns holds the check.
@@ -901,6 +922,8 @@ export interface AuditInputs {
   readonly indexNow?: IndexNowRecord;
   /** The incident log and how often alert tests must be run (7.1). */
   readonly incidents?: IncidentsRecord;
+  /** The known vulnerabilities, their owners and fix dates (7.10). */
+  readonly vulnerabilities?: VulnerabilitiesRecord;
   /** The off-page review destinations, their policy dates and recheck dates (7.6). */
   readonly reviewDestinations?: ReviewDestinationsRecord;
   /** The digital PR plan, its owner and the links it has won (7.5). */
@@ -910,7 +933,7 @@ export interface AuditInputs {
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics', 'serverLogs', 'merchantFeed', 'checkoutMatrix', 'a11yEvaluation', 'contentReview', 'brandEntity', 'keywordMap', 'competitorBaseline', 'businessProfile', 'indexNow', 'incidents', 'reviewDestinations', 'digitalPr'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics', 'serverLogs', 'merchantFeed', 'checkoutMatrix', 'a11yEvaluation', 'contentReview', 'brandEntity', 'keywordMap', 'competitorBaseline', 'businessProfile', 'indexNow', 'incidents', 'reviewDestinations', 'digitalPr', 'vulnerabilities'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -2061,6 +2084,82 @@ function parseIncidents(value: unknown, problem: (path: string, text: string) =>
   return { ...record, testAlertIntervalDays: interval as number, entries };
 }
 
+const VULNERABILITIES_KEYS = ['entries'];
+const VULNERABILITY_ENTRY_KEYS = ['id', 'severity', 'owner', 'fixedAt'];
+
+function parseVulnerabilities(value: unknown, problem: (path: string, text: string) => void): VulnerabilitiesRecord | null {
+  const record = parseInputRecord('vulnerabilities', value, problem, VULNERABILITIES_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`vulnerabilities${path}`, text);
+    ok = false;
+  };
+  const missing = (raw: unknown): boolean => raw === undefined || raw === null || raw === '';
+  const entries: VulnerabilityEntry[] = [];
+  const raw = value['entries'];
+  if (raw === undefined || raw === null) fail('.entries', 'required');
+  else if (!Array.isArray(raw)) fail('.entries', 'expected a list');
+  else {
+    raw.forEach((node, index) => {
+      const path = `.entries[${index}]`;
+      if (!isNode(node)) {
+        fail(path, 'expected a mapping');
+        return;
+      }
+      let good = true;
+      for (const field of Object.keys(node)) {
+        if (!VULNERABILITY_ENTRY_KEYS.includes(field)) {
+          fail(`${path}.${field}`, 'unknown field');
+          good = false;
+        }
+      }
+      const id = node['id'];
+      if (typeof id !== 'string' || id.trim() === '') {
+        fail(`${path}.id`, missing(id) || typeof id === 'string' ? 'required' : `expected text, got ${typeof id} (quote it)`);
+        good = false;
+      }
+      const severity = node['severity'];
+      if (typeof severity !== 'string' || !(VULNERABILITY_SEVERITIES as readonly string[]).includes(severity)) {
+        fail(`${path}.severity`, missing(severity) ? 'required' : `expected one of ${VULNERABILITY_SEVERITIES.join(', ')}`);
+        good = false;
+      }
+      let owner = '';
+      const rawOwner = node['owner'];
+      if (!missing(rawOwner)) {
+        if (typeof rawOwner !== 'string') {
+          fail(`${path}.owner`, `expected text, got ${typeof rawOwner} (quote it)`);
+          good = false;
+        } else owner = rawOwner.trim();
+      }
+      let fixedAt = '';
+      const rawFixed = node['fixedAt'];
+      if (!missing(rawFixed)) {
+        if (typeof rawFixed !== 'string') {
+          fail(`${path}.fixedAt`, `expected text, got ${typeof rawFixed} (quote it)`);
+          good = false;
+        } else {
+          const ms = instant(rawFixed);
+          if (ms === null) {
+            fail(`${path}.fixedAt`, `not a date and time: ${rawFixed}`);
+            good = false;
+          } else fixedAt = new Date(ms).toISOString();
+        }
+      }
+      if (good) {
+        entries.push({
+          id: (id as string).trim(),
+          severity: severity as VulnerabilityEntry['severity'],
+          owner,
+          ...(fixedAt === '' ? {} : { fixedAt }),
+        });
+      }
+    });
+  }
+  if (!ok) return null;
+  return { ...record, entries };
+}
+
 const DIGITAL_PR_KEYS = ['plan', 'wins'];
 const DIGITAL_PR_WIN_KEYS = ['url', 'date', 'paid'];
 
@@ -3099,7 +3198,12 @@ export function parseInputs(value: unknown): AuditInputs {
     incidents?: IncidentsRecord;
     reviewDestinations?: ReviewDestinationsRecord;
     digitalPr?: DigitalPrRecord;
+    vulnerabilities?: VulnerabilitiesRecord;
   } = {};
+  if (value['vulnerabilities'] !== undefined && value['vulnerabilities'] !== null) {
+    const vulnerabilities = parseVulnerabilities(value['vulnerabilities'], problem);
+    if (vulnerabilities !== null) inputs.vulnerabilities = vulnerabilities;
+  }
   if (value['digitalPr'] !== undefined && value['digitalPr'] !== null) {
     const digitalPr = parseDigitalPr(value['digitalPr'], problem);
     if (digitalPr !== null) inputs.digitalPr = digitalPr;

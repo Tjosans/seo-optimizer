@@ -400,6 +400,19 @@ incidents:
   owner: Jane Doe
   recordedAt: 2026-09-10T09:00:00Z
 
+# vulnerabilities (7.10): known vulnerabilities in the stack. severity is one of
+# critical, high, medium, low; fixedAt is absent while it is open. An unfixed
+# critical with no owner fails; an owned one, or a Server / X-Powered-By header
+# that names a version, holds the check.
+vulnerabilities:
+  entries:
+    - id: CVE-2026-0001
+      severity: high
+      owner: Sam Lee
+      fixedAt: 2026-09-05T09:00:00Z
+  owner: Jane Doe
+  recordedAt: 2026-09-10T09:00:00Z
+
 # reviewDestinations (7.6): where the site's reputation is reviewed off-page.
 # A destination whose recheckAt has passed fails; one with no owner holds the check.
 reviewDestinations:

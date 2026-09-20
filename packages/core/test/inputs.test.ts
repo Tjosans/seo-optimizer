@@ -365,3 +365,152 @@ describe('scripts/inputs.example.yaml', () => {
     expect(inputs.searchConsole?.links?.[0]?.count).toBe(12);
   });
 });
+
+describe('bingWebmaster', () => {
+  const full = {
+    owner: 'Jane',
+    recordedAt: '2026-09-01T09:00:00Z',
+    property: { url: 'https://example.com/', verified: true, verifiedAt: '2026-08-01T09:00:00Z' },
+    sitemaps: [{ url: 'https://example.com/sitemap.xml', submittedAt: '2026-08-02T09:00:00Z', status: 'Success' }],
+    aiCitations: [{ page: 'https://example.com/a', citations: 8, period: '2026-06-01/2026-08-31' }],
+  };
+  const run = (patch: object) => () => parseInputs({ bingWebmaster: { ...full, ...patch } });
+
+  it('reads each subsection', () => {
+    const b = parseInputs({ bingWebmaster: full }).bingWebmaster;
+    expect(b?.property).toEqual({ url: 'https://example.com/', verified: true, verifiedAt: '2026-08-01T09:00:00.000Z' });
+    expect(b?.sitemaps?.[0]?.status).toBe('Success');
+    expect(b?.aiCitations?.[0]?.citations).toBe(8);
+  });
+
+  it('keeps an empty list as an answer and an absent one as a gap', () => {
+    const b = parseInputs({ bingWebmaster: { ...full, sitemaps: [], aiCitations: undefined } }).bingWebmaster;
+    expect(b?.sitemaps).toEqual([]);
+    expect(b?.aiCitations).toBeUndefined();
+  });
+
+  it('allows an unverified property without a date', () => {
+    const b = parseInputs({ bingWebmaster: { ...full, property: { url: 'https://example.com/', verified: false } } }).bingWebmaster;
+    expect(b?.property).toEqual({ url: 'https://example.com/', verified: false });
+  });
+
+  it('refuses what an export would not hold, listing every path', () => {
+    expect(run({ extra: 1 })).toThrow(/bingWebmaster\.extra: unknown field/);
+    expect(run({ property: { url: 'https://example.com/', verified: true } })).toThrow(/property\.verifiedAt: required/);
+    expect(run({ property: { url: 'example.com', verified: 'yes' } })).toThrow(/property\.verified: expected true or false/);
+    expect(run({ sitemaps: [full.sitemaps[0], full.sitemaps[0]] })).toThrow(/duplicate sitemap/);
+    expect(run({ sitemaps: [{ url: 'https://example.com/s.xml', submittedAt: 'soon', status: 'Success' }] })).toThrow(/sitemaps\[0\]\.submittedAt: not a date/);
+    expect(run({ aiCitations: [{ ...full.aiCitations[0], citations: -1 }] })).toThrow(/aiCitations\[0\]\.citations/);
+    expect(run({ aiCitations: [{ ...full.aiCitations[0], citations: '8' }] })).toThrow(/aiCitations\[0\]\.citations/);
+    expect(run({ aiCitations: [full.aiCitations[0], full.aiCitations[0]] })).toThrow(/duplicate row/);
+    expect(run({ aiCitations: {} })).toThrow(/aiCitations: expected a list/);
+  });
+
+  it('is in scripts/inputs.example.yaml', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { parse } = await import('yaml');
+    const text = readFileSync(new URL('../../../scripts/inputs.example.yaml', import.meta.url), 'utf8');
+    expect(parseInputs(parse(text)).bingWebmaster?.aiCitations).toHaveLength(1);
+  });
+});
+
+describe('reporting', () => {
+  const base = { owner: 'Jane', recordedAt: '2026-09-05T09:00:00Z', rhythm: 'weekly' };
+
+  it('reads a record and counts a blank disposition', () => {
+    const parsed = parseInputs({
+      reporting: { ...base, thresholds: [{ metric: 'Clicks', engine: 'Google', change: -0.2 }], anomalies: [{ metric: 'clicks' }] },
+    }).reporting;
+    expect(parsed?.thresholds[0]).toEqual({ metric: 'clicks', engine: 'google', change: -0.2 });
+    expect(parsed?.anomalies[0]).toEqual({ metric: 'clicks', disposition: '' });
+  });
+
+  it('refuses a bad threshold', () => {
+    expect(() => parseInputs({ reporting: { ...base, thresholds: [{ metric: 'clicks', engine: 'google', change: 0 }] } })).toThrow(/change/);
+    expect(() => parseInputs({ reporting: { ...base, thresholds: [{ metric: 'clicks', change: '20%' }] } })).toThrow(/engine[\s\S]*change/);
+    expect(() => parseInputs({ reporting: { ...base, anomalies: [{ metric: 'clicks', note: 'x' }] } })).toThrow(/unknown field/);
+  });
+});
+
+describe('contentDecisions', () => {
+  const row = { url: 'https://example.com/a', decision: 'refresh', decidedAt: '2026-09-05T09:00:00Z', owner: 'Jane', recordedAt: '2026-09-05T09:00:00Z' };
+
+  it('reads a decision and refuses a bad one', () => {
+    expect(parseInputs({ contentDecisions: [row] }).contentDecisions?.[0]).toMatchObject({ url: row.url, decision: 'refresh' });
+    expect(() => parseInputs({ contentDecisions: [{ ...row, decidedAt: 'soon' }, row, row] })).toThrow(/decidedAt[\s\S]*duplicate decision/);
+    expect(() => parseInputs({ contentDecisions: [{ ...row, url: '/a' }] })).toThrow(/http\(s\) URL/);
+  });
+});
+
+describe('aiBaseline', () => {
+  const report = { report: 'SC AI', metric: 'impressions', scope: 'Google', period: '2026-09-01/2026-09-30', availableFrom: '2026-08-31' };
+  const base = { owner: 'Jane', recordedAt: '2026-10-01T09:00:00Z', reports: [report] };
+  const run = (patch: object) => () => parseInputs({ aiBaseline: { ...base, ...patch } });
+
+  it('reads reports', () => {
+    expect(parseInputs({ aiBaseline: base }).aiBaseline?.reports[0]?.availableFrom).toBe('2026-08-31T00:00:00.000Z');
+  });
+
+  it('refuses what a baseline would not hold', () => {
+    expect(run({ reports: undefined })).toThrow(/aiBaseline\.reports: required/);
+    expect(run({ reports: [{ ...report, availableFrom: 'soon' }] })).toThrow(/availableFrom: not a date/);
+    expect(run({ reports: [{ ...report, metric: 3 }] })).toThrow(/metric: expected text/);
+    expect(run({ reports: [report, report] })).toThrow(/duplicate row/);
+    expect(run({ reports: [{ ...report, extra: 1 }] })).toThrow(/extra: unknown field/);
+  });
+});
+
+describe('lighthouse', () => {
+  const full = {
+    owner: 'Jane',
+    recordedAt: '2026-09-01T09:00:00Z',
+    reports: [{ url: 'https://example.com/', path: 'lighthouse/home.json' }],
+    perfPolicy: { thresholds: { lcpMs: 2500, cls: 0.1 }, testProfile: 'mobile', owner: 'Jane', revision: '2026-08-01T00:00:00Z' },
+  };
+  const run = (patch: object) => () => parseInputs({ lighthouse: { ...full, ...patch } });
+
+  it('reads reports and the policy', () => {
+    const l = parseInputs({ lighthouse: full }).lighthouse;
+    expect(l?.reports).toEqual([{ url: 'https://example.com/', path: 'lighthouse/home.json' }]);
+    expect(l?.perfPolicy?.thresholds).toEqual({ lcpMs: 2500, cls: 0.1 });
+    expect(l?.perfPolicy?.revision).toBe('2026-08-01T00:00:00.000Z');
+  });
+
+  it('allows reports without a policy', () => {
+    expect(parseInputs({ lighthouse: { ...full, perfPolicy: undefined } }).lighthouse?.perfPolicy).toBeUndefined();
+  });
+
+  it('refuses what a policy or report list cannot hold, listing every path', () => {
+    expect(run({ extra: 1 })).toThrow(/lighthouse\.extra: unknown field/);
+    expect(run({ reports: undefined })).toThrow(/reports: required/);
+    expect(run({ reports: [full.reports[0], full.reports[0]] })).toThrow(/duplicate report/);
+    expect(run({ reports: [{ url: 'nope', path: 'a.json' }] })).toThrow(/reports\[0\]\.url: expected an http/);
+    expect(run({ reports: [{ url: 'https://example.com/' }] })).toThrow(/reports\[0\]\.path: required/);
+    expect(run({ perfPolicy: { ...full.perfPolicy, thresholds: {} } })).toThrow(/set at least one/);
+    expect(run({ perfPolicy: { ...full.perfPolicy, thresholds: { lcpMs: '2500' } } })).toThrow(/thresholds\.lcpMs: expected a number/);
+    expect(run({ perfPolicy: { ...full.perfPolicy, thresholds: { fid: 100 } } })).toThrow(/thresholds\.fid: unknown field/);
+    expect(run({ perfPolicy: { ...full.perfPolicy, revision: 'soon' } })).toThrow(/perfPolicy\.revision: not a date/);
+    expect(run({ perfPolicy: { ...full.perfPolicy, testProfile: undefined } })).toThrow(/perfPolicy\.testProfile: required/);
+  });
+
+  it('reduces a report and loads the example file', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { parse } = await import('yaml');
+    const { loadLighthouseMetrics } = await import('../src/lighthouse.js');
+    const dir = new URL('../../../scripts/', import.meta.url);
+    const inputs = parseInputs(parse(readFileSync(new URL('inputs.example.yaml', dir), 'utf8')));
+    const loaded = loadLighthouseMetrics(inputs, fileURLToPathSafe(dir));
+    const m = loaded.lighthouse?.reports[0]?.metrics;
+    expect(m).toMatchObject({ lcpMs: 2100, cls: 0.04, tbtMs: 120, testProfile: 'mobile', fetchedAt: '2026-09-01T08:30:00.000Z' });
+    expect(m?.lcpElement).toEqual({ tag: 'img', selector: 'body > img.hero', src: '/hero.jpg', fetchPriority: 'high' });
+  });
+
+  it('names the file it cannot read', async () => {
+    const { loadLighthouseMetrics } = await import('../src/lighthouse.js');
+    expect(() => loadLighthouseMetrics(parseInputs({ lighthouse: full }), '/nonexistent')).toThrow(/home\.json/);
+  });
+});
+
+function fileURLToPathSafe(url: URL): string {
+  return decodeURIComponent(url.pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+}

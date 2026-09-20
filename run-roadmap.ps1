@@ -180,6 +180,22 @@ function Complete-Iteration([string]$Task, [int]$Iteration, [string]$Why) {
     return 'stashed'
 }
 
+# ---- Baseline: the tests must pass before any task is attempted ----------
+# Otherwise every task fails the runner's verification for a reason that has
+# nothing to do with it, and each is stashed, retried and finally marked [!].
+# That is what a stopped Docker daemon did on 2026-09-20: 15 stashes and four
+# tasks blocked, all of them sound. Find out once, up front, for free.
+if (-not $NoTestVerify) {
+    Write-Host "Baseline check before starting: $TestCommand" -ForegroundColor DarkGray
+    if (-not (Test-Suite (Join-Path $LogDir "baseline-tests.log"))) {
+        Write-Error ("The test suite fails on a clean tree, so no task could be verified. " +
+                     "Fix the environment first (is Docker running? try 'npm run stack:up' and 'npm run db:migrate'), " +
+                     "then re-run. Output: $LogDir\baseline-tests.log")
+        exit 1
+    }
+    Write-Host "Baseline is green." -ForegroundColor DarkGray
+}
+
 Write-Host "Starting autonomous roadmap runner (model=$Model, effort=$Effort, logs=$LogDir)..." -ForegroundColor Cyan
 
 $Pattern     = '^\s*- \[ \] (.+?)\s*$'

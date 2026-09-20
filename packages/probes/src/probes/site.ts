@@ -6,7 +6,7 @@
 
 import { extract, isAllowed, isSameSite, normalizeUrl, pathDepth } from '@seo/crawler';
 import type { CrawledPage } from '@seo/crawler';
-import { DOMAIN_HISTORY_REQUIRED_CHECKS, inputRecordProblem, isProductToken, isUserDirectedAgent } from '@seo/core';
+import { DOMAIN_HISTORY_REQUIRED_CHECKS, REPORTING_MEASURED_ENGINES, inputRecordProblem,isProductToken, isUserDirectedAgent } from '@seo/core';
 import type { SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
 import { checkLanguageTag } from './language-tags.js';
@@ -1663,7 +1663,196 @@ export const securityManualActions: SiteProbe = {
   },
 };
 
+/**
+ * Each metric's total per period, periods in the order the export first names
+ * them (oldest first). Fewer than two periods leaves nothing to compare.
+ */
+function performancePeriods(rows: readonly { clicks: number; impressions: number; period: string; query?: string }[]): Map<string, { clicks: number; impressions: number }> {
+  const totals = new Map<string, { clicks: number; impressions: number }>();
+  for (const row of rows) {
+    const total = totals.get(row.period) ?? { clicks: 0, impressions: 0 };
+    total.clicks += row.clicks;
+    total.impressions += row.impressions;
+    totals.set(row.period, total);
+  }
+  return totals;
+}
+
+export const reportingAnomalyThresholds: SiteProbe = {
+  id: 'reporting-anomaly-thresholds',
+  scope: 'site',
+  title: 'Every alert threshold the performance data crosses has an anomaly entry with a disposition',
+  run({ crawl, inputs }) {
+    const record = inputs?.reporting;
+    if (record === undefined) return notApplicable('No reporting record was supplied.');
+
+    const unanswered = record.anomalies.filter((anomaly) => anomaly.disposition === '').map((anomaly) => anomaly.metric);
+    const data: Record<string, unknown> = {
+      rhythm: record.rhythm,
+      thresholds: record.thresholds.length,
+      anomalies: record.anomalies.length,
+      unanswered: unanswered.slice(0, 10),
+    };
+
+    // Which thresholds the export can speak to: Search Console is Google's, and needs two periods to show a change.
+    const unmeasured: string[] = [];
+    const crossed: string[] = [];
+    const unlogged: string[] = [];
+    const periods = performancePeriods(inputs?.searchConsole?.performance ?? []);
+    const names = [...periods.keys()];
+    const previous = names.length >= 2 ? periods.get(names[names.length - 2] as string) : undefined;
+    const current = names.length >= 2 ? periods.get(names[names.length - 1] as string) : undefined;
+    for (const threshold of record.thresholds) {
+      const label = `${threshold.engine} ${threshold.metric} ${threshold.change > 0 ? '+' : ''}${Math.round(threshold.change * 100)}%`;
+      const metric = threshold.metric === 'clicks' || threshold.metric === 'impressions' ? threshold.metric : null;
+      if (metric === null || !(REPORTING_MEASURED_ENGINES as readonly string[]).includes(threshold.engine) || previous === undefined || current === undefined) {
+        unmeasured.push(label);
+        continue;
+      }
+      if (previous[metric] === 0) {
+        unmeasured.push(label);
+        continue;
+      }
+      const moved = (current[metric] - previous[metric]) / previous[metric];
+      const beyond = threshold.change < 0 ? moved <= threshold.change : moved >= threshold.change;
+      if (!beyond) continue;
+      crossed.push(`${label} (${moved > 0 ? '+' : ''}${Math.round(moved * 100)}%)`);
+      if (!record.anomalies.some((anomaly) => anomaly.metric === threshold.metric)) unlogged.push(label);
+    }
+    data['crossed'] = crossed.slice(0, 10);
+    data['unmeasured'] = unmeasured.slice(0, 10);
+
+    const failures: string[] = [];
+    if (unlogged.length > 0) failures.push(`${unlogged.length} threshold(s) the performance data crosses have no anomaly entry: ${unlogged.slice(0, 3).join(', ')}`);
+    if (unanswered.length > 0) failures.push(`${unanswered.length} anomaly entr${unanswered.length === 1 ? 'y has' : 'ies have'} no disposition: ${unanswered.slice(0, 3).join(', ')}`);
+    if (failures.length > 0) return fail(`${failures.join('; ')}.`, data);
+
+    if (record.thresholds.length === 0) return warn('The reporting record defines no alert thresholds, so nothing can be crossed.', data);
+    if (unmeasured.length > 0) {
+      return warn(`${unmeasured.length} of ${record.thresholds.length} threshold(s) could not be measured from the supplied performance data: ${unmeasured.slice(0, 3).join(', ')}.`, data);
+    }
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) return warn(`The reporting record is held for review (${problem}).`, data);
+    if (record.rhythm === '') return warn('The reporting record names no rhythm.', data);
+    return pass(`${record.thresholds.length} threshold(s) checked against the performance data; none is crossed without an answered anomaly entry.`, data);
+  },
+};
+
+export const backlinkMonitor: SiteProbe = {
+  id: 'backlink-monitor',
+  scope: 'site',
+  title: 'A disavow submission states its reasons and the removal attempts made first',
+  run({ crawl, inputs }) {
+    const record = inputs?.disavow;
+    if (record === undefined) return notApplicable('No disavow record was supplied.');
+
+    const data = { submitted: record.submitted, reasons: record.reasons.length, removalAttempts: record.removalAttempts.length };
+    // With no submission there is nothing to justify.
+    if (!record.submitted) return pass('No disavow file was submitted, so no reasons or removal attempts are owed.', data);
+
+    const missing = [record.reasons.length === 0 ? 'reasons' : null, record.removalAttempts.length === 0 ? 'removal attempts' : null].filter((x) => x !== null);
+    if (missing.length > 0) return fail(`A disavow file was submitted with no ${missing.join(' and no ')} on record.`, data);
+
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) return warn(`The disavow record is held for review (${problem}).`, data);
+    return pass(`The disavow submission records ${record.reasons.length} reason(s) and ${record.removalAttempts.length} removal attempt(s).`, data);
+  },
+};
+
+export const bingOnboarding: SiteProbe = {
+  id: 'bing-onboarding',
+  scope: 'site',
+  title: 'The site is a verified Bing Webmaster property and its sitemaps reached Bing',
+  run({ crawl, inputs }) {
+    const record = inputs?.bingWebmaster;
+    if (record === undefined) return notApplicable('No Bing Webmaster export was supplied.');
+
+    const property = record.property;
+    const found = [...new Set(crawl.sitemaps.filter((doc) => doc.status !== null && doc.status < 400).map((doc) => doc.url))];
+    const reported = new Map((record.sitemaps ?? []).map((row) => [sitemapKey(row.url), row]));
+    const failed: string[] = [];
+    const missing: string[] = [];
+    for (const url of found) {
+      const row = reported.get(sitemapKey(url));
+      if (row === undefined) missing.push(url);
+    }
+    for (const row of record.sitemaps ?? []) {
+      if (/\b(error|errors|failed|fail)\b|couldn.?t fetch/i.test(row.status)) failed.push(row.url);
+    }
+    const data = {
+      verified: property?.verified ?? null,
+      found: found.length,
+      submitted: record.sitemaps?.length ?? null,
+      failed: failed.slice(0, 10),
+      missing: missing.slice(0, 10),
+    };
+
+    if (property !== undefined && !property.verified) {
+      return fail(`The Bing Webmaster property ${property.url} is not verified.`, data);
+    }
+    if (failed.length > 0) {
+      return fail(`Bing reports ${failed.length} submitted sitemap(s) as failed: ${failed.slice(0, 3).join(', ')}.`, data);
+    }
+    // Missing subsections are access that was not available: held, never failed.
+    if (property === undefined) return warn('The Bing Webmaster export holds no property, so verification is unconfirmed.', data);
+    if (record.sitemaps === undefined && found.length > 0) {
+      return warn('The Bing Webmaster export holds no Sitemaps report, so submission is unverified.', data);
+    }
+    if (missing.length > 0) {
+      return warn(`${missing.length} of ${found.length} sitemap(s) the crawl found have not been received by Bing: ${missing.slice(0, 3).join(', ')}.`, data);
+    }
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) return warn(`The Bing Webmaster record is held for review (${problem}).`, data);
+    return pass(`The Bing Webmaster property is verified and all ${found.length} sitemap(s) the crawl found reached Bing.`, data);
+  },
+};
+
+const AI_ENGINE_NAMES = /\b(google|gemini|bing|copilot|chatgpt|openai|perplexity|claude|anthropic|meta ai|grok)\b/gi;
+const COMBINED_WORDS = /\b(combined|blended|composite|aggregate[d]?|unified|all engines|all ai|cross-engine|overall|total)\b|\bscore\b/i;
+const PERIOD_START = /^\s*(\d{4}-\d{2}-\d{2})\s*(?:\/|to\b|–|--?|$)/;
+
+export const aiVisibilityBaseline: SiteProbe = {
+  id: 'ai-visibility-baseline',
+  scope: 'site',
+  title: 'The AI visibility baseline is per engine and claims no history its tools did not record',
+  run({ crawl, inputs }) {
+    const record = inputs?.aiBaseline;
+    if (record === undefined) return notApplicable('No AI visibility baseline was supplied.');
+
+    const invented: string[] = [];
+    const combined: string[] = [];
+    const unreadable: string[] = [];
+    for (const row of record.reports) {
+      const start = PERIOD_START.exec(row.period)?.[1];
+      const startMs = start === undefined ? Number.NaN : Date.parse(`${start}T00:00:00Z`);
+      if (Number.isNaN(startMs)) unreadable.push(row.report);
+      else if (startMs < Date.parse(`${row.availableFrom.slice(0, 10)}T00:00:00Z`)) {
+        invented.push(`${row.report} (${row.period} starts before ${row.availableFrom.slice(0, 10)})`);
+      }
+      const engines = new Set((row.scope.match(AI_ENGINE_NAMES) ?? []).map((name) => name.toLowerCase()));
+      if (COMBINED_WORDS.test(row.metric) || COMBINED_WORDS.test(row.scope) || engines.size > 1) combined.push(row.report);
+    }
+    const data = { reports: record.reports.length, invented: invented.slice(0, 10), combined: combined.slice(0, 10), unreadable: unreadable.slice(0, 10) };
+
+    if (invented.length > 0) return fail(`${invented.length} report(s) claim history before the tool recorded it: ${invented.slice(0, 3).join('; ')}.`, data);
+    if (combined.length > 0) return fail(`${combined.length} report(s) combine engines into one score: ${combined.slice(0, 3).join(', ')}.`, data);
+    if (record.reports.length === 0) return warn('The AI visibility baseline lists no reports.', data);
+    if (unreadable.length > 0) return warn(`The period of ${unreadable.length} report(s) is not a date range, so its history cannot be checked: ${unreadable.slice(0, 3).join(', ')}.`, data);
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) return warn(`The AI visibility baseline is held for review (${problem}).`, data);
+    return pass(`All ${record.reports.length} baseline report(s) are per engine and start no earlier than their tool recorded.`, data);
+  },
+};
+
 export const siteProbes = [
+  aiVisibilityBaseline,
+  bingOnboarding,
+  backlinkMonitor,
+  reportingAnomalyThresholds,
   urlInventoryBuilder,
   gscPropertyOwnership,
   sitemapSubmit,

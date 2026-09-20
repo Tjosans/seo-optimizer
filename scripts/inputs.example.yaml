@@ -195,3 +195,99 @@ searchConsole:
       count: 12
   owner: Jane Doe
   recordedAt: 2026-09-01T09:00:00Z
+
+# bingWebmaster: what a person exports from Bing Webmaster Tools. Every
+# subsection is optional; an empty list is the report saying there is nothing.
+# property.verified is true or false, and verifiedAt is required when it is
+# true. sitemaps rows carry the page's own status text; a sitemap listed twice
+# is refused. aiCitations: how many times Bing's AI answers cited a page (a
+# whole number, an http(s) page); period is the date range as exported.
+bingWebmaster:
+  property:
+    url: https://example.com/
+    verified: true
+    verifiedAt: 2026-08-01T09:00:00Z
+  sitemaps:
+    - url: https://example.com/sitemap.xml
+      submittedAt: 2026-08-02T09:00:00Z
+      status: Success
+  aiCitations:
+    - page: https://example.com/guides/getting-started
+      citations: 8
+      period: 2026-06-01/2026-08-31
+  owner: Jane Doe
+  recordedAt: 2026-09-01T09:00:00Z
+
+# aiBaseline (6.4): the AI visibility reports a baseline is drawn from, one row
+# each. scope names the engine the number speaks for (one engine per row);
+# period is the date range as exported; availableFrom is the date the tool began
+# recording the report, so a period starting earlier is invented history.
+aiBaseline:
+  reports:
+    - report: Search Console AI performance
+      metric: impressions
+      scope: Google
+      period: 2026-09-01/2026-09-30
+      availableFrom: 2026-08-31
+  owner: Jane Doe
+  recordedAt: 2026-10-01T09:00:00Z
+
+# contentDecisions (7.2): what was decided for each URL whose clicks fell, one
+# row per url (an http(s) address). decision is free text (refresh, merge,
+# redirect, retire, keep); decidedAt is when it was made.
+contentDecisions:
+  - url: https://example.com/guides/old-guide
+    decision: refresh
+    decidedAt: 2026-09-05T09:00:00Z
+    owner: Jane Doe
+    recordedAt: 2026-09-05T09:00:00Z
+
+# disavow (6.8): whether a disavow file was submitted to Google. A submission
+# with no reasons or no removal attempts fails the check; with submitted: false
+# there is nothing to justify. reasons and removalAttempts are lists of text.
+disavow:
+  submitted: true
+  reasons:
+    - paid links from a link network, 40 domains
+  removalAttempts:
+    - emailed each site owner on 2026-08-01, no reply
+  owner: Jane Doe
+  recordedAt: 2026-09-01T09:00:00Z
+
+# reporting (6.3): how performance is reported and what became of the alerts.
+# rhythm is free text. Each threshold's change is a signed fraction between the
+# last two periods of the Search Console performance export (-0.2 is a fifth
+# lost); only google can be measured from it. An anomaly with no disposition
+# fails the check, and so does a crossed threshold whose metric has no anomaly.
+reporting:
+  rhythm: weekly
+  thresholds:
+    - metric: clicks
+      engine: google
+      change: -0.2
+  anomalies:
+    - metric: clicks
+      disposition: seasonal dip, no action; recheck next week
+  owner: Jane Doe
+  recordedAt: 2026-09-01T09:00:00Z
+
+# lighthouse (1.5, 4.5): Lighthouse JSON reports, one per URL, by file path
+# (relative to this file). The engine reduces each to LCP, CLS, TBT, the LCP
+# element with its loading attributes, the run time and the form factor.
+# perfPolicy is the budget: thresholds (any of lcpMs, cls, tbtMs, each above
+# 0), the testProfile reports must have run under (mobile or desktop), who
+# owns it, and its revision (a report older than this predates the policy).
+lighthouse:
+  reports:
+    - url: https://example.com/
+      path: lighthouse/home.json
+  perfPolicy:
+    thresholds:
+      lcpMs: 2500
+      cls: 0.1
+      tbtMs: 200
+    testProfile: mobile
+    owner: Jane Doe
+    revision: 2026-08-01T00:00:00Z
+  owner: Jane Doe
+  recordedAt: 2026-09-01T09:00:00Z

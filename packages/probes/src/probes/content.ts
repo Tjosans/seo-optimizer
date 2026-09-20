@@ -29,6 +29,7 @@
 import { isSameSite, normalizeUrl } from '@seo/crawler';
 import { inputRecordProblem } from '@seo/core';
 import type { CrawledPage, Extracted } from '@seo/crawler';
+import type { ContentDecision } from '@seo/core';
 import type { PageProbe, SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
 import { previousPage } from '../previous.js';
@@ -936,6 +937,97 @@ export const contentParityDiff: SiteProbe = {
   },
 };
 
+/** 7.2: a URL needs this many clicks in the earlier period to count as one that could decline. */
+const DECAY_MIN_CLICKS = 100;
+/** 7.2: a URL that kept less than this share of its earlier clicks is declining. */
+const DECAY_KEPT_SHARE = 0.7;
+
+/** The instant a Performance `period` starts: the first date in `2026-06-01/2026-08-31`, or null for `Last 3 months`. */
+const periodStart = (period: string): number | null => {
+  const match = /\d{4}-\d{2}-\d{2}/.exec(period);
+  return match === null ? null : Date.parse(match[0]);
+};
+
+/**
+ * 7.2: is every URL whose search traffic fell answered for. Reads
+ * `searchConsole.performance` (page-level rows, not per-query) across its two
+ * most recent periods, ordered by the date each starts, and
+ * `contentDecisions`. A URL with at least 100 clicks in the earlier period
+ * that kept under 70% of them in the later one (none at all counts) is
+ * declining.
+ *
+ * Fails a declining URL with no decision; passes when each has one. Warns a
+ * decision record with no owner or past its review, and periods that cannot
+ * be ordered. Without a performance export, or with under two periods,
+ * `not-applicable`: what did not change cannot be told from what was not
+ * exported.
+ */
+export const contentDecay: SiteProbe = {
+  id: 'content-decay',
+  scope: 'site',
+  title: 'Every URL whose search clicks fell has a content decision',
+  run({ crawl, inputs }) {
+    const rows = inputs?.searchConsole?.performance;
+    if (rows === undefined) return notApplicable('No Search Console Performance report was supplied.');
+
+    const byPeriod = new Map<string, Map<string, number>>();
+    for (const row of rows) {
+      if (row.query !== undefined) continue;
+      const url = normalizeUrl(row.page) ?? row.page;
+      const clicks = byPeriod.get(row.period) ?? new Map<string, number>();
+      clicks.set(url, (clicks.get(url) ?? 0) + row.clicks);
+      byPeriod.set(row.period, clicks);
+    }
+    if (byPeriod.size < 2) return notApplicable('The Performance report covers fewer than two periods.');
+
+    const dated = [...byPeriod.keys()].map((period) => ({ period, start: periodStart(period) }));
+    if (dated.some((entry) => entry.start === null || Number.isNaN(entry.start))) {
+      return warn(`The Performance periods cannot be ordered by date (${dated.map((entry) => entry.period).join(', ')}), so decline is not judged.`, {
+        periods: dated.map((entry) => entry.period),
+      });
+    }
+    dated.sort((a, b) => (a.start as number) - (b.start as number));
+    const later = dated[dated.length - 1]!.period;
+    const earlier = dated[dated.length - 2]!.period;
+    const before = byPeriod.get(earlier)!;
+    const after = byPeriod.get(later)!;
+
+    const decisions = new Map<string, ContentDecision>();
+    for (const entry of inputs?.contentDecisions ?? []) decisions.set(normalizeUrl(entry.url) ?? entry.url, entry);
+
+    const declining: string[] = [];
+    for (const [url, clicks] of before) {
+      if (clicks >= DECAY_MIN_CLICKS && (after.get(url) ?? 0) < clicks * DECAY_KEPT_SHARE) declining.push(url);
+    }
+    declining.sort();
+    const undecided = declining.filter((url) => !decisions.has(url));
+
+    const data = {
+      earlier,
+      later,
+      declining: declining.length,
+      undecided: undecided.slice(0, 10),
+      undecidedCount: undecided.length,
+    };
+    if (undecided.length > 0) {
+      return fail(`${undecided.length} of ${declining.length} declining URL(s) have no content decision: ${undecided.slice(0, 3).join(', ')}.`, data);
+    }
+    if (declining.length === 0) {
+      return pass(`No URL with ${DECAY_MIN_CLICKS} or more clicks in ${earlier} lost 30% or more by ${later}.`, data);
+    }
+
+    const at = crawl.crawledAt ?? null;
+    const held = new Set<string>();
+    for (const url of declining) {
+      const entry = decisions.get(url)!;
+      const problem = entry.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(entry, new Date(at));
+      if (problem !== null) held.add(`${url}: ${problem}`);
+    }
+    if (held.size > 0) return warn(`Content decisions are held for review: ${[...held].slice(0, 3).join('; ')}.`, data);
+    return pass(`All ${declining.length} declining URL(s) between ${earlier} and ${later} have a content decision.`, data);
+  },
+};
+
 export const contentProbes = [
   answerFirstStructure,
   authorDateSignals,
@@ -945,4 +1037,5 @@ export const contentProbes = [
   cannibalization,
   launchContentCompleteness,
   contentParityDiff,
+  contentDecay,
 ];

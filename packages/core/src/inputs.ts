@@ -335,8 +335,188 @@ export interface SearchConsoleRecord extends InputRecord {
   readonly links?: readonly SearchConsoleLink[];
 }
 
+/**
+ * What a person decided for a URL whose search traffic is declining (7.2):
+ * `refresh`, `merge`, `redirect`, `retire`, `keep`… in their words. `url` is an
+ * http(s) address, `decidedAt` an ISO 8601 instant.
+ */
+export interface ContentDecision extends InputRecord {
+  readonly url: string;
+  readonly decision: string;
+  readonly decidedAt: string;
+}
+
+/** The search engines a Search Console export can speak for. */
+export const REPORTING_MEASURED_ENGINES = ['google'] as const;
+
+/** The performance metrics a threshold can watch. */
+export const REPORTING_METRICS = ['clicks', 'impressions'] as const;
+
+/**
+ * An alert line (6.3): tell someone when `metric` on `engine` moves by
+ * `change`, a signed fraction between periods (`-0.2` is a drop of a fifth,
+ * `0.5` a rise of half).
+ */
+export interface ReportingThreshold {
+  readonly metric: string;
+  readonly engine: string;
+  readonly change: number;
+}
+
+/** What was decided about a movement in `metric`; a blank `disposition` is an anomaly nobody answered. */
+export interface ReportingAnomaly {
+  readonly metric: string;
+  readonly disposition: string;
+}
+
+/**
+ * How the site reports on its search performance (6.3): how often, what
+ * movement raises an alert, and what became of the alerts. `rhythm` is free
+ * text (`weekly`, `monthly`), blank when nobody chose one.
+ */
+export interface ReportingRecord extends InputRecord {
+  readonly rhythm: string;
+  readonly thresholds: readonly ReportingThreshold[];
+  readonly anomalies: readonly ReportingAnomaly[];
+}
+
+/**
+ * The site's disavow file (6.8). `submitted` is whether one was sent to Google;
+ * `reasons` says why each entry is there and `removalAttempts` what was tried
+ * to have the link taken down first, both as free text lines.
+ */
+export interface DisavowRecord extends InputRecord {
+  readonly submitted: boolean;
+  readonly reasons: readonly string[];
+  readonly removalAttempts: readonly string[];
+}
+
+/** The Bing Webmaster Tools property the site is managed under. */
+export interface BingWebmasterProperty {
+  readonly url: string;
+  readonly verified: boolean;
+  /** ISO 8601 instant; required when `verified` is true. */
+  readonly verifiedAt?: string;
+}
+
+/** One row of the Sitemaps page: what was submitted, when, what Bing made of it. */
+export interface BingWebmasterSitemap {
+  readonly url: string;
+  /** ISO 8601 instant. */
+  readonly submittedAt: string;
+  /** The page's own words: `Success`, `Pending`, `Error`… */
+  readonly status: string;
+}
+
+/** One row of the AI Performance report: how often Bing's AI answers cited a page. */
+export interface BingWebmasterAiCitation {
+  readonly page: string;
+  readonly citations: number;
+  /** The date range the count covers, as exported: `2026-06-01/2026-08-31`, `Last 3 months`… */
+  readonly period: string;
+}
+
+/**
+ * What a person exports from Bing Webmaster Tools. An absent subsection was not
+ * supplied; an empty list is the report saying there is nothing, which is an
+ * answer, not a gap.
+ */
+export interface BingWebmasterRecord extends InputRecord {
+  readonly property?: BingWebmasterProperty;
+  readonly sitemaps?: readonly BingWebmasterSitemap[];
+  readonly aiCitations?: readonly BingWebmasterAiCitation[];
+}
+
+/** One AI visibility report a baseline is drawn from (6.4). */
+export interface AiBaselineReport {
+  /** The report's name as its tool titles it. */
+  readonly report: string;
+  /** What it measures: `citations`, `mentions`, `share of answers`… */
+  readonly metric: string;
+  /** The engine or engines the number speaks for. */
+  readonly scope: string;
+  /** The date range it covers, as exported: `2026-06-01/2026-08-31`. */
+  readonly period: string;
+  /** ISO 8601 instant the tool began recording this report. */
+  readonly availableFrom: string;
+}
+
+/** The AI visibility baseline: one row per report, each with its own history limit. */
+export interface AiBaselineRecord extends InputRecord {
+  readonly reports: readonly AiBaselineReport[];
+}
+
+/** The LCP element as a Lighthouse report names it, with the loading attributes read off its markup. */
+export interface LighthouseLcpElement {
+  /** Lowercase tag name: `img`, `h1`, `video`… */
+  readonly tag: string;
+  readonly selector?: string;
+  /** The `src` (or `poster`) the element loads, when it is a media element. */
+  readonly src?: string;
+  /** The `loading` attribute, as written. */
+  readonly loading?: string;
+  /** The `fetchpriority` attribute, as written. */
+  readonly fetchPriority?: string;
+}
+
+/** What one Lighthouse report is reduced to. Absent numbers were not in the report. */
+export interface LighthouseMetrics {
+  /** Largest Contentful Paint, milliseconds. */
+  readonly lcpMs?: number;
+  /** Cumulative Layout Shift, unitless. */
+  readonly cls?: number;
+  /** Total Blocking Time, milliseconds. */
+  readonly tbtMs?: number;
+  readonly lcpElement?: LighthouseLcpElement;
+  /** ISO 8601 instant the report was run. */
+  readonly fetchedAt?: string;
+  /** The form factor it ran under (`mobile`, `desktop`), compared to the policy's `testProfile`. */
+  readonly testProfile?: string;
+}
+
+/** One report the person points at: the URL it audited and the JSON file. `metrics` is filled by `loadLighthouseMetrics`. */
+export interface LighthouseReport {
+  readonly url: string;
+  /** Path of the Lighthouse JSON file, relative to the inputs file. */
+  readonly path: string;
+  readonly metrics?: LighthouseMetrics;
+}
+
+/** Ceilings a report must stay under; at least one is set. */
+export interface PerfThresholds {
+  readonly lcpMs?: number;
+  readonly cls?: number;
+  readonly tbtMs?: number;
+}
+
+/** The performance budget: what counts as too slow, under which test profile, and which revision of it this is. */
+export interface PerfPolicy {
+  readonly thresholds: PerfThresholds;
+  /** The profile reports must have run under (`mobile`, `desktop`). */
+  readonly testProfile: string;
+  readonly owner: string;
+  /** ISO 8601 instant; a report older than this predates the policy. */
+  readonly revision: string;
+}
+
+/** Lighthouse reports per URL and the policy they are judged by. */
+export interface LighthouseRecord extends InputRecord {
+  readonly reports: readonly LighthouseReport[];
+  readonly perfPolicy?: PerfPolicy;
+}
+
 /** Every section an audit can be given. */
 export interface AuditInputs {
+  /** Lighthouse reports per URL and the performance policy (1.5, 4.5). */
+  readonly lighthouse?: LighthouseRecord;
+  /** The AI visibility baseline: reports, metrics, scopes, periods (6.4). */
+  readonly aiBaseline?: AiBaselineRecord;
+  /** Bing Webmaster Tools exports: property, sitemaps, AI citations. */
+  readonly bingWebmaster?: BingWebmasterRecord;
+  /** The disavow submission, its reasons and removal attempts (6.8). */
+  readonly disavow?: DisavowRecord;
+  /** The reporting rhythm, alert thresholds and anomaly log (6.3). */
+  readonly reporting?: ReportingRecord;
   /** Search Console exports: property, sitemaps, manual actions, security issues. */
   readonly searchConsole?: SearchConsoleRecord;
   /** The history of an inherited domain (0.8). */
@@ -355,10 +535,12 @@ export interface AuditInputs {
   readonly experiments?: readonly ExperimentRecord[];
   /** Staging and preview origins the site keeps (1.8). */
   readonly environments?: EnvironmentsRecord;
+  /** What was decided for each declining URL (7.2). */
+  readonly contentDecisions?: readonly ContentDecision[];
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -930,6 +1112,149 @@ function parseDomainHistory(value: unknown, problem: (path: string, text: string
   return ok ? { ...record, checks, blockingIssues } : null;
 }
 
+const CONTENT_DECISION_KEYS = ['url', 'decision', 'decidedAt'];
+
+function parseContentDecisions(value: unknown, problem: (path: string, text: string) => void): ContentDecision[] | null {
+  if (!Array.isArray(value)) {
+    problem('contentDecisions', 'expected a list');
+    return null;
+  }
+  const out: ContentDecision[] = [];
+  let ok = true;
+  const seen = new Set<string>();
+  value.forEach((node, index) => {
+    const path = `contentDecisions[${index}]`;
+    const record = parseInputRecord(path, node, problem, CONTENT_DECISION_KEYS);
+    if (record === null || !isNode(node)) {
+      ok = false;
+      return;
+    }
+    const text = (key: string): string | null => {
+      const raw = node[key];
+      if (typeof raw === 'string' && raw.trim() !== '') return raw.trim();
+      problem(`${path}.${key}`, raw === undefined || raw === null || raw === '' ? 'required' : `expected text, got ${typeof raw} (quote it)`);
+      ok = false;
+      return null;
+    };
+    const url = text('url');
+    if (url !== null && !isHttpUrl(url)) {
+      problem(`${path}.url`, `expected an http(s) URL: ${url}`);
+      ok = false;
+    } else if (url !== null) {
+      if (seen.has(url)) {
+        problem(`${path}.url`, `duplicate decision: ${url}`);
+        ok = false;
+      }
+      seen.add(url);
+    }
+    const decision = text('decision');
+    const decidedRaw = text('decidedAt');
+    const ms = decidedRaw === null ? null : instant(decidedRaw);
+    if (decidedRaw !== null && ms === null) {
+      problem(`${path}.decidedAt`, `not a date and time: ${decidedRaw}`);
+      ok = false;
+    }
+    if (url !== null && decision !== null && ms !== null) out.push({ ...record, url, decision, decidedAt: new Date(ms).toISOString() });
+  });
+  return ok ? out : null;
+}
+
+const DISAVOW_KEYS = ['submitted', 'reasons', 'removalAttempts'];
+
+function parseDisavow(value: unknown, problem: (path: string, text: string) => void): DisavowRecord | null {
+  const record = parseInputRecord('disavow', value, problem, DISAVOW_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`disavow${path}`, text);
+    ok = false;
+  };
+  const submitted = value['submitted'];
+  if (typeof submitted !== 'boolean') fail('.submitted', submitted === undefined || submitted === null ? 'required' : 'expected true or false');
+  const lines = (key: string): string[] => {
+    const raw = value[key];
+    if (raw === undefined || raw === null) return [];
+    if (!Array.isArray(raw)) {
+      fail(`.${key}`, 'expected a list');
+      return [];
+    }
+    const out: string[] = [];
+    raw.forEach((item, index) => {
+      if (typeof item !== 'string') fail(`.${key}[${index}]`, `expected text, got ${typeof item} (quote it)`);
+      else if (item.trim() !== '') out.push(item.trim());
+    });
+    return out;
+  };
+  const reasons = lines('reasons');
+  const removalAttempts = lines('removalAttempts');
+  return ok && typeof submitted === 'boolean' ? { ...record, submitted, reasons, removalAttempts } : null;
+}
+
+const REPORTING_KEYS = ['rhythm', 'thresholds', 'anomalies'];
+
+function parseReporting(value: unknown, problem: (path: string, text: string) => void): ReportingRecord | null {
+  const record = parseInputRecord('reporting', value, problem, REPORTING_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`reporting${path}`, text);
+    ok = false;
+  };
+  const missing = (raw: unknown): boolean => raw === undefined || raw === null;
+  // Blank is allowed where a person may not have decided yet; the detector counts it.
+  const optionalText = (node: Node, path: string, key: string): string => {
+    const raw = node[key];
+    if (missing(raw)) return '';
+    if (typeof raw === 'string') return raw.trim();
+    fail(`${path}.${key}`, `expected text, got ${typeof raw} (quote it)`);
+    return '';
+  };
+  const requiredText = (node: Node, path: string, key: string): string | null => {
+    const raw = node[key];
+    if (typeof raw === 'string' && raw.trim() !== '') return raw.trim();
+    fail(`${path}.${key}`, missing(raw) || raw === '' ? 'required' : `expected text, got ${typeof raw} (quote it)`);
+    return null;
+  };
+  const list = (key: string, each: (node: Node, path: string) => void): void => {
+    const raw = value[key];
+    if (missing(raw)) return;
+    if (!Array.isArray(raw)) {
+      fail(`.${key}`, 'expected a list');
+      return;
+    }
+    raw.forEach((node, index) => {
+      const path = `.${key}[${index}]`;
+      if (!isNode(node)) fail(path, 'expected a mapping');
+      else each(node, path);
+    });
+  };
+  const unknownKeys = (node: Node, path: string, known: readonly string[]): void => {
+    for (const key of Object.keys(node)) if (!known.includes(key)) fail(`${path}.${key}`, 'unknown field');
+  };
+
+  const rhythm = optionalText(value, '', 'rhythm');
+  const thresholds: ReportingThreshold[] = [];
+  list('thresholds', (node, path) => {
+    unknownKeys(node, path, ['metric', 'engine', 'change']);
+    const metric = requiredText(node, path, 'metric');
+    const engine = requiredText(node, path, 'engine');
+    const change = node['change'];
+    if (typeof change !== 'number' || !Number.isFinite(change) || change === 0) {
+      fail(`${path}.change`, missing(change) ? 'required' : 'expected a number other than 0 (a signed fraction: -0.2 is a fifth lost)');
+    } else if (metric !== null && engine !== null) {
+      thresholds.push({ metric: metric.toLowerCase(), engine: engine.toLowerCase(), change });
+    }
+  });
+  const anomalies: ReportingAnomaly[] = [];
+  list('anomalies', (node, path) => {
+    unknownKeys(node, path, ['metric', 'disposition']);
+    const metric = requiredText(node, path, 'metric');
+    const disposition = optionalText(node, path, 'disposition');
+    if (metric !== null) anomalies.push({ metric: metric.toLowerCase(), disposition });
+  });
+  return ok ? { ...record, rhythm, thresholds, anomalies } : null;
+}
+
 const SEARCH_CONSOLE_KEYS = ['property', 'sitemaps', 'manualActions', 'securityIssues', 'pageIndexing', 'urlInspection', 'performance', 'links'];
 
 function parseSearchConsole(value: unknown, problem: (path: string, text: string) => void): SearchConsoleRecord | null {
@@ -1172,6 +1497,260 @@ function parseSearchConsole(value: unknown, problem: (path: string, text: string
   return ok ? { ...record, ...out } : null;
 }
 
+const BING_WEBMASTER_KEYS = ['property', 'sitemaps', 'aiCitations'];
+
+function parseBingWebmaster(value: unknown, problem: (path: string, text: string) => void): BingWebmasterRecord | null {
+  const record = parseInputRecord('bingWebmaster', value, problem, BING_WEBMASTER_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`bingWebmaster${path}`, text);
+    ok = false;
+  };
+  const missing = (raw: unknown): boolean => raw === undefined || raw === null || raw === '';
+  const text = (node: Node, path: string, key: string): string | null => {
+    const raw = node[key];
+    if (typeof raw === 'string' && raw.trim() !== '') return raw.trim();
+    fail(`${path}.${key}`, missing(raw) ? 'required' : `expected text, got ${typeof raw} (quote it)`);
+    return null;
+  };
+  const httpUrl = (node: Node, path: string, key: string): string | null => {
+    const raw = text(node, path, key);
+    if (raw !== null && !isHttpUrl(raw)) {
+      fail(`${path}.${key}`, `expected an http(s) URL: ${raw}`);
+      return null;
+    }
+    return raw;
+  };
+  const time = (node: Node, path: string, key: string, required: boolean): string | null => {
+    if (!required && missing(node[key])) return null;
+    const raw = text(node, path, key);
+    if (raw === null) return null;
+    const ms = instant(raw);
+    if (ms === null) {
+      fail(`${path}.${key}`, `not a date and time: ${raw}`);
+      return null;
+    }
+    return new Date(ms).toISOString();
+  };
+  const unknownKeys = (node: Node, path: string, known: readonly string[]): void => {
+    for (const key of Object.keys(node)) if (!known.includes(key)) fail(`${path}.${key}`, 'unknown field');
+  };
+  const rows = (key: string, each: (node: Node, path: string) => void): boolean => {
+    const raw = value[key];
+    if (missing(raw)) return false;
+    if (!Array.isArray(raw)) {
+      fail(`.${key}`, 'expected a list');
+      return false;
+    }
+    raw.forEach((node, index) => {
+      const path = `.${key}[${index}]`;
+      if (!isNode(node)) fail(path, 'expected a mapping');
+      else each(node, path);
+    });
+    return true;
+  };
+  const out: { property?: BingWebmasterProperty; sitemaps?: BingWebmasterSitemap[]; aiCitations?: BingWebmasterAiCitation[] } = {};
+
+  const propertyRaw = value['property'];
+  if (!missing(propertyRaw)) {
+    if (!isNode(propertyRaw)) {
+      fail('.property', 'expected a mapping');
+    } else {
+      unknownKeys(propertyRaw, '.property', ['url', 'verified', 'verifiedAt']);
+      const url = httpUrl(propertyRaw, '.property', 'url');
+      const verified = propertyRaw['verified'];
+      if (typeof verified !== 'boolean') fail('.property.verified', missing(verified) ? 'required' : 'expected true or false');
+      const verifiedAt = time(propertyRaw, '.property', 'verifiedAt', verified === true);
+      if (url !== null && typeof verified === 'boolean' && (verified === false || verifiedAt !== null) && ok) {
+        out.property = { url, verified, ...(verifiedAt !== null ? { verifiedAt } : {}) };
+      }
+    }
+  }
+
+  const sitemaps: BingWebmasterSitemap[] = [];
+  const seen = new Set<string>();
+  if (
+    rows('sitemaps', (node, path) => {
+      unknownKeys(node, path, ['url', 'submittedAt', 'status']);
+      const url = httpUrl(node, path, 'url');
+      if (url !== null) {
+        if (seen.has(url)) fail(`${path}.url`, `duplicate sitemap: ${url}`);
+        seen.add(url);
+      }
+      const submittedAt = time(node, path, 'submittedAt', true);
+      const status = text(node, path, 'status');
+      if (url !== null && submittedAt !== null && status !== null) sitemaps.push({ url, submittedAt, status });
+    })
+  ) {
+    out.sitemaps = sitemaps;
+  }
+
+  const aiCitations: BingWebmasterAiCitation[] = [];
+  const citedSeen = new Set<string>();
+  if (
+    rows('aiCitations', (node, path) => {
+      unknownKeys(node, path, ['page', 'citations', 'period']);
+      const page = httpUrl(node, path, 'page');
+      const citations = node['citations'];
+      const citationsOk = typeof citations === 'number' && Number.isInteger(citations) && citations >= 0;
+      if (!citationsOk) fail(`${path}.citations`, missing(citations) ? 'required' : 'expected a whole number of 0 or more');
+      const period = text(node, path, 'period');
+      if (page !== null && period !== null) {
+        const key = `${page}\n${period}`;
+        if (citedSeen.has(key)) fail(`${path}.page`, `duplicate row: ${page}`);
+        citedSeen.add(key);
+      }
+      if (page !== null && citationsOk && period !== null) aiCitations.push({ page, citations, period });
+    })
+  ) {
+    out.aiCitations = aiCitations;
+  }
+  return ok ? { ...record, ...out } : null;
+}
+
+const AI_BASELINE_KEYS = ['reports'];
+const AI_BASELINE_REPORT_KEYS = ['report', 'metric', 'scope', 'period', 'availableFrom'];
+
+function parseAiBaseline(value: unknown, problem: (path: string, text: string) => void): AiBaselineRecord | null {
+  const record = parseInputRecord('aiBaseline', value, problem, AI_BASELINE_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`aiBaseline${path}`, text);
+    ok = false;
+  };
+  const raw = value['reports'];
+  if (raw === undefined || raw === null || raw === '') {
+    fail('.reports', 'required');
+    return null;
+  }
+  if (!Array.isArray(raw)) {
+    fail('.reports', 'expected a list');
+    return null;
+  }
+  const reports: AiBaselineReport[] = [];
+  const seen = new Set<string>();
+  raw.forEach((node, index) => {
+    const path = `.reports[${index}]`;
+    if (!isNode(node)) {
+      fail(path, 'expected a mapping');
+      return;
+    }
+    for (const key of Object.keys(node)) if (!AI_BASELINE_REPORT_KEYS.includes(key)) fail(`${path}.${key}`, 'unknown field');
+    const text = (key: string): string | null => {
+      const v = node[key];
+      if (typeof v === 'string' && v.trim() !== '') return v.trim();
+      fail(`${path}.${key}`, v === undefined || v === null || v === '' ? 'required' : `expected text, got ${typeof v} (quote it)`);
+      return null;
+    };
+    const report = text('report');
+    const metric = text('metric');
+    const scope = text('scope');
+    const period = text('period');
+    const from = text('availableFrom');
+    let availableFrom: string | null = null;
+    if (from !== null) {
+      const ms = instant(from);
+      if (ms === null) fail(`${path}.availableFrom`, `not a date: ${from}`);
+      else availableFrom = new Date(ms).toISOString();
+    }
+    if (report !== null && metric !== null && scope !== null && period !== null) {
+      const key = `${report}\n${metric}\n${scope}\n${period}`;
+      if (seen.has(key)) fail(`${path}.report`, `duplicate row: ${report}`);
+      seen.add(key);
+    }
+    if (report !== null && metric !== null && scope !== null && period !== null && availableFrom !== null) {
+      reports.push({ report, metric, scope, period, availableFrom });
+    }
+  });
+  return ok ? { ...record, reports } : null;
+}
+
+const LIGHTHOUSE_KEYS = ['reports', 'perfPolicy'];
+const PERF_POLICY_KEYS = ['thresholds', 'testProfile', 'owner', 'revision'];
+const PERF_THRESHOLD_KEYS = ['lcpMs', 'cls', 'tbtMs'];
+
+function parseLighthouse(value: unknown, problem: (path: string, text: string) => void): LighthouseRecord | null {
+  const record = parseInputRecord('lighthouse', value, problem, LIGHTHOUSE_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`lighthouse${path}`, text);
+    ok = false;
+  };
+  const absent = (raw: unknown): boolean => raw === undefined || raw === null || raw === '';
+  const text = (node: Node, path: string, key: string): string | null => {
+    const raw = node[key];
+    if (typeof raw === 'string' && raw.trim() !== '') return raw.trim();
+    fail(`${path}.${key}`, absent(raw) ? 'required' : `expected text, got ${typeof raw} (quote it)`);
+    return null;
+  };
+
+  const reports: LighthouseReport[] = [];
+  const rawReports = value['reports'];
+  if (absent(rawReports)) fail('.reports', 'required');
+  else if (!Array.isArray(rawReports)) fail('.reports', 'expected a list');
+  else {
+    const seen = new Set<string>();
+    rawReports.forEach((node, index) => {
+      const path = `.reports[${index}]`;
+      if (!isNode(node)) {
+        fail(path, 'expected a mapping');
+        return;
+      }
+      for (const key of Object.keys(node)) if (key !== 'url' && key !== 'path') fail(`${path}.${key}`, 'unknown field');
+      const url = text(node, path, 'url');
+      const file = text(node, path, 'path');
+      if (url !== null && !isHttpUrl(url)) fail(`${path}.url`, `expected an http(s) URL: ${url}`);
+      else if (url !== null) {
+        if (seen.has(url)) fail(`${path}.url`, `duplicate report: ${url}`);
+        seen.add(url);
+      }
+      if (url !== null && file !== null) reports.push({ url, path: file });
+    });
+  }
+
+  let perfPolicy: PerfPolicy | undefined;
+  const rawPolicy = value['perfPolicy'];
+  if (!absent(rawPolicy)) {
+    if (!isNode(rawPolicy)) fail('.perfPolicy', 'expected a mapping');
+    else {
+      const path = '.perfPolicy';
+      for (const key of Object.keys(rawPolicy)) if (!PERF_POLICY_KEYS.includes(key)) fail(`${path}.${key}`, 'unknown field');
+      const testProfile = text(rawPolicy, path, 'testProfile');
+      const owner = text(rawPolicy, path, 'owner');
+      const revisionText = text(rawPolicy, path, 'revision');
+      let revision: string | null = null;
+      if (revisionText !== null) {
+        const ms = instant(revisionText);
+        if (ms === null) fail(`${path}.revision`, `not a date and time: ${revisionText}`);
+        else revision = new Date(ms).toISOString();
+      }
+      const thresholds: { lcpMs?: number; cls?: number; tbtMs?: number } = {};
+      const rawThresholds = rawPolicy['thresholds'];
+      if (absent(rawThresholds)) fail(`${path}.thresholds`, 'required');
+      else if (!isNode(rawThresholds)) fail(`${path}.thresholds`, 'expected a mapping');
+      else {
+        for (const key of Object.keys(rawThresholds)) {
+          if (!PERF_THRESHOLD_KEYS.includes(key)) {
+            fail(`${path}.thresholds.${key}`, 'unknown field');
+            continue;
+          }
+          const n = rawThresholds[key];
+          if (typeof n !== 'number' || !Number.isFinite(n) || n <= 0) fail(`${path}.thresholds.${key}`, 'expected a number above 0');
+          else thresholds[key as keyof PerfThresholds] = n;
+        }
+        if (Object.keys(rawThresholds).length === 0) fail(`${path}.thresholds`, 'set at least one of lcpMs, cls, tbtMs');
+      }
+      if (testProfile !== null && owner !== null && revision !== null && Object.keys(thresholds).length > 0) {
+        perfPolicy = { thresholds, testProfile, owner, revision };
+      }
+    }
+  }
+  return ok ? { ...record, reports, ...(perfPolicy !== undefined ? { perfPolicy } : {}) } : null;
+}
+
 /**
  * Check a parsed inputs value's shape and return it typed. `undefined` and
  * `null` are no inputs. Throws `InputsError` listing every problem found:
@@ -1188,6 +1767,7 @@ export function parseInputs(value: unknown): AuditInputs {
     problems.push(`${path}: ${text}`);
   };
   const inputs: {
+    lighthouse?: LighthouseRecord;
     experiments?: readonly ExperimentRecord[];
     environments?: EnvironmentsRecord;
     ciGuard?: CiGuardRecord;
@@ -1197,7 +1777,36 @@ export function parseInputs(value: unknown): AuditInputs {
     redirectMap?: RedirectMapRecord;
     domainHistory?: DomainHistoryRecord;
     searchConsole?: SearchConsoleRecord;
+    contentDecisions?: readonly ContentDecision[];
+    reporting?: ReportingRecord;
+    disavow?: DisavowRecord;
+    bingWebmaster?: BingWebmasterRecord;
+    aiBaseline?: AiBaselineRecord;
   } = {};
+  if (value['lighthouse'] !== undefined && value['lighthouse'] !== null) {
+    const lighthouse = parseLighthouse(value['lighthouse'], problem);
+    if (lighthouse !== null) inputs.lighthouse = lighthouse;
+  }
+  if (value['aiBaseline'] !== undefined && value['aiBaseline'] !== null) {
+    const aiBaseline = parseAiBaseline(value['aiBaseline'], problem);
+    if (aiBaseline !== null) inputs.aiBaseline = aiBaseline;
+  }
+  if (value['bingWebmaster'] !== undefined && value['bingWebmaster'] !== null) {
+    const bingWebmaster = parseBingWebmaster(value['bingWebmaster'], problem);
+    if (bingWebmaster !== null) inputs.bingWebmaster = bingWebmaster;
+  }
+  if (value['disavow'] !== undefined && value['disavow'] !== null) {
+    const disavow = parseDisavow(value['disavow'], problem);
+    if (disavow !== null) inputs.disavow = disavow;
+  }
+  if (value['reporting'] !== undefined && value['reporting'] !== null) {
+    const reporting = parseReporting(value['reporting'], problem);
+    if (reporting !== null) inputs.reporting = reporting;
+  }
+  if (value['contentDecisions'] !== undefined && value['contentDecisions'] !== null) {
+    const contentDecisions = parseContentDecisions(value['contentDecisions'], problem);
+    if (contentDecisions !== null) inputs.contentDecisions = contentDecisions;
+  }
   if (value['searchConsole'] !== undefined && value['searchConsole'] !== null) {
     const searchConsole = parseSearchConsole(value['searchConsole'], problem);
     if (searchConsole !== null) inputs.searchConsole = searchConsole;

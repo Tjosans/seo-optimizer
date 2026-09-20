@@ -1,0 +1,16 @@
+{
+  "fetchTime": "2026-09-01T08:30:00.000Z",
+  "configSettings": { "formFactor": "mobile" },
+  "audits": {
+    "largest-contentful-paint": { "numericValue": 2100 },
+    "cumulative-layout-shift": { "numericValue": 0.04 },
+    "total-blocking-time": { "numericValue": 120 },
+    "largest-contentful-paint-element": {
+      "details": {
+        "items": [
+          { "items": [ { "node": { "selector": "body > img.hero", "snippet": "<img class=\"hero\" src=\"/hero.jpg\" fetchpriority=\"high\">" } } ] }
+        ]
+      }
+    }
+  }
+}

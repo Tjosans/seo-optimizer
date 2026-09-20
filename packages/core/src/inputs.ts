@@ -421,6 +421,21 @@ export interface BrandEntityRecord extends InputRecord {
   readonly sameAs: readonly string[];
 }
 
+/**
+ * The competitor SERP baseline (0.1): who the site is measured against, for
+ * whom, where and in what language, and when the results were looked at. Blank
+ * fields and an empty list are accepted here and judged by the detector, which
+ * is what fails them; `competitors` are URLs or bare hosts.
+ */
+export interface CompetitorBaselineRecord extends InputRecord {
+  readonly audience: string;
+  readonly market: string;
+  readonly language: string;
+  readonly competitors: readonly string[];
+  /** When the baseline SERPs were captured; blank when not stated. */
+  readonly baselineAt: string;
+}
+
 /** The search engines a Search Console export can speak for. */
 export const REPORTING_MEASURED_ENGINES = ['google'] as const;
 
@@ -764,12 +779,14 @@ export interface AuditInputs {
   readonly checkoutMatrix?: CheckoutMatrixRecord;
   /** The brand's legal and public names and the profiles it stands behind (0.5). */
   readonly brandEntity?: BrandEntityRecord;
+  /** The competitors the site is benchmarked against in search results (0.1). */
+  readonly competitorBaseline?: CompetitorBaselineRecord;
   /** The manual accessibility evaluation: scope, methods, limitations, blockers, conformance claim (4.4). */
   readonly a11yEvaluation?: A11yEvaluationRecord;
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics', 'serverLogs', 'merchantFeed', 'checkoutMatrix', 'a11yEvaluation', 'contentReview', 'brandEntity', 'keywordMap'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics', 'serverLogs', 'merchantFeed', 'checkoutMatrix', 'a11yEvaluation', 'contentReview', 'brandEntity', 'keywordMap', 'competitorBaseline'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -1661,6 +1678,52 @@ function parseBrandEntity(value: unknown, problem: (path: string, text: string) 
   return { ...record, legalName, publicName, sameAs };
 }
 
+const COMPETITOR_BASELINE_KEYS = ['audience', 'market', 'language', 'competitors', 'baselineAt'];
+
+function parseCompetitorBaseline(value: unknown, problem: (path: string, text: string) => void): CompetitorBaselineRecord | null {
+  const record = parseInputRecord('competitorBaseline', value, problem, COMPETITOR_BASELINE_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`competitorBaseline${path}`, text);
+    ok = false;
+  };
+  const missing = (raw: unknown): boolean => raw === undefined || raw === null;
+  const text = (key: 'audience' | 'market' | 'language'): string => {
+    const raw = value[key];
+    if (missing(raw)) return '';
+    if (typeof raw === 'string') return raw.trim();
+    fail(`.${key}`, `expected text, got ${typeof raw} (quote it)`);
+    return '';
+  };
+  const audience = text('audience');
+  const market = text('market');
+  const language = text('language');
+  const competitors: string[] = [];
+  const raw = value['competitors'];
+  if (!missing(raw)) {
+    if (!Array.isArray(raw)) fail('.competitors', 'expected a list');
+    else {
+      raw.forEach((item, index) => {
+        if (typeof item !== 'string' || item.trim() === '') fail(`.competitors[${index}]`, 'expected text');
+        else competitors.push(item.trim());
+      });
+    }
+  }
+  let baselineAt = '';
+  const at = value['baselineAt'];
+  if (!missing(at)) {
+    if (typeof at !== 'string') fail('.baselineAt', `expected text, got ${typeof at} (quote it)`);
+    else if (at.trim() !== '') {
+      const ms = instant(at);
+      if (ms === null) fail('.baselineAt', `not a date and time: ${at}`);
+      else baselineAt = new Date(ms).toISOString();
+    }
+  }
+  if (!ok) return null;
+  return { ...record, audience, market, language, competitors, baselineAt };
+}
+
 const DISAVOW_KEYS =['submitted', 'reasons', 'removalAttempts'];
 
 function parseDisavow(value: unknown, problem: (path: string, text: string) => void): DisavowRecord | null {
@@ -2542,8 +2605,13 @@ export function parseInputs(value: unknown): AuditInputs {
     a11yEvaluation?: A11yEvaluationRecord;
     contentReview?: readonly ContentReview[];
     brandEntity?: BrandEntityRecord;
+    competitorBaseline?: CompetitorBaselineRecord;
     keywordMap?: readonly KeywordMapEntry[];
   } = {};
+  if (value['competitorBaseline'] !== undefined && value['competitorBaseline'] !== null) {
+    const competitorBaseline = parseCompetitorBaseline(value['competitorBaseline'], problem);
+    if (competitorBaseline !== null) inputs.competitorBaseline = competitorBaseline;
+  }
   if (value['keywordMap'] !== undefined && value['keywordMap'] !== null) {
     const keywordMap = parseKeywordMap(value['keywordMap'], problem);
     if (keywordMap !== null) inputs.keywordMap = keywordMap;

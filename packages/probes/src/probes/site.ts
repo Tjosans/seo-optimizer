@@ -1944,6 +1944,67 @@ export const logFileAnalysis: SiteProbe = {
   },
 };
 
+/** A competitor entry (a URL or a bare host) reduced to its host, without `www.`. */
+const competitorHost = (entry: string): string | null => {
+  try {
+    return new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(entry) ? entry : `https://${entry}`).hostname.replace(/^www\./i, '').toLowerCase();
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * 0.1 asks who the site is measured against. The baseline is supplied
+ * (`competitorBaseline`: audience, market, language, competitors, baselineAt);
+ * the crawl can only say whether it is whole and whether a "competitor" is the
+ * site itself. Fails a blank field, no competitors, and a competitor on the
+ * site's own host (`www.` ignored). Otherwise records the rules, holding for
+ * review on an unowned or overdue record: whether these are the right
+ * competitors is a person's call. Without the section, `not-applicable`.
+ */
+export const competitorSerpBaseline: SiteProbe = {
+  id: 'competitor-serp-baseline',
+  scope: 'site',
+  title: 'The competitor baseline names an audience, market, language, date and competitors other than the site',
+  run({ crawl, inputs, origin }) {
+    const record = inputs?.competitorBaseline;
+    if (record === undefined) return notApplicable('No competitor baseline was supplied.');
+
+    const missing: string[] = [];
+    if (record.audience === '') missing.push('audience');
+    if (record.market === '') missing.push('market');
+    if (record.language === '') missing.push('language');
+    if (record.competitors.length === 0) missing.push('competitors');
+    if (record.baselineAt === '') missing.push('baselineAt');
+
+    let own: string;
+    try {
+      own = new URL(origin).hostname.replace(/^www\./i, '').toLowerCase();
+    } catch {
+      return errored(`The site origin is not a URL: ${origin}.`);
+    }
+    const ownHost = record.competitors.filter((entry) => competitorHost(entry) === own);
+
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    const data = {
+      audience: record.audience,
+      market: record.market,
+      language: record.language,
+      competitors: record.competitors.length,
+      baselineAt: record.baselineAt === '' ? null : record.baselineAt,
+      missing,
+      ownHost,
+    };
+    const failures: string[] = [];
+    if (missing.length > 0) failures.push(`The competitor baseline is missing ${missing.join(', ')}`);
+    if (ownHost.length > 0) failures.push(`${ownHost.length} listed competitor(s) are on the site's own host (${ownHost.slice(0, 3).join(', ')})`);
+    if (failures.length > 0) return fail(`${failures.join('; ')}.`, data);
+    if (problem !== null) return warn(`The competitor baseline is held for review (${problem}).`, data);
+    return pass(`The baseline names ${record.competitors.length} competitor(s) for ${record.audience} in ${record.market} (${record.language}), captured ${record.baselineAt}. A person still confirms they are the right ones.`, data);
+  },
+};
+
 export const siteProbes = [
   logFileAnalysis,
   analyticsReconciliation,
@@ -1974,4 +2035,5 @@ export const siteProbes = [
   hostRedirect,
   faviconSiteName,
   aiCrawlerDirectiveVerify,
+  competitorSerpBaseline,
 ];

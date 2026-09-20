@@ -324,6 +324,16 @@ checkoutMatrix:
   owner: Jane Doe
   recordedAt: 2026-09-10T09:00:00Z
 
+# contentReview (3.5): a person's review of each priority page's content, one
+# row per url (an http(s) address). verdict is helpful, needs-work or fails; a
+# fails verdict fails the check, as does a reviewed URL that is now 4xx or
+# noindex. A crawled priority page (urlMatrix) with no review holds the check.
+contentReview:
+  - url: https://example.com/guides/getting-started
+    reviewer: Jane Doe
+    reviewedAt: 2026-09-10T09:00:00Z
+    verdict: helpful
+
 # a11yEvaluation (4.4): the manual accessibility evaluation. scope says what was
 # covered; methods (at least one) and limitations are lists of text. blockers
 # are barriers found, each with its WCAG criterion, URL and whether it is

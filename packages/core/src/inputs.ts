@@ -346,6 +346,23 @@ export interface ContentDecision extends InputRecord {
   readonly decidedAt: string;
 }
 
+/** The verdicts a content review can reach (3.5). */
+export const CONTENT_VERDICTS = ['helpful', 'needs-work', 'fails'] as const;
+export type ContentVerdict = (typeof CONTENT_VERDICTS)[number];
+
+/**
+ * A person's review of one priority page's content (3.5): whether it serves its
+ * stated purpose. `reviewer` answers for it, `reviewedAt` is an ISO 8601
+ * instant. Not an `InputRecord`: the reviewer and the review date are the owner
+ * and the recording date, so a second pair could only disagree.
+ */
+export interface ContentReview {
+  readonly url: string;
+  readonly reviewer: string;
+  readonly reviewedAt: string;
+  readonly verdict: ContentVerdict;
+}
+
 /** One checkout path a person walked (4.10): what was tried, where, how it went, when. */
 export interface CheckoutCase {
   readonly case: string;
@@ -716,6 +733,8 @@ export interface AuditInputs {
   readonly environments?: EnvironmentsRecord;
   /** What was decided for each declining URL (7.2). */
   readonly contentDecisions?: readonly ContentDecision[];
+  /** A person's review of each priority page's content (3.5). */
+  readonly contentReview?: readonly ContentReview[];
   /** The checkout cases tested by hand (4.10). */
   readonly checkoutMatrix?: CheckoutMatrixRecord;
   /** The manual accessibility evaluation: scope, methods, limitations, blockers, conformance claim (4.4). */
@@ -723,7 +742,7 @@ export interface AuditInputs {
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics', 'serverLogs', 'merchantFeed', 'checkoutMatrix', 'a11yEvaluation'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics', 'serverLogs', 'merchantFeed', 'checkoutMatrix', 'a11yEvaluation', 'contentReview'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -1338,6 +1357,67 @@ function parseContentDecisions(value: unknown, problem: (path: string, text: str
       ok = false;
     }
     if (url !== null && decision !== null && ms !== null) out.push({ ...record, url, decision, decidedAt: new Date(ms).toISOString() });
+  });
+  return ok ? out : null;
+}
+
+const CONTENT_REVIEW_KEYS = ['url', 'reviewer', 'reviewedAt', 'verdict'];
+
+function parseContentReview(value: unknown, problem: (path: string, text: string) => void): ContentReview[] | null {
+  if (!Array.isArray(value)) {
+    problem('contentReview', 'expected a list');
+    return null;
+  }
+  const out: ContentReview[] = [];
+  let ok = true;
+  const seen = new Set<string>();
+  value.forEach((node, index) => {
+    const path = `contentReview[${index}]`;
+    if (!isNode(node)) {
+      problem(path, 'expected a mapping');
+      ok = false;
+      return;
+    }
+    for (const key of Object.keys(node)) {
+      if (!CONTENT_REVIEW_KEYS.includes(key)) {
+        problem(`${path}.${key}`, 'unknown field');
+        ok = false;
+      }
+    }
+    const text = (key: string): string | null => {
+      const raw = node[key];
+      if (typeof raw === 'string' && raw.trim() !== '') return raw.trim();
+      problem(`${path}.${key}`, raw === undefined || raw === null || raw === '' ? 'required' : `expected text, got ${typeof raw} (quote it)`);
+      ok = false;
+      return null;
+    };
+    const url = text('url');
+    if (url !== null && !isHttpUrl(url)) {
+      problem(`${path}.url`, `expected an http(s) URL: ${url}`);
+      ok = false;
+    } else if (url !== null) {
+      if (seen.has(url)) {
+        problem(`${path}.url`, `duplicate review: ${url}`);
+        ok = false;
+      }
+      seen.add(url);
+    }
+    const reviewer = text('reviewer');
+    const verdict = text('verdict');
+    const known = verdict !== null && (CONTENT_VERDICTS as readonly string[]).includes(verdict);
+    if (verdict !== null && !known) {
+      problem(`${path}.verdict`, `expected one of ${CONTENT_VERDICTS.join(', ')}, got ${verdict}`);
+      ok = false;
+    }
+    const reviewedRaw = text('reviewedAt');
+    const ms = reviewedRaw === null ? null : instant(reviewedRaw);
+    if (reviewedRaw !== null && ms === null) {
+      problem(`${path}.reviewedAt`, `not a date and time: ${reviewedRaw}`);
+      ok = false;
+    }
+    if (url !== null && reviewer !== null && known && ms !== null) {
+      out.push({ url, reviewer, reviewedAt: new Date(ms).toISOString(), verdict: verdict as ContentVerdict });
+    }
   });
   return ok ? out : null;
 }
@@ -2339,7 +2419,12 @@ export function parseInputs(value: unknown): AuditInputs {
     aiBaseline?: AiBaselineRecord;
     checkoutMatrix?: CheckoutMatrixRecord;
     a11yEvaluation?: A11yEvaluationRecord;
+    contentReview?: readonly ContentReview[];
   } = {};
+  if (value['contentReview'] !== undefined && value['contentReview'] !== null) {
+    const contentReview = parseContentReview(value['contentReview'], problem);
+    if (contentReview !== null) inputs.contentReview = contentReview;
+  }
   if (value['a11yEvaluation'] !== undefined && value['a11yEvaluation'] !== null) {
     const a11yEvaluation = parseA11yEvaluation(value['a11yEvaluation'], problem);
     if (a11yEvaluation !== null) inputs.a11yEvaluation = a11yEvaluation;

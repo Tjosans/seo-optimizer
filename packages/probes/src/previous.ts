@@ -38,6 +38,18 @@ export interface PreviousPage {
   /** schema.org `@type` values found in JSON-LD, sorted and unique. */
   readonly jsonLdTypes: readonly string[];
   readonly hreflang: readonly { readonly hreflang: string; readonly url: string }[];
+  /**
+   * The axe-core violations the earlier crawl recorded on this page's render.
+   * Null when axe was not run or failed there; absent from snapshots taken
+   * before it was recorded or rebuilt from stored rows.
+   */
+  readonly axe?: readonly PreviousAxeViolation[] | null;
+}
+
+export interface PreviousAxeViolation {
+  readonly id: string;
+  readonly impact: string | null;
+  readonly nodes: number;
 }
 
 export interface PreviousProbe {
@@ -76,6 +88,8 @@ export interface PageFacts {
     | (Pick<Extracted, 'metaRobots' | 'canonical' | 'title' | 'jsonLd' | 'hreflang'> &
         Partial<Pick<Extracted, 'headings' | 'content'>>)
     | null;
+  /** The page's axe result, when the caller has one; null for none usable. */
+  readonly axe?: readonly PreviousAxeViolation[] | null;
 }
 
 export function snapshotPage(facts: PageFacts): PreviousPage {
@@ -96,6 +110,7 @@ export function snapshotPage(facts: PageFacts): PreviousPage {
       : { words: extracted.content.sections.reduce((sum, section) => sum + section.words, 0) }),
     jsonLdTypes: [...new Set(jsonLdTypes(extracted?.jsonLd ?? []))].sort(),
     hreflang: (extracted?.hreflang ?? []).map(({ hreflang, url }) => ({ hreflang, url })),
+    ...(facts.axe === undefined ? {} : { axe: facts.axe }),
   };
 }
 
@@ -106,6 +121,14 @@ export function snapshotProbes(runs: readonly ProbeRun[]): PreviousProbe[] {
     outcome: run.observation.outcome,
   }));
 }
+
+/** A page's axe violations, or null when axe was not run or failed on it. */
+const axeOf = (
+  result: { readonly error: string | null; readonly violations: readonly PreviousAxeViolation[] } | undefined,
+): PreviousAxeViolation[] | null =>
+  result === undefined || result.error !== null
+    ? null
+    : result.violations.map(({ id, impact, nodes }) => ({ id, impact, nodes }));
 
 /** Take the snapshot a later audit of this site will compare itself against. */
 export function snapshotAudit(input: {
@@ -125,6 +148,7 @@ export function snapshotAudit(input: {
         status: page.fetch.status,
         headers: page.fetch.headers,
         extracted: page.extracted,
+        axe: axeOf(page.rendered?.render.accessibility),
       }),
     ),
     ...(input.crawl.settings === undefined ? {} : { settings: input.crawl.settings }),
@@ -174,6 +198,15 @@ export function parsePrevious(value: unknown): PreviousAudit {
     if (status !== null && typeof status !== 'number') throw new Error(`${path}.status: expected a number`);
     const h1 = page['h1'];
     const words = page['words'];
+    const axe = page['axe'];
+    if (axe !== undefined && axe !== null) {
+      list(axe, `${path}.axe`).forEach((raw, j) => {
+        const item = record(raw, `${path}.axe[${j}]`);
+        text(item['id'], `${path}.axe[${j}].id`, false);
+        text(item['impact'], `${path}.axe[${j}].impact`, true);
+        if (typeof item['nodes'] !== 'number') throw new Error(`${path}.axe[${j}].nodes: expected a number`);
+      });
+    }
     if (h1 !== undefined) text(h1, `${path}.h1`, true);
     if (words !== undefined && words !== null && typeof words !== 'number') {
       throw new Error(`${path}.words: expected a number`);
@@ -188,6 +221,7 @@ export function parsePrevious(value: unknown): PreviousAudit {
       title: text(page['title'], `${path}.title`, true),
       ...(h1 === undefined ? {} : { h1: h1 as string | null }),
       ...(words === undefined ? {} : { words: words as number | null }),
+      ...(axe === undefined ? {} : { axe: axe as PreviousAxeViolation[] | null }),
       jsonLdTypes: list(page['jsonLdTypes'], `${path}.jsonLdTypes`).map(
         (type, j) => text(type, `${path}.jsonLdTypes[${j}]`, false) ?? '',
       ),

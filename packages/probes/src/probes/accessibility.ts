@@ -241,6 +241,67 @@ export const manualA11yEvaluation: SiteProbe = {
 };
 
 /**
+ * axe against the previous audit: corpus check 7.7. Pages both audits ran axe
+ * on are compared by URL. Fails a critical violation id a page did not have
+ * before; warns when the serious violations, counted across those pages, rose.
+ * A page missing from either audit, or without a usable axe result there, is
+ * left out, and with none left the check is `not-applicable` — absence is not
+ * a comparison. Assisted: a person confirms what a regression means.
+ */
+export const a11yRegressionSampling: SiteProbe = {
+  id: 'a11y-regression-sampling',
+  scope: 'site',
+  title: 'No critical axe violation is new, and serious ones are not rising, against the previous audit',
+  run({ crawl, previous }) {
+    if (previous === undefined || previous === null) {
+      return notApplicable('There is no previous audit to compare axe results against.');
+    }
+    const before = new Map(previous.pages.map((p) => [p.url, p.axe] as const));
+    const introduced: { url: string; ids: string[] }[] = [];
+    let compared = 0;
+    let seriousBefore = 0;
+    let seriousNow = 0;
+    for (const page of crawl.pages) {
+      const now = page.rendered?.render.accessibility;
+      const old = before.get(page.normalizedUrl);
+      if (now === undefined || now.error !== null || old === undefined || old === null) continue;
+      compared += 1;
+      const known = new Set(old.filter((v) => v.impact === 'critical').map((v) => v.id));
+      const fresh = now.violations.filter((v) => v.impact === 'critical' && !known.has(v.id)).map((v) => v.id);
+      if (fresh.length > 0) introduced.push({ url: page.normalizedUrl, ids: fresh });
+      seriousBefore += old.filter((v) => v.impact === 'serious').length;
+      seriousNow += now.violations.filter((v) => v.impact === 'serious').length;
+    }
+    if (compared === 0) {
+      return notApplicable('No page has axe results in both this audit and the previous one.');
+    }
+    const data = {
+      pagesCompared: compared,
+      newCritical: introduced.slice(0, 10),
+      seriousBefore,
+      seriousNow,
+    };
+    if (introduced.length > 0) {
+      const ids = [...new Set(introduced.flatMap((entry) => entry.ids))];
+      return fail(
+        `${introduced.length} page(s) carry a critical axe violation the previous audit did not: ${ids.join(', ')}.`,
+        data,
+      );
+    }
+    if (seriousNow > seriousBefore) {
+      return warn(
+        `Serious axe violations rose from ${seriousBefore} to ${seriousNow} across ${compared} page(s) compared.`,
+        data,
+      );
+    }
+    return pass(
+      `No new critical axe violation and no rise in serious ones across ${compared} page(s) compared. A person confirms what the sample leaves out.`,
+      data,
+    );
+  },
+};
+
+/**
  * The phone render against the desktop one: corpus check 4.3.
  *
  * Google indexes the mobile rendering, so what a phone drops is what search
@@ -315,4 +376,4 @@ export const mobileJourneyQa: PageProbe = {
   },
 };
 
-export const accessibilityProbes = [contentAccessibility, axeAccessibility, manualA11yEvaluation, mobileJourneyQa];
+export const accessibilityProbes = [contentAccessibility, axeAccessibility, manualA11yEvaluation, a11yRegressionSampling, mobileJourneyQa];

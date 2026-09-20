@@ -334,6 +334,16 @@ contentReview:
     reviewedAt: 2026-09-10T09:00:00Z
     verdict: helpful
 
+# keywordMap (0.2): which page answers which queries. One row per url (an
+# http(s) address, once); purpose is text, queries a non-empty list of text. A
+# mapped URL the crawl did not reach as an indexable 200 fails the check; more
+# than half the indexable crawled pages with no row holds it.
+keywordMap:
+  - url: https://example.com/guides/getting-started
+    purpose: Teach a new customer the first three steps
+    queries:
+      - how to get started with example
+
 # brandEntity (0.5): how the organisation names itself. legalName and
 # publicName are text; sameAs lists the profiles it stands behind (http(s)
 # URLs). An Organization sameAs in the markup that is not listed here, or a

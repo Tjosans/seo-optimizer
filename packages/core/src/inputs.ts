@@ -363,6 +363,17 @@ export interface ContentReview {
   readonly verdict: ContentVerdict;
 }
 
+/**
+ * One row of the keyword-to-page map (0.2): the page, what it is for, and the
+ * queries it answers. Plain rows, not an `InputRecord`: the map is a working
+ * document and the detector judges it against the crawl, not its author.
+ */
+export interface KeywordMapEntry {
+  readonly url: string;
+  readonly purpose: string;
+  readonly queries: readonly string[];
+}
+
 /** One checkout path a person walked (4.10): what was tried, where, how it went, when. */
 export interface CheckoutCase {
   readonly case: string;
@@ -747,6 +758,8 @@ export interface AuditInputs {
   readonly contentDecisions?: readonly ContentDecision[];
   /** A person's review of each priority page's content (3.5). */
   readonly contentReview?: readonly ContentReview[];
+  /** Which page answers which queries, and why it exists (0.2). */
+  readonly keywordMap?: readonly KeywordMapEntry[];
   /** The checkout cases tested by hand (4.10). */
   readonly checkoutMatrix?: CheckoutMatrixRecord;
   /** The brand's legal and public names and the profiles it stands behind (0.5). */
@@ -756,7 +769,7 @@ export interface AuditInputs {
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics', 'serverLogs', 'merchantFeed', 'checkoutMatrix', 'a11yEvaluation', 'contentReview', 'brandEntity'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics', 'serverLogs', 'merchantFeed', 'checkoutMatrix', 'a11yEvaluation', 'contentReview', 'brandEntity', 'keywordMap'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -1432,6 +1445,66 @@ function parseContentReview(value: unknown, problem: (path: string, text: string
     if (url !== null && reviewer !== null && known && ms !== null) {
       out.push({ url, reviewer, reviewedAt: new Date(ms).toISOString(), verdict: verdict as ContentVerdict });
     }
+  });
+  return ok ? out : null;
+}
+
+const KEYWORD_MAP_KEYS = ['url', 'purpose', 'queries'];
+
+function parseKeywordMap(value: unknown, problem: (path: string, text: string) => void): KeywordMapEntry[] | null {
+  if (!Array.isArray(value)) {
+    problem('keywordMap', 'expected a list');
+    return null;
+  }
+  const out: KeywordMapEntry[] = [];
+  let ok = true;
+  const seen = new Set<string>();
+  value.forEach((node, index) => {
+    const path = `keywordMap[${index}]`;
+    if (!isNode(node)) {
+      problem(path, 'expected a mapping');
+      ok = false;
+      return;
+    }
+    for (const key of Object.keys(node)) {
+      if (!KEYWORD_MAP_KEYS.includes(key)) {
+        problem(`${path}.${key}`, 'unknown field');
+        ok = false;
+      }
+    }
+    const text = (key: string): string | null => {
+      const raw = node[key];
+      if (typeof raw === 'string' && raw.trim() !== '') return raw.trim();
+      problem(`${path}.${key}`, raw === undefined || raw === null || raw === '' ? 'required' : `expected text, got ${typeof raw} (quote it)`);
+      ok = false;
+      return null;
+    };
+    const url = text('url');
+    if (url !== null && !isHttpUrl(url)) {
+      problem(`${path}.url`, `expected an http(s) URL: ${url}`);
+      ok = false;
+    } else if (url !== null) {
+      if (seen.has(url)) {
+        problem(`${path}.url`, `duplicate mapping: ${url}`);
+        ok = false;
+      }
+      seen.add(url);
+    }
+    const purpose = text('purpose');
+    const queries: string[] = [];
+    const raw = node['queries'];
+    if (!Array.isArray(raw) || raw.length === 0) {
+      problem(`${path}.queries`, raw === undefined || raw === null ? 'required' : 'expected a non-empty list');
+      ok = false;
+    } else {
+      raw.forEach((item, at) => {
+        if (typeof item !== 'string' || item.trim() === '') {
+          problem(`${path}.queries[${at}]`, 'expected text');
+          ok = false;
+        } else queries.push(item.trim());
+      });
+    }
+    if (url !== null && purpose !== null) out.push({ url, purpose, queries });
   });
   return ok ? out : null;
 }
@@ -2469,7 +2542,12 @@ export function parseInputs(value: unknown): AuditInputs {
     a11yEvaluation?: A11yEvaluationRecord;
     contentReview?: readonly ContentReview[];
     brandEntity?: BrandEntityRecord;
+    keywordMap?: readonly KeywordMapEntry[];
   } = {};
+  if (value['keywordMap'] !== undefined && value['keywordMap'] !== null) {
+    const keywordMap = parseKeywordMap(value['keywordMap'], problem);
+    if (keywordMap !== null) inputs.keywordMap = keywordMap;
+  }
   if (value['brandEntity'] !== undefined && value['brandEntity'] !== null) {
     const brandEntity = parseBrandEntity(value['brandEntity'], problem);
     if (brandEntity !== null) inputs.brandEntity = brandEntity;

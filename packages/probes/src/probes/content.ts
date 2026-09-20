@@ -1105,6 +1105,55 @@ export const contentHelpfulness: SiteProbe = {
   },
 };
 
+/**
+ * 0.2 asks that every page has a job: which queries it answers, and why it
+ * exists. The map is supplied (`keywordMap`: url, purpose, queries); what a
+ * crawl adds is whether it still describes the site. Fails a mapped URL the
+ * crawl did not reach as an indexable 200 (a mapped page nobody can index
+ * answers no query). Warns when more than half the indexable crawled pages
+ * have no mapping. Without the section, `not-applicable`.
+ */
+export const keywordIntentMap: SiteProbe = {
+  id: 'keyword-intent-map',
+  scope: 'site',
+  title: 'Every mapped URL is an indexable 200, and most indexable pages are mapped',
+  run({ crawl, inputs }) {
+    const map = inputs?.keywordMap;
+    if (map === undefined) return notApplicable('No keyword map was supplied.');
+
+    const byUrl = new Map<string, CrawledPage>();
+    for (const page of crawl.pages) byUrl.set(page.normalizedUrl, page);
+    const mapped = new Set(map.map((entry) => normalizeUrl(entry.url) ?? entry.url));
+
+    const broken: string[] = [];
+    for (const url of mapped) {
+      const page = byUrl.get(url);
+      if (page === undefined) broken.push(`${url} (not crawled)`);
+      else if (page.fetch.status !== 200) broken.push(`${url} (${page.fetch.status ?? 'no response'})`);
+      else if (isNoindex(page)) broken.push(`${url} (noindex)`);
+    }
+
+    const indexable = [...byUrl.entries()].filter(([, page]) => page.fetch.status === 200 && !isNoindex(page)).map(([url]) => url);
+    const unmapped = indexable.filter((url) => !mapped.has(url)).sort();
+
+    const data = {
+      mappings: map.length,
+      broken: broken.slice(0, 10),
+      brokenCount: broken.length,
+      indexablePages: indexable.length,
+      unmapped: unmapped.slice(0, 10),
+      unmappedCount: unmapped.length,
+    };
+    if (broken.length > 0) {
+      return fail(`${broken.length} mapped URL(s) are not crawled as an indexable 200: ${broken.slice(0, 3).join(', ')}.`, data);
+    }
+    if (unmapped.length * 2 > indexable.length) {
+      return warn(`${unmapped.length} of ${indexable.length} indexable crawled page(s) have no keyword mapping (${unmapped.slice(0, 3).join(', ')}).`, data);
+    }
+    return pass(`${map.length} mapped URL(s) are indexable; ${unmapped.length} of ${indexable.length} indexable crawled page(s) are unmapped. A person still confirms the intents.`, data);
+  },
+};
+
 export const contentProbes = [
   answerFirstStructure,
   authorDateSignals,
@@ -1116,4 +1165,5 @@ export const contentProbes = [
   contentParityDiff,
   contentDecay,
   contentHelpfulness,
+  keywordIntentMap,
 ];

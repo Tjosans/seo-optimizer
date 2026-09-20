@@ -1210,7 +1210,84 @@ function mapTarget(value: string, origin: string): string | null {
   }
 }
 
+/**
+ * `prelaunch-baseline-snapshot` (4.11): a release audit has an earlier audit to
+ * compare against, and that audit is comparable — crawled under the page
+ * budget and render settings this one used, so a difference between them is
+ * the site's rather than the crawl's. `not-applicable` when the audit names no
+ * release, since only a release owes a baseline.
+ *
+ * Fails a release audit with no `previous` baseline, and a baseline crawled
+ * with another page budget, depth budget or render setting. Warns when the
+ * baseline recorded no settings (rebuilt from stored rows, so comparability is
+ * unknown) and when no CrUX or Lighthouse section was supplied: field and lab
+ * performance are recorded as unavailable, never as a clean baseline.
+ */
+export const prelaunchBaselineSnapshot: SiteProbe = {
+  id: 'prelaunch-baseline-snapshot',
+  scope: 'site',
+  title: 'A release has a comparable baseline snapshot taken before launch',
+  run({ crawl, previous, inputs, release }) {
+    if (release === undefined || release === null) {
+      return notApplicable('This audit is not of a release, so it is owed no baseline.');
+    }
+    if (previous === undefined || previous === null) {
+      return fail(`Release "${release}" has no baseline: no earlier audit of this site was supplied.`, {
+        release,
+      });
+    }
+
+    const mismatches: string[] = [];
+    const now = crawl.settings;
+    const before = previous.settings;
+    if (now !== undefined && before !== undefined) {
+      if (now.maxPages !== before.maxPages) {
+        mismatches.push(`page budget ${before.maxPages} then, ${now.maxPages} now`);
+      }
+      if (now.maxDepth !== before.maxDepth) {
+        mismatches.push(`depth budget ${before.maxDepth} then, ${now.maxDepth} now`);
+      }
+      if (now.renderPages !== before.renderPages) {
+        mismatches.push(`desktop render ${before.renderPages ? 'on' : 'off'} then, ${now.renderPages ? 'on' : 'off'} now`);
+      }
+      if (now.renderMobile !== before.renderMobile) {
+        mismatches.push(`mobile render ${before.renderMobile ? 'on' : 'off'} then, ${now.renderMobile ? 'on' : 'off'} now`);
+      }
+    }
+
+    const unavailable: string[] = [];
+    if ((inputs as { crux?: unknown } | null | undefined)?.crux === undefined) unavailable.push('CrUX');
+    if (inputs?.lighthouse === undefined) unavailable.push('Lighthouse');
+
+    const data = {
+      release,
+      baselineTakenAt: previous.takenAt,
+      baselinePages: previous.pages.length,
+      baselineSettings: before ?? null,
+      currentSettings: now ?? null,
+      mismatches,
+      unavailable,
+    };
+    if (mismatches.length > 0) {
+      return fail(`The baseline is not comparable: ${mismatches.join('; ')}.`, data);
+    }
+    const holds: string[] = [];
+    if (before === undefined || now === undefined) {
+      holds.push('the baseline does not record the settings it was crawled under, so its comparability is unknown');
+    }
+    if (unavailable.length > 0) {
+      holds.push(`no ${unavailable.join(' or ')} section was supplied, so ${unavailable.join(' and ')} performance is unavailable`);
+    }
+    if (holds.length > 0) return warn(`${holds.join('; ')}.`, data);
+    return pass(
+      `Release "${release}" has a baseline from ${previous.takenAt} crawled under the same settings, with field and lab performance recorded.`,
+      data,
+    );
+  },
+};
+
 export const qaProbes = [
+  prelaunchBaselineSnapshot,
   migrationRedirectTest,
   migrationRedirectsLive,
   postMigrationMonitor,

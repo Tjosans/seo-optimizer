@@ -757,3 +757,66 @@ describe('availability-canary', () => {
     expect(check([page('/')], canary({ recipient: '' })).outcome).toBe('warn');
   });
 });
+
+describe('prelaunch-baseline-snapshot (4.11)', () => {
+  const settings = { maxPages: 100, maxDepth: 3, renderPages: false, renderMobile: false };
+  const baseline = (over: Record<string, unknown> = {}) => ({
+    schema: 1,
+    origin: ORIGIN,
+    takenAt: '2026-09-01T00:00:00.000Z',
+    pages: [],
+    probes: [],
+    settings,
+    ...over,
+  });
+  const check = (
+    ctx: { release?: string | null; previous?: unknown; inputs?: unknown; settings?: unknown } = {},
+  ): Observation =>
+    (probeById('prelaunch-baseline-snapshot') as SiteProbe).run({
+      origin: ORIGIN,
+      flags: [],
+      crawl: {
+        seeds: [`${ORIGIN}/`],
+        pages: [],
+        robots: { groups: [], sitemaps: [], absent: true },
+        robotsTxt: null,
+        sitemapUrls: [],
+        sitemaps: [],
+        sitemapVideos: [],
+        sitemapNews: [],
+        blockedByRobots: [],
+        notReached: [],
+        auxiliary: [],
+        settings: (ctx.settings ?? settings) as never,
+      } satisfies CrawlResult,
+      ...(ctx.release === undefined ? {} : { release: ctx.release }),
+      ...(ctx.previous === undefined ? {} : { previous: ctx.previous as never }),
+      ...(ctx.inputs === undefined ? {} : { inputs: ctx.inputs as never }),
+    });
+  const both = { crux: {}, lighthouse: {} };
+
+  it('is not applicable to an audit that is not a release', () => {
+    expect(check().outcome).toBe('not-applicable');
+  });
+
+  it('fails a release with no baseline', () => {
+    expect(check({ release: 'r1' }).outcome).toBe('fail');
+  });
+
+  it('fails a baseline crawled with another budget or render setting', () => {
+    const other = (over: Record<string, unknown>) =>
+      check({ release: 'r1', previous: baseline({ settings: { ...settings, ...over } }), inputs: both });
+    expect(other({ maxPages: 50 }).outcome).toBe('fail');
+    expect(other({ renderPages: true }).outcome).toBe('fail');
+    expect(other({ renderMobile: true }).outcome).toBe('fail');
+  });
+
+  it('warns when CrUX or Lighthouse is missing, or the baseline records no settings', () => {
+    expect(check({ release: 'r1', previous: baseline() }).outcome).toBe('warn');
+    expect(check({ release: 'r1', previous: baseline({ settings: undefined }), inputs: both }).outcome).toBe('warn');
+  });
+
+  it('passes a comparable baseline with both sections supplied', () => {
+    expect(check({ release: 'r1', previous: baseline(), inputs: both }).outcome).toBe('pass');
+  });
+});

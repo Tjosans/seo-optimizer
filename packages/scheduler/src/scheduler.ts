@@ -280,6 +280,7 @@ export class AuditScheduler {
       profileCorpusVersion: site.profileCorpusVersion,
       aiPolicy,
       inputs,
+      release: request.release ?? null,
       corpusVersion: request.corpusVersion,
       options,
     };

@@ -505,8 +505,54 @@ export interface LighthouseRecord extends InputRecord {
   readonly perfPolicy?: PerfPolicy;
 }
 
+/** The three Core Web Vitals a field report carries. */
+export const FIELD_VITAL_METRICS = ['lcp', 'inp', 'cls'] as const;
+
+/** Where a field population comes from; one is never presented as another (6.2). */
+export const FIELD_VITAL_SOURCES = ['crux-origin', 'crux-url', 'search-console-group', 'rum'] as const;
+
+/** The device segments a field population can cover. */
+export const FIELD_VITAL_FORM_FACTORS = ['mobile', 'desktop'] as const;
+
+/** What someone committed to do about one metric of one population: who, and when it is retested. */
+export interface FieldVitalAction {
+  readonly metric: (typeof FIELD_VITAL_METRICS)[number];
+  readonly owner: string;
+  /** ISO 8601 instant. */
+  readonly retestAt: string;
+}
+
+/**
+ * One field population: a named source, target and device segment, its
+ * collection window, and the p75 of each vital it reported. An absent p75
+ * was not reported (insufficient data), which is a gap and not a grade.
+ */
+export interface FieldVitalsPopulation {
+  readonly source: (typeof FIELD_VITAL_SOURCES)[number];
+  /** The origin, URL, Search Console group or RUM cohort the numbers describe. */
+  readonly target: string;
+  readonly formFactor: (typeof FIELD_VITAL_FORM_FACTORS)[number];
+  /** ISO 8601 instants, the collection window as recorded. */
+  readonly periodStart?: string;
+  readonly periodEnd?: string;
+  /** p75 Largest Contentful Paint, milliseconds. */
+  readonly lcpMs?: number;
+  /** p75 Interaction to Next Paint, milliseconds. */
+  readonly inpMs?: number;
+  /** p75 Cumulative Layout Shift, unitless. */
+  readonly cls?: number;
+  readonly actions: readonly FieldVitalAction[];
+}
+
+/** Field Core Web Vitals per population (6.2). */
+export interface CruxRecord extends InputRecord {
+  readonly populations: readonly FieldVitalsPopulation[];
+}
+
 /** Every section an audit can be given. */
 export interface AuditInputs {
+  /** Field Core Web Vitals populations, p75 per metric (6.2). */
+  readonly crux?: CruxRecord;
   /** Lighthouse reports per URL and the performance policy (1.5, 4.5). */
   readonly lighthouse?: LighthouseRecord;
   /** The AI visibility baseline: reports, metrics, scopes, periods (6.4). */
@@ -540,7 +586,7 @@ export interface AuditInputs {
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -1667,6 +1713,102 @@ function parseAiBaseline(value: unknown, problem: (path: string, text: string) =
   return ok ? { ...record, reports } : null;
 }
 
+const CRUX_KEYS = ['populations'];
+const POPULATION_KEYS = ['source', 'target', 'formFactor', 'periodStart', 'periodEnd', 'lcpMs', 'inpMs', 'cls', 'actions'];
+const FIELD_ACTION_KEYS = ['metric', 'owner', 'retestAt'];
+
+function parseCrux(value: unknown, problem: (path: string, text: string) => void): CruxRecord | null {
+  const record = parseInputRecord('crux', value, problem, CRUX_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`crux${path}`, text);
+    ok = false;
+  };
+  const absent = (raw: unknown): boolean => raw === undefined || raw === null || raw === '';
+  const text = (node: Node, path: string, key: string): string | null => {
+    const raw = node[key];
+    if (typeof raw === 'string' && raw.trim() !== '') return raw.trim();
+    fail(`${path}.${key}`, absent(raw) ? 'required' : `expected text, got ${typeof raw} (quote it)`);
+    return null;
+  };
+  const oneOf = <T extends string>(node: Node, path: string, key: string, allowed: readonly T[]): T | null => {
+    const raw = text(node, path, key);
+    if (raw === null) return null;
+    if (allowed.includes(raw as T)) return raw as T;
+    fail(`${path}.${key}`, `expected one of ${allowed.join(', ')}: ${raw}`);
+    return null;
+  };
+  const when = (node: Node, path: string, key: string): string | null => {
+    const raw = text(node, path, key);
+    if (raw === null) return null;
+    const ms = instant(raw);
+    if (ms === null) {
+      fail(`${path}.${key}`, `not a date: ${raw}`);
+      return null;
+    }
+    return new Date(ms).toISOString();
+  };
+
+  const populations: FieldVitalsPopulation[] = [];
+  const rawPopulations = value['populations'];
+  if (absent(rawPopulations)) fail('.populations', 'required');
+  else if (!Array.isArray(rawPopulations)) fail('.populations', 'expected a list');
+  else {
+    const seen = new Set<string>();
+    rawPopulations.forEach((node, index) => {
+      const path = `.populations[${index}]`;
+      if (!isNode(node)) {
+        fail(path, 'expected a mapping');
+        return;
+      }
+      for (const key of Object.keys(node)) if (!POPULATION_KEYS.includes(key)) fail(`${path}.${key}`, 'unknown field');
+      const source = oneOf(node, path, 'source', FIELD_VITAL_SOURCES);
+      const target = text(node, path, 'target');
+      const formFactor = oneOf(node, path, 'formFactor', FIELD_VITAL_FORM_FACTORS);
+      const numbers: { lcpMs?: number; inpMs?: number; cls?: number } = {};
+      for (const key of ['lcpMs', 'inpMs', 'cls'] as const) {
+        const n = node[key];
+        if (absent(n)) continue;
+        if (typeof n !== 'number' || !Number.isFinite(n) || n < 0) fail(`${path}.${key}`, 'expected a number of 0 or more');
+        else numbers[key] = n;
+      }
+      const dates: { periodStart?: string; periodEnd?: string } = {};
+      for (const key of ['periodStart', 'periodEnd'] as const) {
+        if (absent(node[key])) continue;
+        const date = when(node, path, key);
+        if (date !== null) dates[key] = date;
+      }
+      const actions: FieldVitalAction[] = [];
+      const rawActions = node['actions'];
+      if (!absent(rawActions)) {
+        if (!Array.isArray(rawActions)) fail(`${path}.actions`, 'expected a list');
+        else {
+          rawActions.forEach((entry, at) => {
+            const where = `${path}.actions[${at}]`;
+            if (!isNode(entry)) {
+              fail(where, 'expected a mapping');
+              return;
+            }
+            for (const key of Object.keys(entry)) if (!FIELD_ACTION_KEYS.includes(key)) fail(`${where}.${key}`, 'unknown field');
+            const metric = oneOf(entry, where, 'metric', FIELD_VITAL_METRICS);
+            const owner = text(entry, where, 'owner');
+            const retestAt = when(entry, where, 'retestAt');
+            if (metric !== null && owner !== null && retestAt !== null) actions.push({ metric, owner, retestAt });
+          });
+        }
+      }
+      if (source !== null && target !== null && formFactor !== null) {
+        const key = `${source}|${target}|${formFactor}`;
+        if (seen.has(key)) fail(path, `duplicate population: ${source} ${target} ${formFactor}`);
+        seen.add(key);
+        populations.push({ source, target, formFactor, ...dates, ...numbers, actions });
+      }
+    });
+  }
+  return ok ? { ...record, populations } : null;
+}
+
 const LIGHTHOUSE_KEYS = ['reports', 'perfPolicy'];
 const PERF_POLICY_KEYS = ['thresholds', 'testProfile', 'owner', 'revision'];
 const PERF_THRESHOLD_KEYS = ['lcpMs', 'cls', 'tbtMs'];
@@ -1767,6 +1909,7 @@ export function parseInputs(value: unknown): AuditInputs {
     problems.push(`${path}: ${text}`);
   };
   const inputs: {
+    crux?: CruxRecord;
     lighthouse?: LighthouseRecord;
     experiments?: readonly ExperimentRecord[];
     environments?: EnvironmentsRecord;
@@ -1783,6 +1926,10 @@ export function parseInputs(value: unknown): AuditInputs {
     bingWebmaster?: BingWebmasterRecord;
     aiBaseline?: AiBaselineRecord;
   } = {};
+  if (value['crux'] !== undefined && value['crux'] !== null) {
+    const crux = parseCrux(value['crux'], problem);
+    if (crux !== null) inputs.crux = crux;
+  }
   if (value['lighthouse'] !== undefined && value['lighthouse'] !== null) {
     const lighthouse = parseLighthouse(value['lighthouse'], problem);
     if (lighthouse !== null) inputs.lighthouse = lighthouse;

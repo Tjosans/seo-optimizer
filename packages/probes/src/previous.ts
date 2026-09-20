@@ -11,7 +11,7 @@
  */
 
 import { normalizeUrl } from '@seo/crawler';
-import type { CrawlResult, Extracted } from '@seo/crawler';
+import type { CrawlResult, CrawlSettings, Extracted } from '@seo/crawler';
 import { jsonLdTypes } from './probes/metadata.js';
 import type { ProbeOutcome, ProbeRun } from './types.js';
 
@@ -53,6 +53,11 @@ export interface PreviousAudit {
   /** ISO 8601 moment the earlier audit's crawl finished. */
   readonly takenAt: string;
   readonly pages: readonly PreviousPage[];
+  /**
+   * The limits and render settings the earlier crawl ran under. Absent when the
+   * snapshot was rebuilt from stored rows, which do not keep them.
+   */
+  readonly settings?: CrawlSettings;
   /**
    * Normalized URLs the earlier crawl found disallowed by robots.txt. Absent when
    * the snapshot was rebuilt from stored rows, which do not keep the list.
@@ -122,6 +127,7 @@ export function snapshotAudit(input: {
         extracted: page.extracted,
       }),
     ),
+    ...(input.crawl.settings === undefined ? {} : { settings: input.crawl.settings }),
     blockedByRobots: [...input.crawl.blockedByRobots],
     probes: snapshotProbes(input.runs),
   };
@@ -208,11 +214,24 @@ export function parsePrevious(value: unknown): PreviousAudit {
   });
 
   const blocked = root['blockedByRobots'];
+  const rawSettings = root['settings'];
+  let settings: CrawlSettings | undefined;
+  if (rawSettings !== undefined) {
+    const item = record(rawSettings, 'previous.settings');
+    for (const key of ['maxPages', 'maxDepth'] as const) {
+      if (typeof item[key] !== 'number') throw new Error(`previous.settings.${key}: expected a number`);
+    }
+    for (const key of ['renderPages', 'renderMobile'] as const) {
+      if (typeof item[key] !== 'boolean') throw new Error(`previous.settings.${key}: expected true or false`);
+    }
+    settings = item as unknown as CrawlSettings;
+  }
   return {
     schema: PREVIOUS_AUDIT_SCHEMA,
     origin: text(root['origin'], 'previous.origin', false) ?? '',
     takenAt,
     pages,
+    ...(settings === undefined ? {} : { settings }),
     ...(blocked === undefined
       ? {}
       : {

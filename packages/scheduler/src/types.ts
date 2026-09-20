@@ -80,6 +80,11 @@ export interface AuditJob {
    * written to the store before this field existed has none.
    */
   readonly inputs?: AuditInputs | null;
+  /**
+   * The name of the release this audit assesses, or null. Optional because a
+   * job written to the store before this field existed has none.
+   */
+  readonly release?: string | null;
   /** Pinned at submit time; the version the grader must be handed. */
   readonly corpusVersion: string;
   readonly options: CrawlOptions;

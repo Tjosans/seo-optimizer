@@ -9,6 +9,7 @@ import { inputRecordProblem } from '@seo/core';
 import type { AuxiliaryFetch, FetchResult } from '@seo/crawler';
 import type { PageProbe, SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
+import { matrixMatcher } from './site.js';
 
 export const httpStatus: PageProbe = {
   id: 'http-status',
@@ -598,7 +599,89 @@ export const labPerfBudget: SiteProbe = {
   },
 };
 
-const MEDIA_LCP_TAGS = new Set(['img', 'image', 'video', 'picture', 'source']);
+/**
+ * v5.0 4.5 asks that every launch template has been measured against the
+ * performance budget. Each priority `urlMatrix` pattern is a launch template;
+ * the Lighthouse reports whose URL the pattern matches are its evidence. A
+ * template fails with no report, with only reports older than the policy's
+ * `revision` (measured against a budget that has since changed), and with a
+ * current report over a threshold or run under another test profile. A current
+ * report missing a metric, unread or undated holds the check with a `warn`, as
+ * does an unowned or overdue record. Rows for another environment or private
+ * access are set aside. Without a policy or a priority row there is no budget
+ * or no template, so the check is `not-applicable`.
+ */
+export const templateLabPerf: SiteProbe = {
+  id: 'template-lab-perf',
+  scope: 'site',
+  title: 'Every launch template has a Lighthouse report inside the performance budget',
+  run({ crawl, inputs, origin }) {
+    const record = inputs?.lighthouse;
+    const policy = record?.perfPolicy;
+    if (record === undefined || policy === undefined) return notApplicable('No performance policy was supplied.');
+    const rows = (inputs?.urlMatrix ?? []).filter(
+      (row) => row.priority === true && row.access !== 'private' &&
+        (row.environment === undefined || row.environment === 'production'),
+    );
+    if (rows.length === 0) return notApplicable('The URL matrix names no priority template.');
+
+    const revision = Date.parse(policy.revision);
+    const failures: string[] = [];
+    const held: string[] = [];
+    const limits = Object.entries(policy.thresholds) as [keyof typeof policy.thresholds, number][];
+    for (const row of rows) {
+      const { test } = matrixMatcher(row.pattern, origin);
+      const reports = record.reports.filter((r) => {
+        const url = normalizeUrl(r.url);
+        return url !== null && test(url);
+      });
+      if (reports.length === 0) {
+        failures.push(`${row.pattern}: no Lighthouse report`);
+        continue;
+      }
+      const stale = reports.filter((r) => r.metrics?.fetchedAt !== undefined && Date.parse(r.metrics.fetchedAt) < revision);
+      const current = reports.filter((r) => !stale.includes(r));
+      if (current.length === 0) {
+        failures.push(`${row.pattern}: every report predates the policy revision ${policy.revision}`);
+        continue;
+      }
+      for (const report of current) {
+        const metrics = report.metrics;
+        if (metrics === undefined) {
+          held.push(`${row.pattern}: the report for ${report.url} has not been read`);
+          continue;
+        }
+        if (metrics.testProfile !== policy.testProfile) {
+          failures.push(`${row.pattern}: run as ${metrics.testProfile ?? 'an unknown profile'}, the policy is ${policy.testProfile}`);
+          continue;
+        }
+        const over: string[] = [];
+        const missing: string[] = [];
+        for (const [key, limit] of limits) {
+          const value = metrics[key];
+          if (value === undefined) missing.push(key);
+          else if (value > limit) over.push(`${key} ${value} over ${limit}`);
+        }
+        if (over.length > 0) failures.push(`${row.pattern}: ${over.join(', ')}`);
+        else if (missing.length > 0) held.push(`${row.pattern}: the report holds no ${missing.join(', ')}`);
+        else if (metrics.fetchedAt === undefined) held.push(`${row.pattern}: the report carries no run date`);
+      }
+    }
+
+    const data = { templates: rows.length, failures: failures.slice(0, 10), held: held.slice(0, 10) };
+    if (failures.length > 0) return fail(`${failures.length} launch template problem(s): ${failures.slice(0, 3).join(' | ')}.`, data);
+
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' || policy.owner.trim() === ''
+      ? 'the performance policy has no owner'
+      : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) held.push(problem);
+    if (held.length > 0) return warn(`Launch template performance is not settled: ${held.slice(0, 3).join('; ')}.`, data);
+    return pass(`${rows.length} launch template(s) have a current report inside the ${policy.testProfile} policy.`, data);
+  },
+};
+
+const MEDIA_LCP_TAGS =new Set(['img', 'image', 'video', 'picture', 'source']);
 
 /** The `@font-face` rules in the page's own `<style>` blocks that name no `font-display`. */
 function fontFacesWithoutDisplay(html: string): { total: number; without: number } {
@@ -677,6 +760,87 @@ export const lcpElementStrategy: PageProbe = {
   },
 };
 
+/** Google Core Web Vitals boundaries at p75: Good up to `good`, Poor above `poor`. */
+export const FIELD_VITAL_THRESHOLDS = {
+  lcp: { good: 2500, poor: 4000, unit: 'ms' },
+  inp: { good: 200, poor: 500, unit: 'ms' },
+  cls: { good: 0.1, poor: 0.25, unit: '' },
+} as const;
+
+export type FieldVitalGrade = 'good' | 'needs-improvement' | 'poor';
+
+/** Grade one p75 by Google's thresholds. */
+export function gradeFieldVital(metric: keyof typeof FIELD_VITAL_THRESHOLDS, p75: number): FieldVitalGrade {
+  const { good, poor } = FIELD_VITAL_THRESHOLDS[metric];
+  return p75 <= good ? 'good' : p75 <= poor ? 'needs-improvement' : 'poor';
+}
+
+/**
+ * v5.0 6.2 is a review of field LCP, INP and CLS at p75, and it says outright
+ * that completing the review does not claim the site has Good field Core Web
+ * Vitals. Each population the person supplied (a named source, target and
+ * device segment) is graded metric by metric and never averaged into one
+ * score. A Poor metric with no action record (an owner and a retest date)
+ * fails. A metric the source did not report is unavailable, which holds the
+ * check with a `warn` and is never read as Good. The check is `assisted`, so
+ * whatever is left (Needs Improvement, a Poor metric with an action) is
+ * reported for a person to confirm.
+ */
+export const fieldCwvMonitor: SiteProbe = {
+  id: 'field-cwv-monitor',
+  scope: 'site',
+  title: 'Field Core Web Vitals are graded and Poor ones have an action',
+  run({ crawl, inputs }) {
+    const record = inputs?.crux;
+    if (record === undefined) return notApplicable('No field Core Web Vitals were supplied.');
+
+    const failures: string[] = [];
+    const unavailable: string[] = [];
+    const graded: string[] = [];
+    const attention: string[] = [];
+    for (const population of record.populations) {
+      const name = `${population.source} ${population.target} (${population.formFactor})`;
+      const values = { lcp: population.lcpMs, inp: population.inpMs, cls: population.cls };
+      for (const metric of ['lcp', 'inp', 'cls'] as const) {
+        const value = values[metric];
+        const label = metric.toUpperCase();
+        if (value === undefined) {
+          unavailable.push(`${name}: ${label}`);
+          continue;
+        }
+        const shown = `${value}${FIELD_VITAL_THRESHOLDS[metric].unit}`;
+        const grade = gradeFieldVital(metric, value);
+        graded.push(`${name}: ${label} p75 ${shown} is ${grade}`);
+        if (grade === 'needs-improvement') attention.push(`${name}: ${label} needs improvement`);
+        if (grade !== 'poor') continue;
+        if (population.actions.some((action) => action.metric === metric && action.owner.trim() !== '')) {
+          attention.push(`${name}: ${label} is poor, with an action`);
+        } else failures.push(`${name}: ${label} p75 ${shown} is poor with no action record`);
+      }
+    }
+
+    const data = {
+      populations: record.populations.length,
+      graded: graded.slice(0, 20),
+      failures: failures.slice(0, 10),
+      unavailable: unavailable.slice(0, 10),
+      attention: attention.slice(0, 10),
+    };
+    if (failures.length > 0) return fail(`${failures.length} Poor field metric(s) have no action record: ${failures.slice(0, 3).join(' | ')}.`, data);
+
+    const held: string[] = [];
+    if (record.populations.length === 0) held.push('no population was supplied');
+    if (unavailable.length > 0) held.push(`unavailable, not Good: ${unavailable.slice(0, 3).join(', ')}`);
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'the field data has no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) held.push(problem);
+    if (held.length > 0) return warn(`The field vitals review is not settled: ${held.join('; ')}.`, data);
+
+    const note = attention.length > 0 ? ` ${attention.length} need attention: ${attention.slice(0, 3).join('; ')}.` : '';
+    return pass(`${graded.length} field p75 value(s) across ${record.populations.length} population(s) are graded; this review does not claim the site has Good field Core Web Vitals.${note}`, data);
+  },
+};
+
 export const deliveryProbes = [
   httpStatus,
   redirectChain,
@@ -690,5 +854,7 @@ export const deliveryProbes = [
   privateResponseCaching,
   indexabilityMatrixReconciliation,
   labPerfBudget,
+  templateLabPerf,
   lcpElementStrategy,
+  fieldCwvMonitor,
 ];

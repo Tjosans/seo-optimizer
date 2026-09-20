@@ -150,12 +150,19 @@ export async function runAudit(
     });
     stopIfCancelled();
 
+    const previous = await loadPreviousAudit(db, {
+      siteId: job.siteId,
+      origin: job.origin,
+      excludeAuditId: job.auditId,
+    });
     const context: SiteContext = {
       origin: job.origin,
       crawl: crawled.result,
       flags: job.flags,
       aiPolicy: job.aiPolicy,
       inputs: job.inputs ?? null,
+      previous,
+      release: job.release ?? null,
     };
     const runs = runProbes(context);
 

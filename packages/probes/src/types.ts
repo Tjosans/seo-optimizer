@@ -42,6 +42,11 @@ export interface SiteContext {
    */
   readonly previous?: PreviousAudit | null;
   /**
+   * The name of the release this audit assesses, or null/absent when it is not
+   * one. Only a release audit is owed a baseline.
+   */
+  readonly release?: string | null;
+  /**
    * Evidence a person supplied (`AuditInputs`), or null/absent when none was.
    * A detector whose section is missing reports `not-applicable`.
    */

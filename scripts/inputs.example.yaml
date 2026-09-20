@@ -291,3 +291,26 @@ lighthouse:
     revision: 2026-08-01T00:00:00Z
   owner: Jane Doe
   recordedAt: 2026-09-01T09:00:00Z
+
+# crux (6.2): field Core Web Vitals, one population per source, target and
+# device segment. source is crux-origin, crux-url, search-console-group or
+# rum; never label one as another. lcpMs, inpMs and cls are the p75 values;
+# leave one out when the source reported none (a gap, not a grade). actions
+# say who acts on a metric and when it is retested; a Poor metric without
+# one fails the check.
+crux:
+  populations:
+    - source: crux-origin
+      target: https://example.com
+      formFactor: mobile
+      periodStart: 2026-08-10
+      periodEnd: 2026-09-06
+      lcpMs: 2300
+      inpMs: 340
+      cls: 0.05
+      actions:
+        - metric: inp
+          owner: Jane Doe
+          retestAt: 2026-10-01T00:00:00Z
+  owner: Jane Doe
+  recordedAt: 2026-09-10T09:00:00Z

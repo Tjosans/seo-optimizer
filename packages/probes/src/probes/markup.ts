@@ -13,7 +13,7 @@ import type { CrawledPage } from '@seo/crawler';
 import type { PageProbe, SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
 import { bareType } from './content.js';
-import { jsonLdNodes, typesOf } from './metadata.js';
+import { jsonLdNodes, jsonLdTypes, typesOf } from './metadata.js';
 import { notProductionReason } from './qa.js';
 
 const NO_HTML = 'No HTML was parsed for this response.';
@@ -1075,6 +1075,95 @@ export const gbpSetup: SiteProbe = {
   },
 };
 
+/**
+ * Structured data and hreflang against the previous audit: corpus check 7.9.
+ * Pages are matched by normalized URL, and only pages with parsed HTML now and
+ * a 200 before are compared. Fails a page whose JSON-LD carried a type before
+ * and now has a block that no longer parses, and an hreflang pair that was
+ * reciprocal before and is not now (both pages crawled this time, one no longer
+ * names the other). Warns a schema type removed from a page with no parse error
+ * behind it. No previous audit: `not-applicable`.
+ */
+export const schemaHreflangMaintenance: SiteProbe = {
+  id: 'schema-hreflang-maintenance',
+  scope: 'site',
+  title: 'Structured data and hreflang clusters still work as they did in the previous audit',
+  run({ crawl, previous }) {
+    if (previous === undefined || previous === null) {
+      return notApplicable('There is no previous audit to compare structured data and hreflang against.');
+    }
+    const key = (url: string): string => normalizeUrl(url) ?? url;
+    const before = new Map(previous.pages.map((p) => [p.url, p] as const));
+    const now = new Map<string, CrawledPage>();
+    for (const page of crawl.pages) {
+      if (page.extracted !== null) now.set(page.normalizedUrl, page);
+    }
+
+    const broken: { url: string; lost: string[] }[] = [];
+    const removed: { url: string; lost: string[] }[] = [];
+    let compared = 0;
+    for (const [url, page] of now) {
+      const old = before.get(url);
+      const extracted = page.extracted;
+      if (old === undefined || extracted === null || old.status !== 200 || page.fetch.status !== 200) continue;
+      compared += 1;
+      const present = new Set(jsonLdTypes(extracted.jsonLd));
+      const lost = old.jsonLdTypes.filter((type) => !present.has(type));
+      if (lost.length === 0) continue;
+      (extracted.jsonLdErrors > 0 ? broken : removed).push({ url, lost });
+    }
+
+    const targets = (hreflang: readonly { readonly url: string }[]): Set<string> =>
+      new Set(hreflang.map((entry) => key(entry.url)));
+    const lapsed: { from: string; to: string }[] = [];
+    let pairs = 0;
+    for (const old of previous.pages) {
+      for (const target of targets(old.hreflang)) {
+        if (old.url >= target) continue;
+        const partner = before.get(target);
+        if (partner === undefined || !targets(partner.hreflang).has(old.url)) continue;
+        const a = now.get(old.url)?.extracted;
+        const b = now.get(target)?.extracted;
+        if (a === undefined || a === null || b === undefined || b === null) continue;
+        pairs += 1;
+        if (!targets(a.hreflang).has(target)) lapsed.push({ from: old.url, to: target });
+        else if (!targets(b.hreflang).has(old.url)) lapsed.push({ from: target, to: old.url });
+      }
+    }
+
+    if (compared === 0 && pairs === 0) {
+      return notApplicable('No page with structured data or hreflang in the previous audit was crawled again.');
+    }
+    const data = {
+      pagesCompared: compared,
+      reciprocalPairsBefore: pairs,
+      jsonLdBroken: broken.slice(0, 10),
+      typesRemoved: removed.slice(0, 10),
+      hreflangLapsed: lapsed.slice(0, 10),
+    };
+    if (broken.length > 0 || lapsed.length > 0) {
+      const parts: string[] = [];
+      if (broken.length > 0) {
+        parts.push(`${broken.length} page(s) lost JSON-LD that parsed before (a block no longer parses, e.g. ${broken[0]?.url})`);
+      }
+      if (lapsed.length > 0) {
+        parts.push(`${lapsed.length} hreflang pair(s) that were reciprocal no longer are (e.g. ${lapsed[0]?.from} no longer names ${lapsed[0]?.to})`);
+      }
+      return fail(`${parts.join('; ')}.`, data);
+    }
+    if (removed.length > 0) {
+      return warn(
+        `${removed.length} page(s) dropped a schema type the previous audit found (e.g. ${removed[0]?.lost.join(', ')} on ${removed[0]?.url}).`,
+        data,
+      );
+    }
+    return pass(
+      `Structured data and reciprocal hreflang pairs held across ${compared} page(s) and ${pairs} pair(s) compared.`,
+      data,
+    );
+  },
+};
+
 export const markupProbes = [
   schemaValidationParity,
   semanticHtml,
@@ -1091,4 +1180,5 @@ export const markupProbes = [
   ugcGovernance,
   brandEntityConsistency,
   gbpSetup,
+  schemaHreflangMaintenance,
 ];

@@ -301,6 +301,17 @@ serverLogs:
   owner: Jane Doe
   recordedAt: 2026-09-01T09:00:00Z
 
+# merchantFeed (2.11): a Merchant Center feed, by file path (relative to this
+# file): RSS with the g: namespace, or TSV with a header row (id, link, price,
+# availability required; gtin, brand optional). Each item is read into
+# { id, link, price, currency, availability, gtin, brand }. The read is strict:
+# an item missing a required field, a price that is not "12.99 USD", a link
+# that is not absolute or a repeated id refuses the whole file.
+merchantFeed:
+  path: feeds/merchant.xml
+  owner: Jane Doe
+  recordedAt: 2026-09-01T09:00:00Z
+
 # crux (6.2): field Core Web Vitals, one population per source, target and
 # device segment. source is crux-origin, crux-url, search-console-group or
 # rum; never label one as another. lcpMs, inpMs and cls are the p75 values;

@@ -618,8 +618,33 @@ export interface ServerLogsRecord extends InputRecord {
   readonly skippedLines?: number;
 }
 
+/** One product a Merchant Center feed lists. `gtin` and `brand` are absent when the feed leaves them out. */
+export interface MerchantFeedItem {
+  readonly id: string;
+  readonly link: string;
+  readonly price: number;
+  /** ISO 4217 code. */
+  readonly currency: string;
+  /** As the feed words it, lower-cased: `in stock`, `out of stock`, `preorder`, `backorder`. */
+  readonly availability: string;
+  readonly gtin?: string;
+  readonly brand?: string;
+}
+
+/**
+ * A Merchant Center feed, named by path: RSS with the `g:` namespace, or TSV.
+ * `items` is filled by `loadMerchantFeed`, which reads the file strictly.
+ */
+export interface MerchantFeedRecord extends InputRecord {
+  /** Path of the feed file, relative to the inputs file. */
+  readonly path: string;
+  readonly items?: readonly MerchantFeedItem[];
+}
+
 /** Every section an audit can be given. */
 export interface AuditInputs {
+  /** A Merchant Center feed, reduced to items. */
+  readonly merchantFeed?: MerchantFeedRecord;
   /** An access log in combined format, reduced to hits without query strings. */
   readonly serverLogs?: ServerLogsRecord;
   /** Analytics setup, event plan and cross-source reconciliation. */
@@ -659,7 +684,7 @@ export interface AuditInputs {
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics', 'serverLogs'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics', 'serverLogs', 'merchantFeed'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -2109,6 +2134,17 @@ function parseServerLogs(value: unknown, problem: (path: string, text: string) =
   return null;
 }
 
+const MERCHANT_FEED_KEYS = ['path'];
+
+function parseMerchantFeed(value: unknown, problem: (path: string, text: string) => void): MerchantFeedRecord | null {
+  const record = parseInputRecord('merchantFeed', value, problem, MERCHANT_FEED_KEYS);
+  if (record === null || !isNode(value)) return null;
+  const raw = value['path'];
+  if (typeof raw === 'string' && raw.trim() !== '') return { ...record, path: raw.trim() };
+  problem('merchantFeed.path', raw === undefined || raw === null || raw === '' ? 'required' : `expected text, got ${typeof raw} (quote it)`);
+  return null;
+}
+
 /**
  * Check a parsed inputs value's shape and return it typed. `undefined` and
  * `null` are no inputs. Throws `InputsError` listing every problem found:
@@ -2127,6 +2163,7 @@ export function parseInputs(value: unknown): AuditInputs {
   const inputs: {
     analytics?: AnalyticsRecord;
     serverLogs?: ServerLogsRecord;
+    merchantFeed?: MerchantFeedRecord;
     crux?: CruxRecord;
     lighthouse?: LighthouseRecord;
     experiments?: readonly ExperimentRecord[];
@@ -2151,6 +2188,10 @@ export function parseInputs(value: unknown): AuditInputs {
   if (value['serverLogs'] !== undefined && value['serverLogs'] !== null) {
     const serverLogs = parseServerLogs(value['serverLogs'], problem);
     if (serverLogs !== null) inputs.serverLogs = serverLogs;
+  }
+  if (value['merchantFeed'] !== undefined && value['merchantFeed'] !== null) {
+    const merchantFeed = parseMerchantFeed(value['merchantFeed'], problem);
+    if (merchantFeed !== null) inputs.merchantFeed = merchantFeed;
   }
   if (value['crux'] !== undefined && value['crux'] !== null) {
     const crux = parseCrux(value['crux'], problem);

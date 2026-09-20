@@ -17,7 +17,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import { environmentOrigins, loadLighthouseMetricsFor, loadServerLogsFor, parseInputs, redirectMapUrls } from '@seo/core';
+import { environmentOrigins, loadLighthouseMetricsFor, loadMerchantFeedFor, loadServerLogsFor, parseInputs, redirectMapUrls } from '@seo/core';
 import type { AuditInputs, Corpus } from '@seo/core';
 import { CURRENT_CORPUS_VERSION, loadCorpus } from '@seo/corpus';
 import { crawl } from '@seo/crawler';
@@ -483,7 +483,7 @@ const stamp = (date: Date): string => date.toISOString().replace(/[:.]/g, '-').s
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  const inputs = args.inputsFile === null ? args.inputs : await loadServerLogsFor(args.inputs, args.inputsFile);
+  const inputs = args.inputsFile === null ? args.inputs : loadMerchantFeedFor(await loadServerLogsFor(args.inputs, args.inputsFile), args.inputsFile);
   const corpus = loadCorpus(join(ROOT, 'corpus', `v${CURRENT_CORPUS_VERSION}`));
   const startedAt = new Date();
   const started = Date.now();

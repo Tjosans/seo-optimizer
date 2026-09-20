@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<rss version="2.0" xmlns:g="http://base.google.com/ns/1.0">
+  <channel>
+    <title>Example shop</title>
+    <link>https://example.com</link>
+    <item>
+      <g:id>SKU-1</g:id>
+      <title>Trail shoe</title>
+      <link>https://example.com/shop/trail-shoe</link>
+      <g:price>89.00 EUR</g:price>
+      <g:availability>in stock</g:availability>
+      <g:gtin>00012345678905</g:gtin>
+      <g:brand>Acme</g:brand>
+    </item>
+  </channel>
+</rss>

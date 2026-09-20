@@ -677,6 +677,87 @@ export const lcpElementStrategy: PageProbe = {
   },
 };
 
+/** Google Core Web Vitals boundaries at p75: Good up to `good`, Poor above `poor`. */
+export const FIELD_VITAL_THRESHOLDS = {
+  lcp: { good: 2500, poor: 4000, unit: 'ms' },
+  inp: { good: 200, poor: 500, unit: 'ms' },
+  cls: { good: 0.1, poor: 0.25, unit: '' },
+} as const;
+
+export type FieldVitalGrade = 'good' | 'needs-improvement' | 'poor';
+
+/** Grade one p75 by Google's thresholds. */
+export function gradeFieldVital(metric: keyof typeof FIELD_VITAL_THRESHOLDS, p75: number): FieldVitalGrade {
+  const { good, poor } = FIELD_VITAL_THRESHOLDS[metric];
+  return p75 <= good ? 'good' : p75 <= poor ? 'needs-improvement' : 'poor';
+}
+
+/**
+ * v5.0 6.2 is a review of field LCP, INP and CLS at p75, and it says outright
+ * that completing the review does not claim the site has Good field Core Web
+ * Vitals. Each population the person supplied (a named source, target and
+ * device segment) is graded metric by metric and never averaged into one
+ * score. A Poor metric with no action record (an owner and a retest date)
+ * fails. A metric the source did not report is unavailable, which holds the
+ * check with a `warn` and is never read as Good. The check is `assisted`, so
+ * whatever is left (Needs Improvement, a Poor metric with an action) is
+ * reported for a person to confirm.
+ */
+export const fieldCwvMonitor: SiteProbe = {
+  id: 'field-cwv-monitor',
+  scope: 'site',
+  title: 'Field Core Web Vitals are graded and Poor ones have an action',
+  run({ crawl, inputs }) {
+    const record = inputs?.crux;
+    if (record === undefined) return notApplicable('No field Core Web Vitals were supplied.');
+
+    const failures: string[] = [];
+    const unavailable: string[] = [];
+    const graded: string[] = [];
+    const attention: string[] = [];
+    for (const population of record.populations) {
+      const name = `${population.source} ${population.target} (${population.formFactor})`;
+      const values = { lcp: population.lcpMs, inp: population.inpMs, cls: population.cls };
+      for (const metric of ['lcp', 'inp', 'cls'] as const) {
+        const value = values[metric];
+        const label = metric.toUpperCase();
+        if (value === undefined) {
+          unavailable.push(`${name}: ${label}`);
+          continue;
+        }
+        const shown = `${value}${FIELD_VITAL_THRESHOLDS[metric].unit}`;
+        const grade = gradeFieldVital(metric, value);
+        graded.push(`${name}: ${label} p75 ${shown} is ${grade}`);
+        if (grade === 'needs-improvement') attention.push(`${name}: ${label} needs improvement`);
+        if (grade !== 'poor') continue;
+        if (population.actions.some((action) => action.metric === metric && action.owner.trim() !== '')) {
+          attention.push(`${name}: ${label} is poor, with an action`);
+        } else failures.push(`${name}: ${label} p75 ${shown} is poor with no action record`);
+      }
+    }
+
+    const data = {
+      populations: record.populations.length,
+      graded: graded.slice(0, 20),
+      failures: failures.slice(0, 10),
+      unavailable: unavailable.slice(0, 10),
+      attention: attention.slice(0, 10),
+    };
+    if (failures.length > 0) return fail(`${failures.length} Poor field metric(s) have no action record: ${failures.slice(0, 3).join(' | ')}.`, data);
+
+    const held: string[] = [];
+    if (record.populations.length === 0) held.push('no population was supplied');
+    if (unavailable.length > 0) held.push(`unavailable, not Good: ${unavailable.slice(0, 3).join(', ')}`);
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'the field data has no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) held.push(problem);
+    if (held.length > 0) return warn(`The field vitals review is not settled: ${held.join('; ')}.`, data);
+
+    const note = attention.length > 0 ? ` ${attention.length} need attention: ${attention.slice(0, 3).join('; ')}.` : '';
+    return pass(`${graded.length} field p75 value(s) across ${record.populations.length} population(s) are graded; this review does not claim the site has Good field Core Web Vitals.${note}`, data);
+  },
+};
+
 export const deliveryProbes = [
   httpStatus,
   redirectChain,
@@ -691,4 +772,5 @@ export const deliveryProbes = [
   indexabilityMatrixReconciliation,
   labPerfBudget,
   lcpElementStrategy,
+  fieldCwvMonitor,
 ];

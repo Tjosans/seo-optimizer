@@ -295,6 +295,14 @@ export interface SitemapNewsEntry extends SitemapNews {
   readonly sitemap: string;
 }
 
+/** The options of a crawl that change what it can see. */
+export interface CrawlSettings {
+  readonly maxPages: number;
+  readonly maxDepth: number;
+  readonly renderPages: boolean;
+  readonly renderMobile: boolean;
+}
+
 export interface CrawlResult {
   /**
    * When the crawl began, as an ISO instant. The moment a probe judges
@@ -302,6 +310,13 @@ export interface CrawlResult {
    * crawl recorded before this existed.
    */
   readonly crawledAt?: string;
+  /**
+   * The limits and render settings this crawl ran under. A crawl is only
+   * comparable with another run under the same ones: a smaller page budget
+   * finds fewer URLs, and a render pass finds different ones. Absent on a
+   * crawl recorded before this existed.
+   */
+  readonly settings?: CrawlSettings;
   readonly seeds: readonly string[];
   readonly pages: readonly CrawledPage[];
   readonly robots: Robots;
@@ -843,6 +858,12 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
 
   return {
     crawledAt,
+    settings: {
+      maxPages: options.maxPages,
+      maxDepth: options.maxDepth,
+      renderPages: options.renderPages === true,
+      renderMobile: options.renderMobile === true,
+    },
     seeds: options.seeds,
     pages,
     robots,

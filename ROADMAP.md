@@ -165,10 +165,7 @@ Every v5.0 detector not yet implemented has its own line below, preceded by the 
 - [x] Implement detector `template-lab-perf` (4.5, a launch gate, @seo/probes `delivery.ts`, site scope): every `urlMatrix` priority pattern is a launch template; fail a template with no Lighthouse report, one over the policy's thresholds, and a report older than the policy's `revision`
 - [x] Add the `crux` input section: a CrUX API response per origin or URL (p75 LCP, INP, CLS, form factor, collection period), stored verbatim and reduced to what grading needs, strict, with an example
 - [x] Implement detector `field-cwv-monitor` (6.2, @seo/probes `delivery.ts`, site scope): grade each p75 as Good, Needs Improvement or Poor by Google's thresholds; fail a Poor metric with no action record; a missing metric is unavailable, never Good. Never claim the site has Good field Core Web Vitals
-- [ ] Implement detector `prelaunch-baseline-snapshot` (4.11, @seo/probes `qa.ts`, site scope): fail a release audit with no `previous` baseline, and a baseline crawled with a different page budget or render setting; warn a baseline with no CrUX or Lighthouse section, recorded as unavailable
-  - NOTE: iteration 6 (completed) failed its tests and was stashed as 'roadmap-runner iteration 6 (20260920-105259): Implement detector `prelaunch-baseline-snapshot` (4.11, @seo...' (see git stash list).
-  - NOTE: iteration 5 (completed) failed its tests and was stashed as 'roadmap-runner iteration 5 (20260920-105259): Implement detector `prelaunch-baseline-snapshot` (4.11, @seo...' (see git stash list).
-  - NOTE: iteration 4 (completed) failed its tests and was stashed as 'roadmap-runner iteration 4 (20260920-105259): Implement detector `prelaunch-baseline-snapshot` (4.11, @seo...' (see git stash list).
+- [x] Implement detector `prelaunch-baseline-snapshot` (4.11, @seo/probes `qa.ts`, site scope): fail a release audit with no `previous` baseline, and a baseline crawled with a different page budget or render setting; warn a baseline with no CrUX or Lighthouse section, recorded as unavailable
 
 #### Analytics
 - [ ] Add the `analytics` input section: `measurementIds`, `consentDefault: 'granted'|'denied'`, `events [{ name, trigger, expect: 'sent'|'suppressed' }]`, and `reported [{ metric, period, sourceA, sourceB }]` for reconciliation, strict, with an example

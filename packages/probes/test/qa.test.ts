@@ -12,6 +12,7 @@ import { extract } from '@seo/crawler';
 import type { AuxiliaryFetch, CrawledPage, CrawlResult, FetchResult, RedirectHop } from '@seo/crawler';
 import { probeById } from '@seo/probes';
 import type { Observation, SiteProbe } from '@seo/probes';
+import { urlTemplate } from '../src/probes/qa.js';
 
 const ORIGIN = 'https://www.example.com';
 
@@ -900,6 +901,74 @@ describe('quarterly-regression-crawl (7.3)', () => {
 
   it('reports error when the current results are unavailable', () => {
     expect(run(previous(), undefined).outcome).toBe('error');
+  });
+});
+
+describe('conditional-template-monitor (6.9)', () => {
+  const pages = ['a-1', 'b-2', 'c-3', 'd-4'].map((slug) => `${ORIGIN}/blog/${slug}`);
+  const previous = {
+    schema: 1,
+    origin: ORIGIN,
+    takenAt: '2026-08-01T00:00:00.000Z',
+    pages: [],
+    probes: pages.map((pageUrl) => ({ probeId: 'p', pageUrl, outcome: 'pass' })),
+  };
+  const run = (prev: unknown, outcomes: Observation['outcome'][] | undefined): Observation =>
+    (probeById('conditional-template-monitor') as SiteProbe).run({
+      origin: ORIGIN,
+      flags: [],
+      crawl: {
+        crawledAt: '2026-09-01T00:00:00.000Z',
+        seeds: [`${ORIGIN}/`],
+        pages: [],
+        robots: { groups: [], sitemaps: [], absent: true },
+        robotsTxt: null,
+        sitemapUrls: [],
+        sitemaps: [],
+        sitemapVideos: [],
+        sitemapNews: [],
+        blockedByRobots: [],
+        notReached: [],
+        auxiliary: [],
+      } satisfies CrawlResult,
+      ...(prev === undefined ? {} : { previous: prev as never }),
+      ...(outcomes === undefined
+        ? {}
+        : {
+            runs: outcomes.map((outcome, i) => ({
+              probeId: 'p',
+              pageUrl: pages[i],
+              scope: 'page',
+              observation: { outcome, summary: '' },
+            })) as never,
+          }),
+    });
+
+  it('is not applicable without a previous audit', () => {
+    expect(run(undefined, []).outcome).toBe('not-applicable');
+  });
+
+  it('collapses ids and slugs into one template', () => {
+    expect(urlTemplate(`${ORIGIN}/blog/my-post-2`)).toBe('/blog/:slug');
+    expect(urlTemplate(`${ORIGIN}/p/48213/reviews`)).toBe('/p/:id/reviews');
+  });
+
+  it('fails a template where half or more of its pages regressed', () => {
+    const result = run(previous, ['fail', 'fail', 'pass', 'pass']);
+    expect(result.outcome).toBe('fail');
+    expect(result.summary).toContain('/blog/:slug');
+  });
+
+  it('passes when fewer than half regressed', () => {
+    expect(run(previous, ['fail', 'pass', 'pass', 'pass']).outcome).toBe('pass');
+  });
+
+  it('does not count a template of one page, or results that observed nothing', () => {
+    expect(run(previous, ['fail', 'not-applicable', 'error', 'error']).outcome).toBe('pass');
+  });
+
+  it('reports error when the current results are unavailable', () => {
+    expect(run(previous, undefined).outcome).toBe('error');
   });
 });
 

@@ -1417,7 +1417,109 @@ export const releaseRegressionReview: SiteProbe = {
   },
 };
 
+/**
+ * The URL pattern a page belongs to: its path with ids and slugs collapsed
+ * (`/blog/my-post-2` → `/blog/:slug`, `/p/48213` → `/p/:id`). A number or long hex
+ * run is an id; a segment with a hyphen or underscore is a slug; any other with
+ * a digit is an id.
+ */
+export function urlTemplate(url: string): string {
+  let pathname: string;
+  try {
+    pathname = new URL(url).pathname;
+  } catch {
+    return url;
+  }
+  const segments = pathname
+    .split('/')
+    .filter((segment) => segment !== '')
+    .map((segment) => {
+      if (/^\d+$/.test(segment) || /^[0-9a-f]{8,}(-[0-9a-f]{4,})*$/i.test(segment)) return ':id';
+      if (/[-_]/.test(segment)) return ':slug';
+      if (/\d/.test(segment)) return ':id';
+      return segment;
+    });
+  return `/${segments.join('/')}`;
+}
+
+/**
+ * `conditional-template-monitor` (6.9): pages are grouped by URL pattern, and a
+ * template where one page-scoped probe passed before and fails now on half or
+ * more of its pages is a template that broke, not a page. `not-applicable`
+ * without a previous audit.
+ *
+ * Only pages that passed the probe before and have a pass, warn or fail now are
+ * counted, and a template needs at least two of them: one page is a page. A
+ * probe that errored or was not applicable now observed nothing. Reports `error`
+ * when the current results were not available.
+ */
+export const conditionalTemplateMonitor: SiteProbe = {
+  id: 'conditional-template-monitor',
+  scope: 'site',
+  afterOthers: true,
+  title: 'No template has a probe that regressed on half or more of its pages',
+  run({ previous, runs }) {
+    if (previous === undefined || previous === null) {
+      return notApplicable('No previous audit was supplied to compare templates against.');
+    }
+    if (runs === undefined) {
+      return errored('The current probe results were not available to compare.');
+    }
+
+    const key = (probeId: string, pageUrl: string): string => `${probeId}\n${normalizeUrl(pageUrl) ?? pageUrl}`;
+    const wasPassing = new Set<string>();
+    for (const before of previous.probes) {
+      if (before.pageUrl !== null && before.outcome === 'pass') wasPassing.add(key(before.probeId, before.pageUrl));
+    }
+
+    const groups = new Map<string, { template: string; probeId: string; compared: number; regressed: string[] }>();
+    for (const run of runs) {
+      if (run.pageUrl === undefined || run.pageUrl === null) continue;
+      if (run.probeId === 'conditional-template-monitor') continue;
+      const { outcome } = run.observation;
+      if (outcome !== 'pass' && outcome !== 'warn' && outcome !== 'fail') continue;
+      if (!wasPassing.has(key(run.probeId, run.pageUrl))) continue;
+      const template = urlTemplate(run.pageUrl);
+      const id = `${run.probeId}\n${template}`;
+      let group = groups.get(id);
+      if (group === undefined) {
+        group = { template, probeId: run.probeId, compared: 0, regressed: [] };
+        groups.set(id, group);
+      }
+      group.compared += 1;
+      if (outcome === 'fail') group.regressed.push(run.pageUrl);
+    }
+
+    const broken = [...groups.values()]
+      .filter((g) => g.compared >= 2 && g.regressed.length * 2 >= g.compared)
+      .sort((a, b) => a.template.localeCompare(b.template) || a.probeId.localeCompare(b.probeId));
+    const data = {
+      previousAudit: previous.takenAt,
+      templates: broken.map((g) => ({
+        template: g.template,
+        probeId: g.probeId,
+        compared: g.compared,
+        regressed: g.regressed.length,
+      })),
+    };
+
+    if (broken.length > 0) {
+      const named = broken
+        .slice(0, 10)
+        .map((g) => `${g.template} — ${g.probeId} (${g.regressed.length} of ${g.compared} pages)`)
+        .join('; ');
+      const more = broken.length > 10 ? `; and ${broken.length - 10} more` : '';
+      return fail(
+        `${broken.length} template${broken.length === 1 ? '' : 's'} regressed on half or more of their pages since the audit of ${previous.takenAt}: ${named}${more}.`,
+        data,
+      );
+    }
+    return pass(`No template regressed on half or more of its pages since the audit of ${previous.takenAt}.`, data);
+  },
+};
+
 export const qaProbes = [
+  conditionalTemplateMonitor,
   releaseRegressionReview,
   quarterlyRegressionCrawl,
   prelaunchBaselineSnapshot,

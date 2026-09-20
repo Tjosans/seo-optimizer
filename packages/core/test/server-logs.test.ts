@@ -18,6 +18,7 @@ describe('serverLogs', () => {
       path: '/shop/shoes',
       status: 200,
       userAgent: 'Mozilla/5.0 (compatible; Googlebot/2.1)',
+      parameterised: true,
     });
     expect(JSON.stringify(parseAccessLogLine(LINE))).not.toMatch(/alice|203\.0|email|utm|q=1/);
   });

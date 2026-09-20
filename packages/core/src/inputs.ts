@@ -602,6 +602,8 @@ export interface ServerLogHit {
   readonly path: string;
   readonly status: number;
   readonly userAgent: string;
+  /** The request carried a query string. Only that fact is kept, never its content. */
+  readonly parameterised?: boolean;
 }
 
 /**

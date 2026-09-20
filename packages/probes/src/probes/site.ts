@@ -1889,7 +1889,63 @@ export const analyticsReconciliation: SiteProbe = {
   },
 };
 
+const LOG_CRAWLER = /googlebot|bingbot/i;
+const LOG_5XX_FAIL_RATE = 0.01;
+const LOG_PARAMETER_WARN_SHARE = 0.25;
+
+export const logFileAnalysis: SiteProbe = {
+  id: 'log-file-analysis',
+  scope: 'site',
+  title: 'Search crawlers meet few server errors, stay out of disallowed URLs and are not spent on parameters',
+  run({ crawl, origin, inputs }) {
+    const record = inputs?.serverLogs;
+    if (record === undefined) return notApplicable('No server log was supplied.');
+    if (record.hits === undefined) return notApplicable('The server log was named but not read, so it holds no hits.');
+
+    // The user agent is a claim: nothing here verifies the address it came from.
+    const hits = record.hits.filter((hit) => LOG_CRAWLER.test(hit.userAgent));
+    if (hits.length === 0) return notApplicable('The server log holds no hits whose user agent claims Googlebot or Bingbot.');
+
+    const errors = hits.filter((hit) => hit.status >= 500 && hit.status <= 599);
+    const errorRate = errors.length / hits.length;
+    const blocked = hits.filter((hit) => {
+      const agent = /googlebot/i.test(hit.userAgent) ? 'Googlebot' : 'Bingbot';
+      return !isAllowed(crawl.robots, agent, new URL(hit.path, origin).toString());
+    });
+    const disallowedPaths = [...new Set(blocked.map((hit) => hit.path))].slice(0, 10);
+    const parameterised = hits.filter((hit) => hit.parameterised === true);
+    const share = parameterised.length / hits.length;
+    const data = {
+      claimedCrawlerHits: hits.length,
+      verified: false,
+      skippedLines: record.skippedLines ?? 0,
+      errors: errors.length,
+      errorRate,
+      disallowedHits: blocked.length,
+      disallowedPaths,
+      parameterHits: parameterised.length,
+      parameterShare: share,
+    };
+    const claim = 'user agents claiming Googlebot or Bingbot, unverified';
+
+    if (errorRate > LOG_5XX_FAIL_RATE) {
+      return fail(`${errors.length} of ${hits.length} hits from ${claim}, got a 5xx (${(errorRate * 100).toFixed(1)}%, over 1%).`, data);
+    }
+    if (blocked.length > 0) {
+      return fail(`${blocked.length} hit(s) from ${claim}, reached URLs robots.txt disallows: ${disallowedPaths.slice(0, 3).join(', ')}.`, data);
+    }
+    if (share > LOG_PARAMETER_WARN_SHARE) {
+      return warn(`Parameter URLs take ${(share * 100).toFixed(0)}% of ${hits.length} hits from ${claim}, over a quarter.`, data);
+    }
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) return warn(`The server log record is held for review (${problem}).`, data);
+    return pass(`${hits.length} hit(s) from ${claim}: 5xx under 1%, none on disallowed URLs, parameter URLs under a quarter.`, data);
+  },
+};
+
 export const siteProbes = [
+  logFileAnalysis,
   analyticsReconciliation,
   aiVisibilityBaseline,
   bingOnboarding,

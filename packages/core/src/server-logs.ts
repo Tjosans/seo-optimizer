@@ -39,6 +39,13 @@ function stripQuery(target: string): string {
   return path === '' ? '/' : path;
 }
 
+/** Whether a request target carries a non-empty query string (its content is never kept). */
+function hasQuery(target: string): boolean {
+  const beforeFragment = target.split('#')[0]!;
+  const cut = beforeFragment.indexOf('?');
+  return cut >= 0 && cut < beforeFragment.length - 1;
+}
+
 /** One combined-format line as a hit, or null when it is not one. */
 export function parseAccessLogLine(line: string): ServerLogHit | null {
   const m = COMBINED.exec(line);
@@ -52,6 +59,7 @@ export function parseAccessLogLine(line: string): ServerLogHit | null {
     path: stripQuery(request[2]!),
     status: Number(m[3]),
     userAgent: (m[4] ?? '').replace(/\\(.)/g, '$1'),
+    ...(hasQuery(request[2]!) ? { parameterised: true } : {}),
   };
 }
 

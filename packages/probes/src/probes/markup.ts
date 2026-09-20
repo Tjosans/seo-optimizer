@@ -967,6 +967,114 @@ export const brandEntityConsistency: SiteProbe = {
   },
 };
 
+// --- 2.12 gbp-setup ---------------------------------------------------------
+
+/** Letters and digits only, lowercased: `+46 8-123 45` and `+46812345` agree. */
+const squash = (value: string): string => value.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+
+/** A postal address as JSON-LD ships it: a string or a PostalAddress node, reduced to its street line. */
+const addressOf = (node: Record<string, unknown>): string | null => {
+  const raw = node['address'];
+  if (typeof raw === 'string') return cleanText(raw);
+  if (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) {
+    return cleanText((raw as Record<string, unknown>)['streetAddress']);
+  }
+  return null;
+};
+
+/**
+ * 2.12 asks that a business's Google Business Profile be set up and that the
+ * site say the same thing about each location. Eligibility and verification
+ * are the person's to state (`businessProfile`); the crawl can hold the
+ * LocalBusiness markup on each location's page against the record. Fails a
+ * name, address or phone in that markup that disagrees (phones compared by
+ * digits, addresses by street line, either containing the other). Warns
+ * verification still pending or not begun, no locations, a location page the
+ * crawl did not reach or carrying no LocalBusiness markup, and a record nobody
+ * answers for or past its review. `eligible: false` needs nothing.
+ * `assisted`: whether the profile itself is right stays a person's.
+ */
+export const gbpSetup: SiteProbe = {
+  id: 'gbp-setup',
+  scope: 'site',
+  title: 'Location pages carry LocalBusiness markup that agrees with the business profile',
+  run({ crawl, inputs }) {
+    const record = inputs?.businessProfile;
+    if (record === undefined) return notApplicable('No business profile was supplied.');
+    if (!record.eligible) return notApplicable('The business is recorded as not eligible for a Business Profile.');
+
+    const pages = new Map<string, CrawledPage>();
+    for (const page of crawl.pages) {
+      pages.set(page.normalizedUrl, page);
+      const landed = normalizeUrl(page.fetch.finalUrl);
+      if (landed !== null && !pages.has(landed)) pages.set(landed, page);
+    }
+
+    const disagreements: { url: string; field: string; expected: string; found: string }[] = [];
+    const unreached: string[] = [];
+    const unmarked: string[] = [];
+    for (const location of record.locations) {
+      const page = pages.get(normalizeUrl(location.url) ?? location.url);
+      if (page === undefined || page.extracted === null) {
+        unreached.push(location.url);
+        continue;
+      }
+      const nodes = jsonLdNodes(page.extracted.jsonLd).filter((node) => typesOf(node).map(bareType).some((type) => type === 'LocalBusiness'));
+      if (nodes.length === 0) {
+        unmarked.push(location.url);
+        continue;
+      }
+      // One node may stand for the location; the page passes if any does.
+      const nodeDisagreements = nodes.map((node) => {
+        const found: { url: string; field: string; expected: string; found: string }[] = [];
+        const name = cleanText(node['name']);
+        if (name !== null && foldName(name) !== foldName(location.name)) found.push({ url: location.url, field: 'name', expected: location.name, found: name });
+        const address = addressOf(node);
+        if (address !== null) {
+          const a = squash(address);
+          const b = squash(location.address);
+          if (a !== '' && !b.includes(a) && !a.includes(b)) found.push({ url: location.url, field: 'address', expected: location.address, found: address });
+        }
+        const phone = cleanText(node['telephone']);
+        if (phone !== null && squash(phone) !== squash(location.phone)) found.push({ url: location.url, field: 'phone', expected: location.phone, found: phone });
+        return found;
+      });
+      const best = nodeDisagreements.reduce((a, b) => (b.length < a.length ? b : a));
+      disagreements.push(...best);
+    }
+
+    const data = {
+      verification: record.verification,
+      locations: record.locations.length,
+      disagreements: disagreements.slice(0, 10),
+      unreached: unreached.slice(0, 10),
+      unmarked: unmarked.slice(0, 10),
+    };
+    if (disagreements.length > 0) {
+      const first = disagreements[0]!;
+      return fail(
+        `${disagreements.length} LocalBusiness ${disagreements.length === 1 ? 'property disagrees' : 'properties disagree'} with the business profile (${first.url}: ${first.field} is "${first.found}", the profile says "${first.expected}").`,
+        data,
+      );
+    }
+
+    const held: string[] = [];
+    if (record.verification !== 'verified') held.push(`verification is ${record.verification}`);
+    if (record.locations.length === 0) held.push('no locations are recorded');
+    if (unreached.length > 0) held.push(`${unreached.length} location page(s) the crawl did not reach`);
+    if (unmarked.length > 0) held.push(`${unmarked.length} location page(s) with no LocalBusiness markup`);
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'the business profile has no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) held.push(problem);
+    if (held.length > 0) return warn(`The business profile is not settled: ${held.join('; ')}.`, data);
+
+    return pass(
+      `${record.locations.length} location page(s) carry LocalBusiness markup that agrees with the verified profile. A person still confirms the profile itself.`,
+      data,
+    );
+  },
+};
+
 export const markupProbes = [
   schemaValidationParity,
   semanticHtml,
@@ -982,4 +1090,5 @@ export const markupProbes = [
   reviewIntegrity,
   ugcGovernance,
   brandEntityConsistency,
+  gbpSetup,
 ];

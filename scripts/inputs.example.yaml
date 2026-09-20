@@ -358,6 +358,21 @@ competitorBaseline:
   owner: Jane Doe
   recordedAt: 2026-09-10T09:00:00Z
 
+# businessProfile (2.12): the Google Business Profile. eligible is true or
+# false (false needs nothing else); verification is verified, pending or
+# unverified; each location's name, address and phone are what its page's
+# LocalBusiness markup must agree with. Disagreement fails; pending holds.
+businessProfile:
+  eligible: true
+  verification: verified
+  locations:
+    - name: Example Café
+      address: Storgatan 1, 111 23 Stockholm
+      phone: '+46 8 123 45 67'
+      url: https://example.com/stockholm
+  owner: Jane Doe
+  recordedAt: 2026-09-10T09:00:00Z
+
 # brandEntity (0.5): how the organisation names itself. legalName and
 # publicName are text; sameAs lists the profiles it stands behind (http(s)
 # URLs). An Organization sameAs in the markup that is not listed here, or a

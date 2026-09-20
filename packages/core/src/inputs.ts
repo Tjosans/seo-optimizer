@@ -436,6 +436,28 @@ export interface CompetitorBaselineRecord extends InputRecord {
   readonly baselineAt: string;
 }
 
+/** Where a Google Business Profile stands in verification (2.12). */
+export const BUSINESS_PROFILE_VERIFICATIONS = ['verified', 'pending', 'unverified'] as const;
+
+/** One location as the business profile states it: what its page's markup must agree with. */
+export interface BusinessProfileLocation {
+  readonly name: string;
+  readonly address: string;
+  readonly phone: string;
+  readonly url: string;
+}
+
+/**
+ * The Google Business Profile record (2.12). Nothing observable says whether a
+ * business is eligible or verified, so a person states it. `eligible: false`
+ * needs no locations.
+ */
+export interface BusinessProfileRecord extends InputRecord {
+  readonly eligible: boolean;
+  readonly verification: (typeof BUSINESS_PROFILE_VERIFICATIONS)[number];
+  readonly locations: readonly BusinessProfileLocation[];
+}
+
 /** The search engines a Search Console export can speak for. */
 export const REPORTING_MEASURED_ENGINES = ['google'] as const;
 
@@ -781,12 +803,14 @@ export interface AuditInputs {
   readonly brandEntity?: BrandEntityRecord;
   /** The competitors the site is benchmarked against in search results (0.1). */
   readonly competitorBaseline?: CompetitorBaselineRecord;
+  /** Eligibility, verification and locations of the Google Business Profile (2.12). */
+  readonly businessProfile?: BusinessProfileRecord;
   /** The manual accessibility evaluation: scope, methods, limitations, blockers, conformance claim (4.4). */
   readonly a11yEvaluation?: A11yEvaluationRecord;
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics', 'serverLogs', 'merchantFeed', 'checkoutMatrix', 'a11yEvaluation', 'contentReview', 'brandEntity', 'keywordMap', 'competitorBaseline'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics', 'serverLogs', 'merchantFeed', 'checkoutMatrix', 'a11yEvaluation', 'contentReview', 'brandEntity', 'keywordMap', 'competitorBaseline', 'businessProfile'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -1724,6 +1748,66 @@ function parseCompetitorBaseline(value: unknown, problem: (path: string, text: s
   return { ...record, audience, market, language, competitors, baselineAt };
 }
 
+const BUSINESS_PROFILE_KEYS = ['eligible', 'verification', 'locations'];
+const BUSINESS_LOCATION_KEYS = ['name', 'address', 'phone', 'url'];
+
+function parseBusinessProfile(value: unknown, problem: (path: string, text: string) => void): BusinessProfileRecord | null {
+  const record = parseInputRecord('businessProfile', value, problem, BUSINESS_PROFILE_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`businessProfile${path}`, text);
+    ok = false;
+  };
+  const missing = (raw: unknown): boolean => raw === undefined || raw === null || raw === '';
+  const eligible = value['eligible'];
+  if (typeof eligible !== 'boolean') fail('.eligible', missing(eligible) ? 'required' : 'expected true or false');
+  const verificationRaw = value['verification'];
+  const verification = BUSINESS_PROFILE_VERIFICATIONS.find((v) => v === verificationRaw);
+  if (verification === undefined) {
+    fail('.verification', missing(verificationRaw) ? 'required' : `expected one of ${BUSINESS_PROFILE_VERIFICATIONS.join(', ')}`);
+  }
+  const locations: BusinessProfileLocation[] = [];
+  const raw = value['locations'];
+  if (!missing(raw)) {
+    if (!Array.isArray(raw)) fail('.locations', 'expected a list');
+    else {
+      raw.forEach((node, index) => {
+        const path = `.locations[${index}]`;
+        if (!isNode(node)) {
+          fail(path, 'expected a mapping');
+          return;
+        }
+        let good = true;
+        for (const key of Object.keys(node)) {
+          if (!BUSINESS_LOCATION_KEYS.includes(key)) {
+            fail(`${path}.${key}`, 'unknown field');
+            good = false;
+          }
+        }
+        const text = (key: string): string => {
+          const field = node[key];
+          if (typeof field === 'string' && field.trim() !== '') return field.trim();
+          fail(`${path}.${key}`, missing(field) ? 'required' : `expected text, got ${typeof field} (quote it)`);
+          good = false;
+          return '';
+        };
+        const name = text('name');
+        const address = text('address');
+        const phone = text('phone');
+        const url = text('url');
+        if (url !== '' && !isHttpUrl(url)) {
+          fail(`${path}.url`, `expected an http(s) URL: ${url}`);
+          good = false;
+        }
+        if (good) locations.push({ name, address, phone, url });
+      });
+    }
+  }
+  if (!ok || typeof eligible !== 'boolean' || verification === undefined) return null;
+  return { ...record, eligible, verification, locations };
+}
+
 const DISAVOW_KEYS =['submitted', 'reasons', 'removalAttempts'];
 
 function parseDisavow(value: unknown, problem: (path: string, text: string) => void): DisavowRecord | null {
@@ -2607,7 +2691,12 @@ export function parseInputs(value: unknown): AuditInputs {
     brandEntity?: BrandEntityRecord;
     competitorBaseline?: CompetitorBaselineRecord;
     keywordMap?: readonly KeywordMapEntry[];
+    businessProfile?: BusinessProfileRecord;
   } = {};
+  if (value['businessProfile'] !== undefined && value['businessProfile'] !== null) {
+    const businessProfile = parseBusinessProfile(value['businessProfile'], problem);
+    if (businessProfile !== null) inputs.businessProfile = businessProfile;
+  }
   if (value['competitorBaseline'] !== undefined && value['competitorBaseline'] !== null) {
     const competitorBaseline = parseCompetitorBaseline(value['competitorBaseline'], problem);
     if (competitorBaseline !== null) inputs.competitorBaseline = competitorBaseline;

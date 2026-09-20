@@ -7,6 +7,7 @@
  * policy.
  */
 
+import { inputRecordProblem } from '@seo/core';
 import { isSameSite } from '@seo/crawler';
 import type { CrawledPage } from '@seo/crawler';
 import type { PageProbe, SiteProbe } from '../types.js';
@@ -358,6 +359,139 @@ export const consentModeConfig: PageProbe = {
   },
 };
 
+// --- 4.7 analytics-consent-matrix ------------------------------------------
+
+/** Hosts a GA4 measurement hit is sent to; a first-party endpoint is not one a crawl can recognise. */
+const COLLECT_HOSTS = /(^|\.)(google-analytics\.com|analytics\.google\.com|googletagmanager\.com|doubleclick\.net)$/i;
+
+interface CollectHit {
+  readonly event: string | null;
+  readonly measurementId: string | null;
+  readonly location: string;
+  readonly url: string;
+}
+
+/** A Google Analytics collect hit, or null when the request is anything else. */
+const readCollectHit = (requestUrl: string): CollectHit | null => {
+  let parsed: URL;
+  try {
+    parsed = new URL(requestUrl);
+  } catch {
+    return null;
+  }
+  if (!COLLECT_HOSTS.test(parsed.hostname) || !/\/(?:[gjr]\/)?collect\/?$/.test(parsed.pathname)) return null;
+  const params = parsed.searchParams;
+  return {
+    event: params.get('en'),
+    measurementId: params.get('tid'),
+    location: params.get('dl') ?? '',
+    url: requestUrl,
+  };
+};
+
+/** Words that put an event behind something the visitor does; a render before any interaction cannot see it. */
+const INTERACTION_WORDS = /\b(click|tap|press|submit|scroll|hover|select|add|remove|play|pause|open|close|type|enter|focus|change|toggle|swipe|drag|download)\w*/i;
+
+/** The path a trigger names (`purchase on /thank-you`), or null when it names none. */
+const triggerPath = (trigger: string): string | null => /(?:^|\s)(\/[^\s]*)/.exec(trigger)?.[1] ?? null;
+
+/**
+ * Whether a trigger fires while a page loads, on this pathname. A trigger
+ * naming a path fires there only; one that says load, view, visit or landing
+ * fires everywhere; anything a visitor has to do is not this render's to see.
+ */
+const firesOnLoadAt = (trigger: string, pathname: string): boolean => {
+  if (INTERACTION_WORDS.test(trigger)) return false;
+  const path = triggerPath(trigger);
+  if (path !== null) return path !== '/' && path.endsWith('/') ? pathname.startsWith(path) : pathname === path;
+  return /\b(load|loads|loaded|view|views|visit|landing|every page|all pages)\b/i.test(trigger);
+};
+
+/**
+ * 4.7 asks that analytics behave correctly in every consent state. A render
+ * before any interaction is one state: whatever the tag does when the visitor
+ * has not answered yet. It shows three things on their face. A Google collect
+ * hit while the declared default is `denied` says the tag ignored its own
+ * consent. An event the plan expects on a trigger page, with no hit carrying
+ * it, says the tag is not wired to that page. The same event sent twice for
+ * one page and property inflates every count built on it. Behaviour after
+ * accept, reject, partial choices and withdrawal is a visitor's interaction,
+ * which a render cannot make, so those states stay the person's. When the
+ * default is `denied` the missing-event check is skipped: an event the plan
+ * says is sent cannot be demanded of a tag that ought to be silent.
+ */
+export const analyticsConsentMatrix: PageProbe = {
+  id: 'analytics-consent-matrix',
+  scope: 'page',
+  htmlOnly: true,
+  title: 'Analytics hits follow the consent default, fire where planned and fire once',
+  run({ page, site }) {
+    const record = site.inputs?.analytics;
+    if (record === undefined) return notApplicable('No analytics setup was supplied.');
+    const render = page.rendered?.render;
+    if (render === undefined) return notApplicable('This page was not rendered, so its network requests were not recorded.');
+    if (render.error !== null) return errored(`The render failed: ${render.error}.`);
+    if (render.requests === undefined) return notApplicable('The render recorded no network requests.');
+
+    const hits = render.requests.flatMap((request) => {
+      const hit = readCollectHit(request.url);
+      return hit === null ? [] : [hit];
+    });
+    const data: Record<string, unknown> = { consentDefault: record.consentDefault, collectHits: hits.length };
+
+    if (record.consentDefault === 'denied' && hits.length > 0) {
+      return fail(
+        `${hits.length} Google collect hit(s) were sent before any interaction while consent defaults to denied.`,
+        { ...data, hits: hits.slice(0, 5).map((hit) => hit.url) },
+      );
+    }
+
+    const counts = new Map<string, number>();
+    for (const hit of hits) {
+      if (hit.event === null) continue;
+      const key = `${hit.event} ${hit.measurementId ?? ''} ${hit.location}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    const doubled = [...counts.entries()].filter(([, n]) => n > 1).map(([key, n]) => ({ event: key.split(' ')[0] ?? '', times: n }));
+
+    let pathname: string;
+    try {
+      pathname = new URL(page.url).pathname;
+    } catch {
+      pathname = '/';
+    }
+    const sent = new Set(hits.flatMap((hit) => (hit.event === null ? [] : [hit.event])));
+    const expected = record.events.filter((event) => event.expect === 'sent' && firesOnLoadAt(event.trigger, pathname));
+    const missing = record.consentDefault === 'denied' ? [] : expected.filter((event) => !sent.has(event.name)).map((event) => event.name);
+
+    const failures: string[] = [];
+    if (doubled.length > 0) {
+      failures.push(`sent twice: ${doubled.map((d) => `${d.event} (${d.times}×)`).join(', ')}`);
+      data['doubled'] = doubled;
+    }
+    if (missing.length > 0 && !(render.requestsTruncated ?? false)) {
+      failures.push(`expected on this page but not sent: ${missing.join(', ')}`);
+      data['missing'] = missing;
+    }
+    if (failures.length > 0) return fail(`Analytics events are wrong before any interaction: ${failures.join('; ')}.`, data);
+
+    const held: string[] = [];
+    if (missing.length > 0) {
+      held.push(`the render's request list was cut, so ${missing.join(', ')} may have been sent past it`);
+      data['missing'] = missing;
+    }
+    const at = site.crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'the analytics setup has no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) held.push(problem);
+    if (held.length > 0) return warn(`The analytics consent review is not settled: ${held.join('; ')}.`, data);
+
+    return pass(
+      `Before any interaction: ${hits.length} collect hit(s), none doubled, ${expected.length} planned on-load event(s) present. Other consent states are for a person.`,
+      data,
+    );
+  },
+};
+
 // --- 3.13 review-integrity -------------------------------------------------
 
 const ORGANIZATION_TYPES = new Set([
@@ -663,6 +797,7 @@ export const markupProbes = [
   soft404,
   analyticsImplementation,
   consentModeConfig,
+  analyticsConsentMatrix,
   reviewIntegrity,
   ugcGovernance,
 ];

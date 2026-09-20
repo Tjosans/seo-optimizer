@@ -458,6 +458,39 @@ export interface BusinessProfileRecord extends InputRecord {
   readonly locations: readonly BusinessProfileLocation[];
 }
 
+/** One IndexNow submission the site's publishing pipeline made (2.10). */
+export interface IndexNowSubmission {
+  readonly url: string;
+  /** ISO 8601 instant. */
+  readonly sentAt: string;
+  /** The HTTP status IndexNow answered with. */
+  readonly status: number;
+}
+
+/**
+ * The IndexNow integration (2.10). The key and where its file lives are what
+ * the site says it registered; the log is what its pipeline says it sent.
+ * Neither is observable, so a person supplies them and the crawl fetches the
+ * key file once to see whether it holds the key.
+ */
+export interface IndexNowRecord extends InputRecord {
+  readonly key: string;
+  /** Absolute URL of the key file when it is not `/<key>.txt` at the root. */
+  readonly keyLocation?: string;
+  readonly log: readonly IndexNowSubmission[];
+}
+
+/** Where the IndexNow key file is expected: `keyLocation`, else `/<key>.txt` on the origin. */
+export function indexNowKeyUrl(record: IndexNowRecord | undefined, origin: string): string | undefined {
+  if (record === undefined || record.key === '') return undefined;
+  if (record.keyLocation !== undefined) return record.keyLocation;
+  try {
+    return new URL(`/${encodeURIComponent(record.key)}.txt`, origin).href;
+  } catch {
+    return undefined;
+  }
+}
+
 /** The search engines a Search Console export can speak for. */
 export const REPORTING_MEASURED_ENGINES = ['google'] as const;
 
@@ -805,12 +838,14 @@ export interface AuditInputs {
   readonly competitorBaseline?: CompetitorBaselineRecord;
   /** Eligibility, verification and locations of the Google Business Profile (2.12). */
   readonly businessProfile?: BusinessProfileRecord;
+  /** The IndexNow key, its file location and the submission log (2.10). */
+  readonly indexNow?: IndexNowRecord;
   /** The manual accessibility evaluation: scope, methods, limitations, blockers, conformance claim (4.4). */
   readonly a11yEvaluation?: A11yEvaluationRecord;
 }
 
 /** Section names `parseInputs` accepts. */
-export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics', 'serverLogs', 'merchantFeed', 'checkoutMatrix', 'a11yEvaluation', 'contentReview', 'brandEntity', 'keywordMap', 'competitorBaseline', 'businessProfile'];
+export const INPUT_SECTIONS: readonly (keyof AuditInputs & string)[] = ['experiments', 'environments', 'ciGuard', 'ciRules', 'urlMatrix', 'canary', 'redirectMap', 'domainHistory', 'searchConsole', 'contentDecisions', 'reporting', 'disavow', 'bingWebmaster', 'aiBaseline', 'lighthouse', 'crux', 'analytics', 'serverLogs', 'merchantFeed', 'checkoutMatrix', 'a11yEvaluation', 'contentReview', 'brandEntity', 'keywordMap', 'competitorBaseline', 'businessProfile', 'indexNow'];
 
 /** The environment names an `EnvironmentsRecord` can hold an origin for. */
 export const ENVIRONMENT_NAMES = ['staging', 'preview'] as const;
@@ -1808,6 +1843,77 @@ function parseBusinessProfile(value: unknown, problem: (path: string, text: stri
   return { ...record, eligible, verification, locations };
 }
 
+const INDEXNOW_KEYS = ['key', 'keyLocation', 'log'];
+const INDEXNOW_LOG_KEYS = ['url', 'sentAt', 'status'];
+
+function parseIndexNow(value: unknown, problem: (path: string, text: string) => void): IndexNowRecord | null {
+  const record = parseInputRecord('indexNow', value, problem, INDEXNOW_KEYS);
+  if (record === null || !isNode(value)) return null;
+  let ok = true;
+  const fail = (path: string, text: string): void => {
+    problem(`indexNow${path}`, text);
+    ok = false;
+  };
+  const missing = (raw: unknown): boolean => raw === undefined || raw === null || raw === '';
+  const keyRaw = value['key'];
+  let key = '';
+  if (typeof keyRaw === 'string' && keyRaw.trim() !== '') key = keyRaw.trim();
+  else fail('.key', missing(keyRaw) ? 'required' : `expected text, got ${typeof keyRaw} (quote it)`);
+  const locationRaw = value['keyLocation'];
+  let keyLocation: string | undefined;
+  if (!missing(locationRaw)) {
+    if (typeof locationRaw !== 'string') fail('.keyLocation', `expected text, got ${typeof locationRaw} (quote it)`);
+    else if (!isHttpUrl(locationRaw.trim())) fail('.keyLocation', `expected an http(s) URL: ${locationRaw}`);
+    else keyLocation = locationRaw.trim();
+  }
+  const log: IndexNowSubmission[] = [];
+  const raw = value['log'];
+  if (!missing(raw)) {
+    if (!Array.isArray(raw)) fail('.log', 'expected a list');
+    else {
+      raw.forEach((node, index) => {
+        const path = `.log[${index}]`;
+        if (!isNode(node)) {
+          fail(path, 'expected a mapping');
+          return;
+        }
+        let good = true;
+        for (const field of Object.keys(node)) {
+          if (!INDEXNOW_LOG_KEYS.includes(field)) {
+            fail(`${path}.${field}`, 'unknown field');
+            good = false;
+          }
+        }
+        const url = node['url'];
+        if (typeof url !== 'string' || !isHttpUrl(url.trim())) {
+          fail(`${path}.url`, missing(url) ? 'required' : typeof url === 'string' ? `expected an http(s) URL: ${url}` : `expected text, got ${typeof url} (quote it)`);
+          good = false;
+        }
+        const sentRaw = node['sentAt'];
+        let sentAt = '';
+        if (typeof sentRaw !== 'string') {
+          fail(`${path}.sentAt`, missing(sentRaw) ? 'required' : `expected text, got ${typeof sentRaw} (quote it)`);
+          good = false;
+        } else {
+          const ms = instant(sentRaw);
+          if (ms === null) {
+            fail(`${path}.sentAt`, `not a date and time: ${sentRaw}`);
+            good = false;
+          } else sentAt = new Date(ms).toISOString();
+        }
+        const status = node['status'];
+        if (typeof status !== 'number' || !Number.isInteger(status) || status < 100 || status > 599) {
+          fail(`${path}.status`, missing(status) ? 'required' : 'expected an HTTP status number');
+          good = false;
+        }
+        if (good) log.push({ url: (url as string).trim(), sentAt, status: status as number });
+      });
+    }
+  }
+  if (!ok) return null;
+  return { ...record, key, ...(keyLocation === undefined ? {} : { keyLocation }), log };
+}
+
 const DISAVOW_KEYS =['submitted', 'reasons', 'removalAttempts'];
 
 function parseDisavow(value: unknown, problem: (path: string, text: string) => void): DisavowRecord | null {
@@ -2692,7 +2798,12 @@ export function parseInputs(value: unknown): AuditInputs {
     competitorBaseline?: CompetitorBaselineRecord;
     keywordMap?: readonly KeywordMapEntry[];
     businessProfile?: BusinessProfileRecord;
+    indexNow?: IndexNowRecord;
   } = {};
+  if (value['indexNow'] !== undefined && value['indexNow'] !== null) {
+    const indexNow = parseIndexNow(value['indexNow'], problem);
+    if (indexNow !== null) inputs.indexNow = indexNow;
+  }
   if (value['businessProfile'] !== undefined && value['businessProfile'] !== null) {
     const businessProfile = parseBusinessProfile(value['businessProfile'], problem);
     if (businessProfile !== null) inputs.businessProfile = businessProfile;

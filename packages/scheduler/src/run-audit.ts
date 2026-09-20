@@ -19,7 +19,7 @@ import { eq } from 'drizzle-orm';
 import { audits } from '@seo/db';
 import type { Database } from '@seo/db';
 import { CorpusVersionMismatchError, gradeAudit, recordGrade, toEvidence } from '@seo/grader';
-import { environmentOrigins, redirectMapRootUrl, redirectMapUrls, simulatableAgents } from '@seo/core';
+import { environmentOrigins, indexNowKeyUrl, redirectMapRootUrl, redirectMapUrls, simulatableAgents } from '@seo/core';
 import { unknownFlags } from '@seo/corpus';
 import { CrawlCancelledError } from '@seo/crawler';
 import { crawlToDatabase, persistProbeRuns } from '@seo/persistence';
@@ -120,6 +120,8 @@ export async function runAudit(
     const mapUrls = redirectMapUrls(job.inputs?.redirectMap);
     if (rootUrl !== undefined) mapUrls.unshift(...(mapUrls.includes(rootUrl) ? [] : [rootUrl]));
 
+    const indexNowUrl = indexNowKeyUrl(job.inputs?.indexNow, job.origin);
+
     const crawled = await crawlToDatabase(db, {
       auditId: job.auditId,
       // The crawl's own stopping point. Without this the signal would only be
@@ -144,6 +146,7 @@ export async function runAudit(
               })),
             }),
         ...(mapUrls.length === 0 ? {} : { redirectMapUrls: mapUrls }),
+        ...(indexNowUrl === undefined ? {} : { indexNowKeyUrl: indexNowUrl }),
         ...(signal === undefined ? {} : { signal }),
       },
       ...(blobStore === undefined ? {} : { blobStore }),

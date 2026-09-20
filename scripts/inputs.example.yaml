@@ -373,6 +373,20 @@ businessProfile:
   owner: Jane Doe
   recordedAt: 2026-09-10T09:00:00Z
 
+# indexNow (2.10): the IndexNow key and the submissions the publishing
+# pipeline made. The crawl fetches the key file once (keyLocation, else
+# /<key>.txt at the origin) and it must hold the key. A logged url on another
+# host fails, and so does one url sent more than five times in a UTC day.
+indexNow:
+  key: a1b2c3d4e5f6a7b8
+  keyLocation: https://example.com/a1b2c3d4e5f6a7b8.txt
+  log:
+    - url: https://example.com/new-article
+      sentAt: 2026-09-18T09:00:00Z
+      status: 200
+  owner: Jane Doe
+  recordedAt: 2026-09-10T09:00:00Z
+
 # brandEntity (0.5): how the organisation names itself. legalName and
 # publicName are text; sameAs lists the profiles it stands behind (http(s)
 # URLs). An Organization sameAs in the markup that is not listed here, or a

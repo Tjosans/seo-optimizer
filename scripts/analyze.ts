@@ -17,7 +17,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import { environmentOrigins, loadLighthouseMetricsFor, loadMerchantFeedFor, loadServerLogsFor, parseInputs, redirectMapUrls } from '@seo/core';
+import { environmentOrigins, indexNowKeyUrl, loadLighthouseMetricsFor, loadMerchantFeedFor, loadServerLogsFor, parseInputs, redirectMapUrls } from '@seo/core';
 import type { AuditInputs, Corpus } from '@seo/core';
 import { CURRENT_CORPUS_VERSION, loadCorpus } from '@seo/corpus';
 import { crawl } from '@seo/crawler';
@@ -318,6 +318,7 @@ async function analyze(
         url: `${root}/`,
       })),
       redirectMapUrls: redirectMapUrls(inputs.redirectMap),
+      ...(indexNowKeyUrl(inputs.indexNow, origin) === undefined ? {} : { indexNowKeyUrl: indexNowKeyUrl(inputs.indexNow, origin) as string }),
     });
   } catch (cause) {
     return {

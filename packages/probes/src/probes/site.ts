@@ -6,7 +6,7 @@
 
 import { extract, isAllowed, isSameSite, normalizeUrl, pathDepth } from '@seo/crawler';
 import type { CrawledPage } from '@seo/crawler';
-import { DOMAIN_HISTORY_REQUIRED_CHECKS, REPORTING_MEASURED_ENGINES, inputRecordProblem,isProductToken, isUserDirectedAgent } from '@seo/core';
+import { DOMAIN_HISTORY_REQUIRED_CHECKS, REPORTING_MEASURED_ENGINES, indexNowKeyUrl, inputRecordProblem,isProductToken, isUserDirectedAgent } from '@seo/core';
 import type { SiteProbe } from '../types.js';
 import { errored, fail, notApplicable, pass, warn } from '../types.js';
 import { checkLanguageTag } from './language-tags.js';
@@ -2005,7 +2005,80 @@ export const competitorSerpBaseline: SiteProbe = {
   },
 };
 
+/** IndexNow's own ceiling: one URL is not worth submitting more often than this in a day. */
+const INDEXNOW_MAX_PER_DAY = 5;
+
+const bareHost = (url: string): string | null => {
+  try {
+    return new URL(url).hostname.replace(/^www\./i, '').toLowerCase();
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * 2.10 asks whether IndexNow is set up and used properly. The key and the
+ * submission log are supplied (`indexNow`); the crawl fetched the key file once
+ * (`indexnow-key` auxiliary). Fails a key file that is missing or does not hold
+ * the key, a logged URL on another host (`www.` ignored), and one URL sent more
+ * than five times in a UTC day. A crawl that did not request the file holds the
+ * check. Without the section, `not-applicable`.
+ */
+export const indexnowIntegration: SiteProbe = {
+  id: 'indexnow-integration',
+  scope: 'site',
+  title: 'The IndexNow key file holds the key and submissions stay on the host, at most five a day per URL',
+  run({ crawl, inputs, origin }) {
+    const record = inputs?.indexNow;
+    if (record === undefined) return notApplicable('No IndexNow record was supplied.');
+
+    const own = bareHost(origin);
+    if (own === null) return errored(`The site origin is not a URL: ${origin}.`);
+    const keyUrl = indexNowKeyUrl(record, origin);
+    const aside = crawl.auxiliary.find((entry) => entry.reason === 'indexnow-key');
+
+    const foreign = [...new Set(record.log.filter((entry) => bareHost(entry.url) !== own).map((entry) => entry.url))];
+    const perDay = new Map<string, number>();
+    for (const entry of record.log) {
+      const key = `${entry.sentAt.slice(0, 10)} ${entry.url}`;
+      perDay.set(key, (perDay.get(key) ?? 0) + 1);
+    }
+    const repeated = [...perDay].filter(([, count]) => count > INDEXNOW_MAX_PER_DAY).map(([key, count]) => `${key.slice(11)} on ${key.slice(0, 10)} (${count}x)`);
+
+    let keyFile: 'holds-key' | 'wrong-content' | 'missing' | 'not-requested';
+    let seen: string | null = null;
+    if (aside === undefined) keyFile = 'not-requested';
+    else if (aside.fetch.error !== null || aside.fetch.status === null || aside.fetch.status >= 400) keyFile = 'missing';
+    else {
+      seen = (aside.fetch.body !== '' ? aside.fetch.body : aside.fetch.bytes === undefined ? '' : new TextDecoder().decode(aside.fetch.bytes)).trim();
+      keyFile = seen === record.key ? 'holds-key' : 'wrong-content';
+    }
+
+    const data = {
+      keyUrl: keyUrl ?? null,
+      keyFile,
+      status: aside?.fetch.status ?? null,
+      logged: record.log.length,
+      foreign: foreign.slice(0, 10),
+      repeated: repeated.slice(0, 10),
+    };
+    const failures: string[] = [];
+    if (keyFile === 'missing') failures.push(`The IndexNow key file ${keyUrl} did not answer (${aside?.fetch.status ?? aside?.fetch.error})`);
+    if (keyFile === 'wrong-content') failures.push(`The IndexNow key file ${keyUrl} does not hold the key`);
+    if (foreign.length > 0) failures.push(`${foreign.length} logged URL(s) are on another host (${foreign.slice(0, 3).join(', ')})`);
+    if (repeated.length > 0) failures.push(`${repeated.length} URL(s) were sent more than ${INDEXNOW_MAX_PER_DAY} times in a day (${repeated.slice(0, 3).join(', ')})`);
+    if (failures.length > 0) return fail(`${failures.join('; ')}.`, data);
+    if (keyFile === 'not-requested') return warn('The crawl did not request the IndexNow key file, so it is unverified.', data);
+
+    const at = crawl.crawledAt ?? null;
+    const problem = record.owner.trim() === '' ? 'no owner' : at === null ? null : inputRecordProblem(record, new Date(at));
+    if (problem !== null) return warn(`The IndexNow record is held for review (${problem}).`, data);
+    return pass(`The IndexNow key file holds the key and ${record.log.length} logged submission(s) stay on ${own}, none repeated more than ${INDEXNOW_MAX_PER_DAY} times a day.`, data);
+  },
+};
+
 export const siteProbes = [
+  indexnowIntegration,
   logFileAnalysis,
   analyticsReconciliation,
   aiVisibilityBaseline,

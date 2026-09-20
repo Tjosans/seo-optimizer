@@ -162,6 +162,12 @@ export interface CrawlOptions {
    * request, at most `MAX_REDIRECT_MAP_FETCHES` of them.
    */
   readonly redirectMapUrls?: readonly string[];
+  /**
+   * The absolute URL of the site's IndexNow key file, requested once so the
+   * probe can see whether it holds the key. The address comes from the
+   * `indexNow` input. Off the walk, paced like every other auxiliary request.
+   */
+  readonly indexNowKeyUrl?: string;
   /** Injection seam for tests and for replaying a stored crawl. */
   readonly fetchImpl?: typeof fetchPage;
   /** Injection seam for the TLS handshake, like `fetchImpl` for requests. */
@@ -230,8 +236,10 @@ export interface AuxiliaryFetch {
    *   as a visitor holding the old link would be. `fetch.redirectChain` holds
    *   every hop, in order, and `fetch.finalUrl` where it ended. No probe reads
    *   it yet.
+   * `indexnow-key` — the IndexNow key file the site registered, requested
+   *   once; `indexnow-integration` (corpus 2.10) is the reader.
    */
-  readonly reason: 'host-variant' | 'icon' | 'user-agent-test' | 'external-link' | 'asset' | 'environment' | 'redirect-map';
+  readonly reason: 'host-variant' | 'icon' | 'user-agent-test' | 'external-link' | 'asset' | 'environment' | 'redirect-map' | 'indexnow-key';
   readonly url: string;
   /** Which environment (`staging`, `preview`) an `environment` fetch was of. */
   readonly environment?: string;
@@ -810,6 +818,12 @@ export async function crawl(options: CrawlOptions): Promise<CrawlResult> {
     for (const url of [...new Set(options.redirectMapUrls ?? [])].slice(0, MAX_REDIRECT_MAP_FETCHES)) {
       stopIfCancelled(options.signal);
       await aside('redirect-map', url);
+    }
+
+    if (options.indexNowKeyUrl !== undefined) {
+      stopIfCancelled(options.signal);
+      // Kept as bytes too: a key file served as octet-stream still holds the key.
+      await aside('indexnow-key', options.indexNowKeyUrl, { keepBytes: true });
     }
 
     // Googlebot fetches a page's CSS and JavaScript separately, each under its

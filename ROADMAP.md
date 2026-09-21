@@ -1,8 +1,8 @@
 # Roadmap — seo-optimizer
 
 ## Status
-Phases 0-8 are built. Remaining work is detector coverage: every unimplemented detector is a Phase 4 checkbox, with the evidence it needs scheduled ahead of it.
-Last updated: 2026-09-19 (detectors implemented: 77/134; 75 unchecked tasks, one per remaining detector plus the evidence they need)
+Phases 0-8 are built, with all 134 of v5.0's detectors. Phase 9 proves them against real sites instead of fixtures.
+Last updated: 2026-09-21 (Phase 9 opened: real-site validation)
 
 ## Phase 0 — Foundation
 - [x] Create monorepo structure with TypeScript workspace packages
@@ -224,11 +224,21 @@ Every v5.0 detector not yet implemented has its own line below, preceded by the 
 - [x] Add audit comparison across sites and time
 - [x] Create attestation interface for confirming checks
 
+## Phase 9 — Real-Site Validation
+- [ ] Run every detector against real sites — fixture-proven coverage is not web-proven coverage. The last live run (`benchmarks/runs/2026-09-11T23-07-32-budget-lanes.json`) had 54 of 134 detectors; the 80 added since have only ever met the fixture site and hand-built pages. Done when a snapshot covering all 134 exists over a stable URL set and every probe `error` in it is explained
+- [ ] Add `--render` to `npm run analyze`, passing `renderPages` to `crawl()`, so the render-dependent detectors (`rendering-strategy-classifier`, `raw-rendered-crawl-diff`, `mobile-journey-qa`, the axe-based accessibility probes) run live at all — today the analyzer only ever makes raw fetches
+- [ ] Widen `benchmarks/urls.txt` to cover the site shapes the detectors split on — a catalogue with variants and facets, a multilingual hreflang cluster, a news publisher with a news sitemap, a video site, a JS-rendered SPA — adding URLs, never swapping them, so older snapshots stay comparable
+- [ ] Triage every live `error` and suspect `fail` into site-unobservable, detector bug or crawler gap; fix each bug with a fixture test reproducing the real markup, so the web finding becomes a regression test
+- [ ] Exercise the `previous`-reading detectors live (`quarterly-regression-crawl`, `conditional-template-monitor`, `a11y-regression-sampling`, `schema-hreflang-maintenance`): analyze a site twice, the second run with `--baseline` on the first
+- [ ] Run one real site through the full pipeline — `POST /audits` with a configured `BlobStore`, scheduler, persistence, grader, dashboard — rather than the database-free analyzer, and confirm `renders.bodyKey`, the frozen readiness and the evidence drill-down on real data
+- [ ] Refresh `benchmarks/README.md`: it still says 97 checks and "around 9%" graded
+
 ## Blocked
 - 2026-09-20 (resolved): both tasks named below are done and ticked; the entry stays because the history is the value.
 - 2026-09-19: "Carry `AuditInputs` through a real audit" waits on "Add supplied evidence to the probe context" (itself blocked after 3 attempts): `AuditInputs`, `parseInputs` and `SiteContext.inputs` do not exist yet, and this task only wires them through `audits.inputs`, `submit`, `runAudit` and `POST /audits`. Unblock the first task, then retry this one (superseded the same day: the first task was never genuinely blocked, see the entry above on truncated prompts; both are open again)
 
 ## Decisions
+- 2026-09-21: made real-site validation Phase 9, ahead of cutting a release, because a detector reporting `error` on real markup looks the same as an unimplemented one until someone runs it live, and a published version would promise coverage only fixtures have shown
 
 - 2026-09-20: `AuditScheduler`'s reconcile cutoff is kept as Postgres text, not a `Date`. `timestamptz` holds microseconds and a JS `Date` holds milliseconds, so parsing the clock into one truncated the cutoff downwards and `created_at < cutoff` then skipped every audit row written in that same millisecond — the rows the sweep exists to close. It stayed `pending` forever. CI is fast enough to submit and recover inside one millisecond; a laptop usually is not, which is why `recovery.test.ts` passed locally and failed on #54. `AuditScheduler.cutoff` exposes the line the sweep draws.
 - 2026-09-20: `schema-hreflang-maintenance` reads a broken block as `extracted.jsonLdErrors > 0` with a type from `previous` now missing (fail), and a missing type with no error as a removal (warn); hreflang pairs are counted only when both pages are crawled again, and the last detector landing made the matrix test allow implemented == declared (134/134).

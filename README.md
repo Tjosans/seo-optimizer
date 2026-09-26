@@ -19,6 +19,10 @@ The system is a pipeline of packages under `packages/`, each with one job:
 | `@seo/db`          | The Postgres schema and migrations (Drizzle).                     |
 | `@seo/testkit`     | A fixture website, served from memory, for tests to crawl.        |
 
+and the applications under `apps/`: `@seo/api` (the HTTP audit API),
+`@seo/dashboard` (the web UI) and `@seo/desktop` (both in one self-updating
+window — see [The desktop app](#the-desktop-app)).
+
 ## Prerequisites
 
 - Node.js >= 24 (`node --version`)
@@ -184,6 +188,46 @@ record. The file is checked in full before anything is written, and importing
 it again is safe: runs already logged unchanged are skipped, and a run logged
 differently is refused, because the review log is append-only — a correction
 is a new run.
+
+## The desktop app
+
+`apps/desktop` runs the audit API and the dashboard inside one window, **SEO
+Optimizer**, with the running version in the title bar and in the page's
+bottom-right corner.
+
+```bash
+npm run desktop        # from this checkout, against the local stack
+npm run desktop:dist   # build the installer into apps/desktop/release/
+```
+
+The installer (`SEO-Optimizer-Setup-<version>.exe`) is one click and per-user:
+no admin prompt, installed under `%LOCALAPPDATA%\Programs\seo-optimizer`.
+The installed app keeps itself up to date. Once an hour, and on every start,
+it asks this repository's latest GitHub release whether a newer version
+exists. If one does, it downloads it in the background and restarts into it.
+It holds the restart while an audit is queued or running, and the badge
+offers "Restart now". An audit cut short by a restart resumes on the next
+start, because the app keeps its queue in the `jobs` table.
+
+**To ship an update**, bump the version in a pull request and merge it:
+
+```bash
+npm version patch --no-git-tag-version
+```
+
+`.github/workflows/release.yml` sees a version on `master` with no release,
+builds the installer on Windows and publishes it as release `v<version>`.
+Every installed copy picks it up on its next check. Nobody uninstalls or
+reinstalls anything.
+
+The app still needs Postgres. It uses the local stack
+(`postgres://seo:seo@localhost:5433/seo_optimizer`) unless
+`%APPDATA%\SEO Optimizer\.env` sets `DATABASE_URL`. On every start it applies
+any pending migrations, so an update that carries one needs nothing run by
+hand. Help → Open Settings Folder and Help → Open Log are in the menu.
+
+The installer is not code-signed yet, so Windows SmartScreen warns on the
+first install ("More info" → "Run anyway"). Updates are not affected.
 
 ## Shutting down
 

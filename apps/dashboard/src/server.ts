@@ -18,6 +18,12 @@ export interface DashboardServerOptions {
   readonly apiUrl: string;
   /** Absolute path to the `public/` directory of static assets. */
   readonly publicDir: string;
+  /**
+   * The version this dashboard is part of, answered at `GET /version` and
+   * shown in the page's corner. The root `package.json` version for
+   * `npm run dashboard`, the installed app's for @seo/desktop.
+   */
+  readonly version?: string;
 }
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -44,6 +50,12 @@ async function handle(req: IncomingMessage, res: ServerResponse, options: Dashbo
 
   if (path === '/api' || path.startsWith('/api/')) {
     await proxy(req, res, options, rawUrl.slice('/api'.length) || '/');
+    return;
+  }
+
+  if (path === '/version') {
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(JSON.stringify({ version: options.version ?? null }));
     return;
   }
 

@@ -9,6 +9,8 @@
 import { createServer as createHttpServer, request as httpRequest } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { IncomingMessage, Server } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createServer } from '../src/server.js';
@@ -104,5 +106,26 @@ describe('dashboard server', () => {
     const res = await fetch(`${downBase}/api/sites`);
     expect(res.status).toBe(502);
     await new Promise<void>((resolve) => downServer.close(() => resolve()));
+  });
+});
+
+describe('dashboard version', () => {
+  it('answers GET /version with the version it was given, uncached', async () => {
+    const server = createServer({ apiUrl: 'http://127.0.0.1:1', publicDir, version: '1.2.3' });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    try {
+      const res = await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/version`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('cache-control')).toBe('no-store');
+      expect(await res.json()).toEqual({ version: '1.2.3' });
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it('serves the badge that shows it on every page', async () => {
+    const html = await readFile(join(publicDir, 'index.html'), 'utf8');
+    expect(html).toContain('id="version-badge"');
+    expect(html).toContain('src="/version.js"');
   });
 });

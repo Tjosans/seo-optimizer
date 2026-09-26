@@ -1,10 +1,10 @@
 # Roadmap — seo-optimizer
 
 ## Status
-Phases 0-8 are built. Remaining work is detector coverage: every unimplemented detector is a Phase 4 checkbox, with the evidence it needs scheduled ahead of it.
-Last updated: 2026-09-19 (detectors implemented: 77/134; 75 unchecked tasks, one per remaining detector plus the evidence they need)
+Phases 0-8 are built, with all 134 of v5.0's detectors. Phase 9 proves them against real sites instead of fixtures.
+Last updated: 2026-09-27 (Phase 10: desktop app, self-updating from GitHub Releases)
 
-## Phase 0 — Foundation
+## Phase 0 — Foundation ✅
 - [x] Create monorepo structure with TypeScript workspace packages
 - [x] Implement @seo/core types (Check, CheckState, Readiness)
 - [x] Build @seo/crawler with fetch, extract, robots.txt parser, URL normalizer
@@ -13,7 +13,7 @@ Last updated: 2026-09-19 (detectors implemented: 77/134; 75 unchecked tasks, one
 - [x] Configure TypeScript project references and vitest testing framework
 - [x] Compile v4.4 corpus YAML from TSV source (phases 0-7, 97 checks)
 
-## Phase 1 — Probes & Persistence
+## Phase 1 — Probes & Persistence ✅
 - [x] Implement @seo/probes detector registry (6 categories: delivery, indexability, markup, media, metadata, site)
 - [x] Build probe matrix tool (npm run probes:matrix) to verify detector coverage
 - [x] Design Postgres schema with Drizzle (sites, audits, crawls, pages, links, probes, renders, checks)
@@ -22,7 +22,7 @@ Last updated: 2026-09-19 (detectors implemented: 77/134; 75 unchecked tasks, one
 - [x] Create initial Drizzle migrations (0000-0003) with enum types and indexes
 - [x] Write integration tests for persistence and probe runs against live Postgres
 
-## Phase 2 — CI/CD & Deployment
+## Phase 2 — CI/CD & Deployment ✅
 - [x] Write README with setup, build, test, and database management instructions
 - [x] Add GitHub Actions CI workflow with Postgres service and full test suite
 - [x] Implement .githooks/pre-push for local typecheck and test gate on master
@@ -31,7 +31,7 @@ Last updated: 2026-09-19 (detectors implemented: 77/134; 75 unchecked tasks, one
 - [x] Enable corpus compilation and matrix tools as npm run scripts
 - [x] Harden the master ruleset: require pull requests and both the test and roadmap status checks
 
-## Phase 3 — Pre-Release Validation
+## Phase 3 — Pre-Release Validation ✅
 - [x] Audit triage sign-off: confirm automation tier and remediation class for all 97 checks (scripts/triage.ts requires sign-off before release)
 - [x] Settle the corpus source of record: the TSV bootstraps a version, the YAML owns it thereafter, and `corpus:compile` refuses to overwrite an existing version
 - [x] Split corpus tests into frozen provenance (v4.4 against its workbook) and structural invariants that run against every version on disk
@@ -43,7 +43,7 @@ Last updated: 2026-09-19 (detectors implemented: 77/134; 75 unchecked tasks, one
 - [x] Compile corpus v5.0 from the verified workbook (SEO-Launch-Checklist-v5.0.xlsx, SHA-256 1165d18b…612a): 98 checks, 54 launch gates, 108 sources cited by stable id, a frozen `provenance-v5.0.test.ts`, and `CURRENT_CORPUS_VERSION` in @seo/corpus so the analyzer and the probe matrix follow the adopted methodology
 - [x] Tie a site profile to the corpus version it was declared against, so a version that makes a universal check conditional cannot excuse it on a flag nobody was asked about (@seo/db: `sites.profileCorpusVersion`, migration 0007 recording `4.4` on existing filled-in profiles; @seo/scheduler: `StaleSiteProfileError`, permanent, raised before the crawl)
 
-## Phase 4 — Orchestration & Scaling
+## Phase 4 — Orchestration & Scaling ✅
 - [x] Implement job queue for managing concurrent crawls (@seo/queue: bounded concurrency, lane exclusion per origin, cancellation)
 - [x] Add audit scheduler to trigger crawls on demand or via API (@seo/scheduler: submit returns an audit id before the crawl runs; one audit at a time per origin)
 - [x] Build retry logic and error recovery for failed audits (@seo/queue: held jobs, backoff, retry-aware cancellation; @seo/scheduler: which failures repeat, and the audit row across attempts)
@@ -75,7 +75,6 @@ Last updated: 2026-09-19 (detectors implemented: 77/134; 75 unchecked tasks, one
 - [x] Implement `content-accessibility` (3.11) from markup: nameless links, images with no alt, no page language, generic link text, header-less data tables, uncaptioned video (@seo/probes `accessibility.ts`; @seo/crawler: `ExtractedLink.name`, `ExtractedImage.altExempt`, `Extracted.tables`)
 - [x] Implement the two 3.9 detectors from markup: `answer-first-structure` (a page's reading matter is signposted, and its question headings have answers beneath them) and `author-date-signals` (the site's articles say who wrote them and when, with no date false on its face or stamped on every article) (@seo/probes `content.ts`; @seo/crawler: `Extracted.content`, the reading matter divided at its headings, and `Extracted.authorship`)
 - [x] Give link-discovered URLs a share of the page budget alongside sitemap URLs (@seo/crawler: a lane for the walk and a lane for what the sitemaps declare, spent one request for one; `notReached` reports what is left in both) — sitemap URLs are enqueued at depth 0 ahead of every link, so on a site with a large sitemap the crawl fetches the seed and then only sitemap entries, and link-only subjects (filter URLs, orphans, click depth) are never walked. Found running the 1.12 detectors against kjell.com, whose 24k-URL sitemap took the whole 80-page budget
-
 - [x] Spend the sitemap budget across every sitemap a site declares, not on whichever it declared first (@seo/crawler: a lane per declared sitemap, read round-robin)
 - [x] Mark a response body the crawler had to cut, so a size limit of ours is never reported as a defect of theirs (@seo/crawler: `FetchResult.truncated` and `SitemapFetch.truncated`; @seo/probes: `video-sitemap` and `index-bloat` report `error`; `npm run analyze` counts fails and errors apart)
 - [x] Read a sitemap to the protocol's 50 MB ceiling by parsing it as it streams, so a large sitemap is read rather than reported unobservable (@seo/crawler: `createSitemapParser`, `SITEMAP_MAX_BYTES`, `FetchOptions.onText`; IGN's 2.14 now grades and 2.1 is held on a real warning, where both were `probe-error`)
@@ -199,36 +198,62 @@ Every v5.0 detector not yet implemented has its own line below, preceded by the 
 - [x] Implement detector `a11y-regression-sampling` (7.7, @seo/probes `accessibility.ts`, site scope): against `previous`, fail a critical axe violation id that is new on any page; warn a rising count of serious ones. Needs axe results on both audits, else `not-applicable`
 - [x] Implement detector `schema-hreflang-maintenance` (7.9, @seo/probes `markup.ts`, site scope): against `previous`, fail JSON-LD that parsed before and does not now, and an hreflang cluster that was reciprocal and is not; warn a schema type removed from a page
 
-## Phase 5 — Rendered Crawl
+## Phase 5 — Rendered Crawl ✅
 - [x] Implement JavaScript rendering in @seo/crawler (renderMode column exists in schema but not used) — `renderPage` (@seo/crawler `render.ts`) runs a URL through a headless Chromium (Playwright), waits for `load` plus a settle delay, and hands back the resulting `document.documentElement.outerHTML`; `extract()` reads it exactly like a raw `fetchPage` body, so every existing detector already knows how to look at a render. A shared browser process (`closeBrowser` to release it) keeps repeated renders from paying Chromium's startup cost each time. Not yet wired into `crawl()` or persisted to the `renders` table — that is the next two checkboxes, dual-crawl comparison and its own scope
 - [x] Add dual-crawl (raw + rendered) logic to compare HTML vs. rendered content (@seo/crawler `crawl.ts`: `renderPages`, `renderImpl`, `renderTimeoutMs`/`renderSettleMs`; a render runs only for a page the raw fetch already read as HTML, paced by the same politeness delay as every other request; `CrawledPage.rendered` carries the `RenderResult`, its own `extract()` pass, and a `RenderComparison` — title, canonical, meta robots, word/link/JSON-LD counts, and whole-text equality between raw and rendered)
 - [x] Detect and report rendering strategy mismatches in @seo/probes (`rendering-strategy-classifier`, 1.1, @seo/probes `indexability.ts`)
 
-## Phase 6 — External Content Storage
+## Phase 6 — External Content Storage ✅
 - [x] Implement content-addressing system (S3/GCS integration) for page bodies
 - [x] Map page body hashes to storage keys in database (body_key column prepared in schema)
 - [x] Wire a configured `BlobStore` into `@seo/scheduler`'s `runAudit` (`crawlToDatabase` call at `run-audit.ts:106`), so a real audit's `renders.bodyKey` stops being null — `openCrawl`/`crawlToDatabase` already accept one, but nothing constructs one from `STORAGE_*` and hands it in
 - [x] Build blob retrieval client for reconstructing archived crawls (@seo/persistence `crawl-source.ts`: `readRenderBody` retrieves and verifies one render's bytes against `bodyHash` — `not-stored`/`missing`/`corrupt`/`ok`, so a caller reconstructing a whole crawl keeps going past one bad body instead of aborting; `readArchivedCrawl` joins `renders`/`pages` for a crawl id and reads every one back through a `BlobStore`)
 - [x] Add batch operations for uploading and purging stored content (@seo/storage `blob-store.ts`: `BlobStore.putMany`/`deleteMany`; `S3BlobStore.putMany` dedupes a body repeated within one batch to one write, `deleteMany` chunks to S3's 1000-key `DeleteObjects` limit)
 
-## Phase 7 — Audit API
+## Phase 7 — Audit API ✅
 - [x] Create HTTP server entry point (`apps/api`: @seo/api `main.ts`/`server.ts`, `npm run serve`, listening on `PORT`) — landed alongside `POST /releases` (Phase 4) but left unchecked here until now
 - [x] Build site management endpoints (create, list, update, delete) (`apps/api`: `POST /sites`, `GET /sites`, `PATCH /sites/:id`, `DELETE /sites/:id`; @seo/api `sites.ts`: `parseSiteInput`, shared by create and update the way `parseReleaseFile` is shared by the release door)
 - [x] Implement audit lifecycle endpoints (create, status, result retrieval) (`apps/api`: `POST /audits` calling `AuditScheduler.submit` unchanged, `GET /audits/:id`, `GET /audits/:id/result`; @seo/api `audits.ts`: `parseAuditRequest`; `main.ts` now constructs the scheduler the endpoints run against)
 - [x] Add check attestation endpoint for recording human decisions (`apps/api`: `POST /audits/:id/attestations`, @seo/api `attestations.ts`: `parseAttestationInput`; @seo/grader `attestation.ts`: `recordAttestation` — checks `checkId` against the corpus the audit is pinned to, requires `expiresAt` in the future and a rationale when `applicability` narrows to `no`, then replaces any existing `check_states` row the way a re-grade does, so a superseded machine verdict's evidence trail does not survive under it)
 - [x] Implement readiness calculation and score retrieval (`apps/api`: `GET /audits/:id/readiness` — the frozen `audits.readiness` alone: launch decision, per-phase progress with each phase's `percentComplete` score, and cutover when the audit names a release — with no `checkStates` join; the calculation itself, `computeLaunchReadiness`/`computeProgress`/`computeCutoverReadiness` (@seo/core), was already frozen onto the row by `recordGrade` and already retrievable through `/result`, so this closes the last gap `server.ts`'s own header comment named: a standalone endpoint for a caller polling "is it ready" that has no use for the full evidence trail)
 
-## Phase 8 — Dashboard
+## Phase 8 — Dashboard ✅
 - [x] Build web UI for audit results and historical trend viewing
 - [x] Implement check evidence drill-down (trace verdict to probes to observations)
 - [x] Add audit comparison across sites and time
 - [x] Create attestation interface for confirming checks
+
+## Phase 9 — Real-Site Validation
+- [ ] Run every detector against real sites — fixture-proven coverage is not web-proven coverage. The last live run (`benchmarks/runs/2026-09-11T23-07-32-budget-lanes.json`) had 54 of 134 detectors; the 80 added since have only ever met the fixture site and hand-built pages. Done when a snapshot covering all 134 exists over a stable URL set and every probe `error` in it is explained
+- [ ] Add `--render` to `npm run analyze`, passing `renderPages` to `crawl()`, so the render-dependent detectors (`rendering-strategy-classifier`, `raw-rendered-crawl-diff`, `mobile-journey-qa`, the axe-based accessibility probes) run live at all — today the analyzer only ever makes raw fetches
+- [ ] Widen `benchmarks/urls.txt` to cover the site shapes the detectors split on — a catalogue with variants and facets, a multilingual hreflang cluster, a news publisher with a news sitemap, a video site, a JS-rendered SPA — adding URLs, never swapping them, so older snapshots stay comparable
+- [ ] Triage every live `error` and suspect `fail` into site-unobservable, detector bug or crawler gap; fix each bug with a fixture test reproducing the real markup, so the web finding becomes a regression test
+- [ ] Exercise the `previous`-reading detectors live (`quarterly-regression-crawl`, `conditional-template-monitor`, `a11y-regression-sampling`, `schema-hreflang-maintenance`): analyze a site twice, the second run with `--baseline` on the first
+- [ ] Run one real site through the full pipeline — `POST /audits` with a configured `BlobStore`, scheduler, persistence, grader, dashboard — rather than the database-free analyzer, and confirm `renders.bodyKey`, the frozen readiness and the evidence drill-down on real data
+- [ ] Refresh `benchmarks/README.md`: it still says 97 checks and "around 9%" graded
+
+## Phase 10 — Desktop App
+- [x] Extract the API's start-up into `startApi` (@seo/api `start.ts`) so a process other than `npm run serve` can run it: corpus and migrations directories passed in, bound to the host and port it is given
+- [x] Show the running version in the dashboard's corner (@seo/dashboard: `GET /version`, a fixed badge), from one source — the root `package.json` version
+- [x] Wrap API and dashboard in an Electron window (`apps/desktop`): one instance, both servers in-process on loopback, migrations applied on start, audits held in a `PostgresJobStore` so a restart resumes them, version in the title bar
+- [x] Install per-user with a one-click NSIS installer and update in place from GitHub Releases (electron-updater): download in the background, restart itself once no audit is running
+- [x] Publish a release from CI whenever `master` carries a version with no release yet (`.github/workflows/release.yml`), so shipping an update is bumping the version in a PR
+- [ ] Give the app an icon (`apps/desktop/build/icon.ico`); it ships Electron's default today
+- [ ] Publish the first release, v0.1.0, by merging this phase, and confirm an installed copy updates from GitHub (verified so far only against a local feed: 0.1.0 → 0.1.1 → 0.1.2, silent install and relaunch)
+- [ ] Sign the Windows installer, so SmartScreen stops warning on first install
 
 ## Blocked
 - 2026-09-20 (resolved): both tasks named below are done and ticked; the entry stays because the history is the value.
 - 2026-09-19: "Carry `AuditInputs` through a real audit" waits on "Add supplied evidence to the probe context" (itself blocked after 3 attempts): `AuditInputs`, `parseInputs` and `SiteContext.inputs` do not exist yet, and this task only wires them through `audits.inputs`, `submit`, `runAudit` and `POST /audits`. Unblock the first task, then retry this one (superseded the same day: the first task was never genuinely blocked, see the entry above on truncated prompts; both are open again)
 
 ## Decisions
+- 2026-09-27: MinIO now comes from `cgr.dev/chainguard/minio`, run as root, in CI and docker-compose. MinIO's own images stopped serving anonymous pulls: quay.io answers 401, and Docker Hub's `minio/minio` is gone. That failed CI's MinIO step on every branch. The Chainguard image runs as a non-root user that cannot write its data directory, hence `--user 0`.
+- 2026-09-27: Chose Electron over a Tauri or native shell for the desktop app. The API, scheduler and crawler are Node, and Electron runs them in its main process unchanged, where any other shell would need a Node sidecar. electron-updater gives in-place updates from GitHub Releases, which is what "push an update and it restarts itself" asks for.
+- 2026-09-27: Releases are cut by a version bump on `master`, not by pushing a tag. `master` only moves through PRs, so the version change is reviewed and CI-gated like any other, and a tag cannot drift from the code it names.
+- 2026-09-27: The desktop app waits for an empty queue before it restarts into an update, and keeps audits in a `PostgresJobStore`. The user asked for an unattended restart. Waiting for idle keeps a restart from interrupting a crawl, and the store makes "Restart now" safe anyway.
+- 2026-09-27: The desktop app never calls `scheduler.close()` on quit. `close()` cancels queued audits and marks their rows `cancelled`. Exiting without it leaves the jobs in the store for `recover()`, which is what a restart should mean.
+- 2026-09-27: The desktop app runs migrations on every start (drizzle-orm's migrator, same journal as drizzle-kit). An installed app has nobody to run `npm run db:migrate`, and an update may carry a migration.
+- 2026-09-21: made real-site validation Phase 9, ahead of cutting a release, because a detector reporting `error` on real markup looks the same as an unimplemented one until someone runs it live, and a published version would promise coverage only fixtures have shown
 
 - 2026-09-20: `AuditScheduler`'s reconcile cutoff is kept as Postgres text, not a `Date`. `timestamptz` holds microseconds and a JS `Date` holds milliseconds, so parsing the clock into one truncated the cutoff downwards and `created_at < cutoff` then skipped every audit row written in that same millisecond — the rows the sweep exists to close. It stayed `pending` forever. CI is fast enough to submit and recover inside one millisecond; a laptop usually is not, which is why `recovery.test.ts` passed locally and failed on #54. `AuditScheduler.cutoff` exposes the line the sweep draws.
 - 2026-09-20: `schema-hreflang-maintenance` reads a broken block as `extracted.jsonLdErrors > 0` with a type from `previous` now missing (fail), and a missing type with no error as a removal (warn); hreflang pairs are counted only when both pages are crawled again, and the last detector landing made the matrix test allow implemented == declared (134/134).

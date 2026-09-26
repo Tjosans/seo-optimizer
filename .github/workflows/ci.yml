@@ -52,16 +52,20 @@ jobs:
       # exists for. Run directly rather than as a GitHub Actions `services:`
       # entry, because those cannot pass `server /data` — MinIO's image needs
       # that argument to start the server rather than print its own help.
+      # The image is Chainguard's, as in docker-compose.yml: MinIO's own no
+      # longer pulls anonymously. It must run as root to write /data.
       - name: Start MinIO
         run: |
-          docker run -d --name minio -p 9000:9000 \
+          docker run -d --name minio --user 0 -p 9000:9000 \
             -e MINIO_ROOT_USER=$STORAGE_ACCESS_KEY_ID \
             -e MINIO_ROOT_PASSWORD=$STORAGE_SECRET_ACCESS_KEY \
-            quay.io/minio/minio server /data
+            cgr.dev/chainguard/minio:latest server /data
           for i in $(seq 1 30); do
-            curl -sf http://localhost:9000/minio/health/live && break
+            curl -sf http://localhost:9000/minio/health/live && exit 0
             sleep 1
           done
+          docker logs minio
+          exit 1
 
       - run: npm run db:migrate
 

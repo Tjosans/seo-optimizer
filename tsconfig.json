@@ -3,6 +3,7 @@
   "references": [
     { "path": "./apps/api" },
     { "path": "./apps/dashboard" },
+    { "path": "./apps/desktop" },
     { "path": "./packages/core" },
     { "path": "./packages/corpus" },
     { "path": "./packages/crawler" },

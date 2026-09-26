@@ -9,13 +9,19 @@
  * dependency to bundle.
  */
 
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createServer } from './server.js';
 
 const publicDir = fileURLToPath(new URL('../public', import.meta.url));
 const apiUrl = (process.env['API_URL'] ?? 'http://localhost:3000').replace(/\/$/, '');
+// The root package.json holds the one version the project has; the desktop
+// installer is stamped with it too.
+const { version } = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8')) as {
+  version: string;
+};
 
-const server = createServer({ apiUrl, publicDir });
+const server = createServer({ apiUrl, publicDir, version });
 const port = Number(process.env['PORT'] ?? 3001);
 server.listen(port, () => {
   console.log(`@seo/dashboard listening on :${port}, proxying ${apiUrl}`);

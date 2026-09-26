@@ -25,7 +25,12 @@ services:
       timeout: 3s
       retries: 10
   minio:
-    image: quay.io/minio/minio:latest
+    # MinIO no longer serves its own images to anonymous pulls (quay.io answers
+    # 401, Docker Hub's minio/minio is gone); Chainguard publishes a free build.
+    # It runs as a non-root user that cannot write the data directory, hence
+    # user 0.
+    image: cgr.dev/chainguard/minio:latest
+    user: "0"
     environment:
       MINIO_ROOT_USER: seo-storage
       MINIO_ROOT_PASSWORD: seo-storage-secret

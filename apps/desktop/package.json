@@ -1,0 +1,25 @@
+{
+  "name": "@seo/desktop",
+  "productName": "SEO Optimizer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "seo-optimizer in its own window: the audit API and dashboard, self-updating from GitHub Releases",
+  "main": "./dist/main.js",
+  "scripts": {
+    "start": "tsc --build && electron .",
+    "stage": "tsc --build && node scripts/stage.mjs",
+    "dist": "npm run stage && electron-builder --config electron-builder.config.cjs --publish never",
+    "release": "npm run stage && electron-builder --config electron-builder.config.cjs --publish always"
+  },
+  "dependencies": {
+    "@seo/api": "*",
+    "@seo/dashboard": "*",
+    "electron-updater": "^6.8.9"
+  },
+  "devDependencies": {
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2"
+  }
+}

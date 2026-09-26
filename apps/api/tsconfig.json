@@ -7,6 +7,7 @@
     { "path": "../../packages/corpus" },
     { "path": "../../packages/db" },
     { "path": "../../packages/grader" },
+    { "path": "../../packages/job-store" },
     { "path": "../../packages/scheduler" }
   ]
 }

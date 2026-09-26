@@ -21,6 +21,8 @@ seo-optimizer is an SEO launch-readiness auditor. It crawls a site, runs it agai
 - **@seo/storage** — content-addressed `BlobStore` over S3/GCS/MinIO for page bodies, keyed by their own sha256 so a body already stored costs a read, not a write; not yet called by anything (see gotcha 5)
 - **@seo/testkit** — in-memory fixture website for tests
 
+And three applications under `apps/`: **@seo/api** (the HTTP audit API; `startApi` in `start.ts` is the running process, shared by `npm run serve` and the desktop app), **@seo/dashboard** (the web UI, proxying `/api/*` onto the API and answering `GET /version`), and **@seo/desktop** (both in one Electron window that installs per-user and updates itself from GitHub Releases).
+
 Note: the corpus's "phases 0-7" are a property of the SEO check taxonomy. They are unrelated to the delivery phases in `ROADMAP.md`.
 
 ## Stack
@@ -31,7 +33,7 @@ Note: the corpus's "phases 0-7" are a property of the SEO check taxonomy. They a
 - Postgres 17 + Drizzle ORM + drizzle-kit migrations
 - Redis 7 (in docker-compose, not yet integrated in code)
 - MinIO (S3-compatible, in docker-compose for local dev) behind `@seo/storage`; production points the same client at real S3 or GCS
-- No UI and no `apps/` directory yet — this is a library
+- Electron 44 (Node 24) for `apps/desktop`, packaged by electron-builder (NSIS) and updated by electron-updater from GitHub Releases
 
 ## Getting started
 
@@ -60,6 +62,7 @@ Key scripts:
 - `npm run db:generate` — diff schema and write a new migration
 - `npm run db:studio` — Drizzle Studio against the live database
 - `npm run stack:down` — stop containers
+- `npm run desktop` — the desktop app from this checkout; `npm run desktop:dist` builds the installer into `apps/desktop/release/`
 
 ## How it works
 
@@ -197,7 +200,7 @@ Pre-launch QA is the seventh, and the split is by what a finding sits between. 4
 
 Unit tests (no database needed): `packages/core/test/{site,cutover}.test.ts`, `packages/corpus/test/{corpus,provenance,provenance-v5.0,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,fetch,protocol,render,robots,sitemap,url}.test.ts`, `packages/probes/test/{probes,detectors,facets,news,qa,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store,lease}.test.ts`, `packages/grader/test/{grade,release-file}.test.ts` (the parser half), `packages/scheduler/test/{retry,lane}.test.ts`.
 
-Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/{scheduler,recovery,cancel,flags,ai-policy,release}.test.ts`, `packages/job-store/test/postgres.test.ts`, `packages/grader/test/{record,release,release-file}.test.ts`, `packages/storage/test/s3-blob-store.test.ts` (against MinIO; skips on `STORAGE_ENDPOINT`, not `DATABASE_URL`, and creates its bucket itself on first run).
+Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/{scheduler,recovery,cancel,flags,ai-policy,release}.test.ts`, `packages/job-store/test/postgres.test.ts`, `packages/grader/test/{record,release,release-file}.test.ts`, `apps/api/test/start.test.ts`, `packages/storage/test/s3-blob-store.test.ts` (against MinIO; skips on `STORAGE_ENDPOINT`, not `DATABASE_URL`, and creates its bucket itself on first run).
 
 All tests skip gracefully if `DATABASE_URL` is unset — which means a green local run does not prove the database layer works. `vitest.config.ts` aliases packages to source, so no build step is needed during test.
 
@@ -221,6 +224,17 @@ git config core.hooksPath .githooks
 
 It is bypassable with `--no-verify` and is a convenience, not the gate — the ruleset is.
 
+## The desktop app and its updates
+
+- **One version.** The root `package.json` `version` is the project's version. The dashboard badge shows it (`GET /version`), and `apps/desktop/scripts/stage.mjs` stamps it on the installer. The `version` fields in the workspace packages mean nothing.
+- **Shipping an update is a version bump merged to `master`.** `.github/workflows/release.yml` runs on every push to master, and when `v<version>` has no GitHub release it builds the installer on `windows-latest` and publishes it (`npm run release -w @seo/desktop`). A push that leaves the version alone releases nothing.
+- **The installed app updates itself.** `apps/desktop/src/updater.ts` checks on start and hourly, downloads in the background, and restarts into the new version with a silent install. It waits while `scheduler.queued + scheduler.running > 0`; "Restart now" in the badge skips the wait. It never uninstalls, and settings (`%APPDATA%\SEO Optimizer\.env`) and logs (`…\logs\main.log`) survive.
+- **Audits survive a restart.** The desktop app passes `jobOwner: 'desktop'` to `startApi`, which puts a `PostgresJobStore` behind the scheduler. The app never calls `scheduler.close()` on quit, because that would cancel queued audits. It just exits, and `recover()` resumes them on the next start. The single-instance lock is what makes one owner without a lease safe.
+- **Migrations run on start** (`startApi`'s `migrationsDir`), through drizzle-orm's migrator, which reads the same journal `drizzle-kit migrate` does. A release carrying a migration needs nothing run by hand.
+- **Packaging bundles, it does not copy the workspace.** `stage.mjs` bundles the main process with esbuild into `apps/desktop/stage/` and npm-installs only what cannot be bundled: electron-updater, and Playwright, which @seo/crawler imports statically. A new dependency that resolves its own files at run time belongs on that list too. Corpus, migrations and dashboard assets ship as `extraResources`.
+- **Trying an update without publishing:** build one version with `SEO_UPDATE_FEED=http://127.0.0.1:8123/` set (see `electron-builder.config.cjs`), install it, bump the version, build again, and serve that `release/` directory from the URL. Uninstall afterwards: that build only ever looks at the local feed.
+- **Not signed yet.** SmartScreen warns on first install. Updates are unaffected, because electron-updater only verifies a signature when `publisherName` is set.
+
 ## Layout
 
 ```
@@ -237,6 +251,10 @@ packages/
   grader/src/{grade,scope,record,release,release-file,types}.ts
   storage/src/{blob-store,s3-blob-store,config}.ts
   testkit/src/{fixture-site,tls-server}.ts
+apps/
+  api/src/{main,start,server,sites,audits,attestations}.ts
+  dashboard/src/{main,server}.ts  +  public/{index.html,app.js,compare.js,version.js,style.css}
+  desktop/src/{main,updater,log,preload}.ts  +  scripts/stage.mjs, electron-builder.config.cjs
 corpus/
   source/v4.4.tsv                  # immutable workbook export
   source/v5.0{,-sources,-progress,-how-to-use}.tsv  # v5.0 workbook export
@@ -255,6 +273,7 @@ scripts/{analyze,compare,compile-corpus,probe-matrix,record-release,triage}.ts  
 5. **Response bodies are external by design.** The schema stores hashes and keys only. `@seo/storage`'s `BlobStore` is the content-addressed object store behind that key — `put(bytes)` hashes them, skips the write if that hash is already there, and returns the key `renders.bodyKey` holds. `@seo/persistence`'s `openCrawl`/`crawlToDatabase` take an optional `blobStore`: given one, each page's raw body is uploaded before its render row is written and `bodyKey` carries the result; given none — every caller today, including `@seo/scheduler`'s `runAudit` — `bodyKey` stays null exactly as before. Wiring a configured store into the scheduler, and a retrieval client for reconstructing an archived crawl, are the rest of Phase 6.
 6. **A body over its limit is cut, and says so.** `fetchPage` reads every body a chunk at a time and cancels the response at `maxBytes` (5 MB by default), setting `FetchResult.truncated`; `byteLength` of a cut body is how far the read got, not the size. Sitemaps are different: they are streamed through `createSitemapParser` (@seo/crawler `sitemap.ts`), opened first when they are gzip files (`gunzip`, recognised by magic bytes, not by label), and read up to `SITEMAP_MAX_BYTES`, the protocol's own 50 MB ceiling on the *expanded* size — so IGN's 4–7 MB quarterly files and TED's 10 MB one are read whole. A sitemap past that, or a gzip file damaged part way, is still marked on `CrawlResult.sitemaps`; the entry the cut severed is dropped, but what was read is still partial, so any detector reading a large document must check the flag and report `error`, never `fail`.
 7. **The crawler does not use the global `fetch`.** `fetchPage` requests through an undici 8 `Agent` of its own. The global `fetch` dispatches through whichever undici installed itself first — in a crawler process, cheerio's undici 7, whose HTTP/1.1 client crashes the process (an uncaught `assert(!this.paused)`) when a TLS server closes a gzip-encoded response behind a paused body. Under vitest Node's own dispatcher wins instead, which hides that crash from tests; `fetch.test.ts` restores cheerio's dispatcher for the HTTPS suite for that reason.
+8. **A Claude Code session sees a virtualized `%APPDATA%`.** The Claude desktop app is MSIX-packaged, so the processes it launches (its shell, and the installed app when started from that shell) read and write a per-package copy of `%APPDATA%`. The same app started through Explorer, which is how the updater's installer relaunches it, uses the real one. Its log then looks empty from the session while the app is writing it. That is not a logging bug. To test the installed app from a session, start it with `explorer.exe "<path>\SEO Optimizer.exe"` and read its files from outside the session.
 
 ## What to pick up next
 
@@ -262,7 +281,7 @@ Every checkbox in `ROADMAP.md` phases 0-8 is ticked as of 2026-09-20: the queue,
 
 That means the next phase has to be decided rather than read off. Three things are known to be worth doing and are not written down as tasks yet:
 
-- **`npm run db:migrate` exits 1 and prints nothing**, on a database whose 10 migrations are all applied and whose schema is current. CI runs the same command without complaint. Harmless today, misleading the first time it matters.
+- ~~`npm run db:migrate` exits 1~~ — explained 2026-09-27: migration 0009 was generated twice, and a database migrated between the two recorded the first generation's timestamp (`1789838075780`) in `drizzle.__drizzle_migrations`. The journal says `1789840671156`, and drizzle decides what is pending by timestamp, not hash, so it re-ran 0009 and failed on its existing column. The fix is per database: set that row's `created_at` to the journal's `when` (the SQL hash already matches). A fresh database, as in CI, never has the problem.
 - **The detectors have never been run against a large real site.** `npm run analyze -- <url>` works, but coverage proven by fixtures is not coverage proven by the web, and a detector that reports `error` on real markup is indistinguishable from one that is merely unimplemented until someone looks.
 - **Nothing has been cut as a release.** There is no version, no changelog and no published package.
 

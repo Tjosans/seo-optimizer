@@ -22,3 +22,7 @@ roadmap-convention.md
 # Output of run-roadmap.ps1; per-iteration session logs, not part of the repo.
 logs/
 .roadmap-runner-logs/
+
+# @seo/desktop packaging output: the bundled app and the built installer.
+apps/desktop/stage/
+apps/desktop/release/

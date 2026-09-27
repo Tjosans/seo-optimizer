@@ -1,14 +1,21 @@
 name: Release
 
 # Ships the desktop app. Every push to master asks one question: does the
-# version in package.json have a GitHub release yet? If not, the Windows
-# installer is built and published as release v<version>, and every installed
-# copy of SEO Optimizer finds it on its next update check, downloads it in the
-# background and restarts into it. Shipping an update is therefore:
+# version in package.json have a published GitHub release yet? If not, the
+# Windows installer is built and published as release v<version>, and every
+# installed copy of SEO Optimizer finds it on its next update check, downloads
+# it in the background and restarts into it. Shipping an update is therefore:
 #
 #     npm version patch --no-git-tag-version   # in a PR, merged to master
 #
 # A push that leaves the version alone releases nothing.
+#
+# The release is created here as a draft before the build, electron-builder
+# uploads into it, and it is published only once the installer and
+# latest.yml are both on it. An installed copy reads latest.yml from the
+# latest published release, so a half-uploaded one must never be published.
+# A draft left by a failed run is picked up and finished by the next one
+# (run this workflow by hand to retry without a new commit).
 
 on:
   push:
@@ -37,12 +44,19 @@ jobs:
         run: |
           version=$(node -p "require('./package.json').version")
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          if gh release view "v$version" >/dev/null 2>&1; then
-            echo "v$version is already released; nothing to do."
-            echo "released=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "released=false" >> "$GITHUB_OUTPUT"
-          fi
+          draft=$(gh release view "v$version" --json isDraft --jq .isDraft 2>/dev/null || echo missing)
+          case "$draft" in
+            false)
+              echo "v$version is already released; nothing to do."
+              echo "released=true" >> "$GITHUB_OUTPUT" ;;
+            true)
+              echo "v$version has a draft from an earlier run; finishing it."
+              echo "released=false" >> "$GITHUB_OUTPUT" ;;
+            *)
+              gh release create "v$version" --draft --target "$GITHUB_SHA" \
+                --title "$version" --generate-notes
+              echo "released=false" >> "$GITHUB_OUTPUT" ;;
+          esac
 
       - uses: actions/setup-node@v4
         if: steps.version.outputs.released == 'false'
@@ -53,8 +67,25 @@ jobs:
       - if: steps.version.outputs.released == 'false'
         run: npm ci
 
-      - name: Build and publish v${{ steps.version.outputs.version }}
+      - name: Build v${{ steps.version.outputs.version }} into the draft
         if: steps.version.outputs.released == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
         run: npm run release -w @seo/desktop
+
+      - name: Publish v${{ steps.version.outputs.version }}
+        if: steps.version.outputs.released == 'false'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          assets=$(gh release view "v$VERSION" --json assets --jq '.assets[].name')
+          echo "$assets"
+          for needed in "SEO-Optimizer-Setup-$VERSION.exe" "SEO-Optimizer-Setup-$VERSION.exe.blockmap" latest.yml; do
+            if ! grep -qxF "$needed" <<< "$assets"; then
+              echo "::error::$needed is missing from the v$VERSION draft; not publishing."
+              exit 1
+            fi
+          done
+          gh release edit "v$VERSION" --draft=false --latest

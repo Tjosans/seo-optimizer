@@ -32,7 +32,12 @@ module.exports = {
   // SEO_UPDATE_FEED points a build at a plain HTTP directory instead, to try
   // an update end to end without publishing a release: build one version with
   // it set, install that, then serve a later build's `release/` from the URL.
+  //
+  // On GitHub the build only ever uploads into a draft. release.yml creates
+  // that draft first and publishes it once every file is on it: left to
+  // create the release itself, electron-builder's publishers race to do it,
+  // and the loser's files never arrive (v0.1.0 shipped with a blockmap only).
   publish: process.env.SEO_UPDATE_FEED
     ? [{ provider: 'generic', url: process.env.SEO_UPDATE_FEED }]
-    : [{ provider: 'github', owner: 'Tjosans', repo: 'seo-optimizer', releaseType: 'release' }],
+    : [{ provider: 'github', owner: 'Tjosans', repo: 'seo-optimizer', releaseType: 'draft' }],
 };

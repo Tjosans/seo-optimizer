@@ -254,7 +254,7 @@ packages/
 apps/
   api/src/{main,start,server,sites,audits,attestations}.ts
   dashboard/src/{main,server}.ts  +  public/{index.html,app.js,compare.js,version.js,style.css}
-  desktop/src/{main,updater,log,preload}.ts  +  scripts/stage.mjs, electron-builder.config.cjs
+  desktop/src/{main,updater,log,preload}.ts  +  scripts/{stage.mjs,make-icon.py}, build/icon.{ico,png}, electron-builder.config.cjs
 corpus/
   source/v4.4.tsv                  # immutable workbook export
   source/v5.0{,-sources,-progress,-how-to-use}.tsv  # v5.0 workbook export

@@ -18,6 +18,8 @@ module.exports = {
   ],
   win: {
     target: ['nsis'],
+    // Also the installer's and uninstaller's icon. Drawn by scripts/make-icon.py.
+    icon: 'build/icon.ico',
     artifactName: 'SEO-Optimizer-Setup-${version}.${ext}',
   },
   nsis: {

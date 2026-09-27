@@ -2,7 +2,7 @@
 
 ## Status
 Phases 0-8 are built, with all 134 of v5.0's detectors. Phase 9 proves them against real sites instead of fixtures.
-Last updated: 2026-09-27 (Phase 10: desktop app, self-updating from GitHub Releases)
+Last updated: 2026-09-28 (Phase 10: first releases published; self-update from GitHub confirmed)
 
 ## Phase 0 — Foundation ✅
 - [x] Create monorepo structure with TypeScript workspace packages
@@ -239,7 +239,7 @@ Every v5.0 detector not yet implemented has its own line below, preceded by the 
 - [x] Install per-user with a one-click NSIS installer and update in place from GitHub Releases (electron-updater): download in the background, restart itself once no audit is running
 - [x] Publish a release from CI whenever `master` carries a version with no release yet (`.github/workflows/release.yml`), so shipping an update is bumping the version in a PR
 - [ ] Give the app an icon (`apps/desktop/build/icon.ico`); it ships Electron's default today
-- [ ] Publish the first release, v0.1.0, by merging this phase (first attempt on 2026-09-27 published a release missing its installer and `latest.yml`; see Decisions), and confirm an installed copy updates from GitHub (verified so far only against a local feed: 0.1.0 → 0.1.1 → 0.1.2, silent install and relaunch)
+- [x] Publish the first release, v0.1.0, by merging this phase (first attempt on 2026-09-27 published a release missing its installer and `latest.yml`; see Decisions), and confirm an installed copy updates from GitHub. Confirmed 2026-09-28: v0.1.0 installed from its GitHub release updated itself to v0.1.1 on first start, with no uninstall (earlier, against a local feed only: 0.1.0 → 0.1.1 → 0.1.2)
 - [ ] Sign the Windows installer, so SmartScreen stops warning on first install
 
 ## Blocked

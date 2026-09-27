@@ -283,6 +283,6 @@ That means the next phase has to be decided rather than read off. Three things a
 
 - ~~`npm run db:migrate` exits 1~~ — explained 2026-09-27: migration 0009 was generated twice, and a database migrated between the two recorded the first generation's timestamp (`1789838075780`) in `drizzle.__drizzle_migrations`. The journal says `1789840671156`, and drizzle decides what is pending by timestamp, not hash, so it re-ran 0009 and failed on its existing column. The fix is per database: set that row's `created_at` to the journal's `when` (the SQL hash already matches). A fresh database, as in CI, never has the problem.
 - **The detectors have never been run against a large real site.** `npm run analyze -- <url>` works, but coverage proven by fixtures is not coverage proven by the web, and a detector that reports `error` on real markup is indistinguishable from one that is merely unimplemented until someone looks.
-- **Nothing has been cut as a release.** There is no version, no changelog and no published package.
+- ~~**Nothing has been cut as a release.**~~ — done 2026-09-27: the desktop app is released from `master` by version bump (v0.1.0, v0.1.1 on GitHub Releases), and an installed copy updating itself from GitHub was confirmed 2026-09-28. There is still no changelog and no published npm package.
 
 Add whichever of these is next as a checkbox under a new phase heading before starting it.

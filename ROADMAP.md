@@ -2,7 +2,7 @@
 
 ## Status
 Phases 0-8 are built, with all 134 of v5.0's detectors. Phase 9 proves them against real sites instead of fixtures.
-Last updated: 2026-09-28 (Phase 10: app icon)
+Last updated: 2026-09-28 (Phase 11: dedicated GUI planned, designer brief written)
 
 ## Phase 0 — Foundation ✅
 - [x] Create monorepo structure with TypeScript workspace packages
@@ -241,6 +241,16 @@ Every v5.0 detector not yet implemented has its own line below, preceded by the 
 - [x] Give the app an icon (`apps/desktop/build/icon.ico`, drawn by `apps/desktop/scripts/make-icon.py`): on the exe, the installer and its shortcuts, and on the window when run from a checkout
 - [x] Publish the first release, v0.1.0, by merging this phase (first attempt on 2026-09-27 published a release missing its installer and `latest.yml`; see Decisions), and confirm an installed copy updates from GitHub. Confirmed 2026-09-28: v0.1.0 installed from its GitHub release updated itself to v0.1.1 on first start, with no uninstall (earlier, against a local feed only: 0.1.0 → 0.1.1 → 0.1.2)
 - [ ] Sign the Windows installer, so SmartScreen stops warning on first install
+
+## Phase 11 — Dedicated GUI
+- [x] Write the designer handoff brief (https://claude.ai/artifact/85AzEoDNqxt4njBu6HoCDz, 2026-09-28): users, audit pipeline, objects, every state a screen shows, the rules the UI must keep, today's dashboard and its gaps, the API surface
+- [ ] Settle the brief's open questions before design starts: single user or several (a typed name versus a signed-in identity on attestations), whether there is a customer-facing report, forms versus YAML upload for supplied evidence and releases, and a visual identity
+- [ ] Serve the corpus over the API (`GET /corpus/:version`): each check's task, What to do, Done when, phase, priority, launch gate, owners, automation tier and sources, plus the site flags it knows (`knownFlags`), so the GUI can show check titles instead of bare ids and offer flags as a picker
+- [ ] Cancel an audit over the API (`POST /audits/:id/cancel`, through `scheduler.cancel`): the engine supports it and no endpoint does
+- [ ] Report live crawl progress on `GET /audits/:id`: pages fetched so far against the page budget, not only status and queue state
+- [ ] Read releases and review runs back over the API: today `POST /releases` imports them and nothing reads them
+- [ ] Show a first-run state in the desktop app when Postgres is unreachable, with a place to set `DATABASE_URL`, instead of an empty site list
+- [ ] Choose the GUI's stack once designs arrive (keep plain JS, or bring a framework and component library) and record the choice under Decisions
 
 ## Blocked
 - 2026-09-20 (resolved): both tasks named below are done and ticked; the entry stays because the history is the value.

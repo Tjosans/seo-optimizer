@@ -239,7 +239,7 @@ Every v5.0 detector not yet implemented has its own line below, preceded by the 
 - [x] Install per-user with a one-click NSIS installer and update in place from GitHub Releases (electron-updater): download in the background, restart itself once no audit is running
 - [x] Publish a release from CI whenever `master` carries a version with no release yet (`.github/workflows/release.yml`), so shipping an update is bumping the version in a PR
 - [ ] Give the app an icon (`apps/desktop/build/icon.ico`); it ships Electron's default today
-- [ ] Publish the first release, v0.1.0, by merging this phase, and confirm an installed copy updates from GitHub (verified so far only against a local feed: 0.1.0 → 0.1.1 → 0.1.2, silent install and relaunch)
+- [ ] Publish the first release, v0.1.0, by merging this phase (first attempt on 2026-09-27 published a release missing its installer and `latest.yml`; see Decisions), and confirm an installed copy updates from GitHub (verified so far only against a local feed: 0.1.0 → 0.1.1 → 0.1.2, silent install and relaunch)
 - [ ] Sign the Windows installer, so SmartScreen stops warning on first install
 
 ## Blocked
@@ -247,6 +247,7 @@ Every v5.0 detector not yet implemented has its own line below, preceded by the 
 - 2026-09-19: "Carry `AuditInputs` through a real audit" waits on "Add supplied evidence to the probe context" (itself blocked after 3 attempts): `AuditInputs`, `parseInputs` and `SiteContext.inputs` do not exist yet, and this task only wires them through `audits.inputs`, `submit`, `runAudit` and `POST /audits`. Unblock the first task, then retry this one (superseded the same day: the first task was never genuinely blocked, see the entry above on truncated prompts; both are open again)
 
 ## Decisions
+- 2026-09-27: `release.yml` creates each release as a draft before the build and publishes it only once the installer, its blockmap and `latest.yml` are all on it. Left to create the release itself, electron-builder ran two GitHub publishers that both tried; one created v0.1.0 with only the blockmap, the other failed with 422, and a published release with no `latest.yml` is one every installed copy would read as an update error. A failed run now leaves a draft, which the next run finishes.
 - 2026-09-27: MinIO now comes from `cgr.dev/chainguard/minio`, run as root, in CI and docker-compose. MinIO's own images stopped serving anonymous pulls: quay.io answers 401, and Docker Hub's `minio/minio` is gone. That failed CI's MinIO step on every branch. The Chainguard image runs as a non-root user that cannot write its data directory, hence `--user 0`.
 - 2026-09-27: Chose Electron over a Tauri or native shell for the desktop app. The API, scheduler and crawler are Node, and Electron runs them in its main process unchanged, where any other shell would need a Node sidecar. electron-updater gives in-place updates from GitHub Releases, which is what "push an update and it restarts itself" asks for.
 - 2026-09-27: Releases are cut by a version bump on `master`, not by pushing a tag. `master` only moves through PRs, so the version change is reviewed and CI-gated like any other, and a tag cannot drift from the code it names.

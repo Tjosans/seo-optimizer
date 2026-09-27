@@ -160,6 +160,9 @@ function createWindow(url: string): BrowserWindow {
   const title = `${PRODUCT} v${app.getVersion()}`;
   const win = new BrowserWindow({
     title,
+    // Installed, the window takes the exe's icon; from a checkout, Electron's
+    // own would show in the taskbar instead.
+    ...(app.isPackaged ? {} : { icon: join(here, '..', 'build', 'icon.png') }),
     width: 1360,
     height: 900,
     minWidth: 800,

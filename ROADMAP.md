@@ -243,7 +243,7 @@ Every v5.0 detector not yet implemented has its own line below, preceded by the 
 - [ ] Sign the Windows installer, so SmartScreen stops warning on first install
 
 ## Phase 11 — Dedicated GUI
-- [x] Write the designer handoff brief (https://claude.ai/artifact/85AzEoDNqxt4njBu6HoCDz, 2026-09-28): users, audit pipeline, objects, every state a screen shows, the rules the UI must keep, today's dashboard and its gaps, the API surface
+- [x] Write the designer handoff brief (https://claude.ai/artifact/85AzEoDNqxt4njBu6HoCDz, 2026-09-28; a PDF copy for sharing without the link at `docs/SEO-Optimizer-GUI-Brief.pdf`): users, audit pipeline, objects, every state a screen shows, the rules the UI must keep, today's dashboard and its gaps, the API surface
 - [ ] Settle the brief's open questions before design starts: single user or several (a typed name versus a signed-in identity on attestations), whether there is a customer-facing report, forms versus YAML upload for supplied evidence and releases, and a visual identity
 - [ ] Serve the corpus over the API (`GET /corpus/:version`): each check's task, What to do, Done when, phase, priority, launch gate, owners, automation tier and sources, plus the site flags it knows (`knownFlags`), so the GUI can show check titles instead of bare ids and offer flags as a picker
 - [ ] Cancel an audit over the API (`POST /audits/:id/cancel`, through `scheduler.cancel`): the engine supports it and no endpoint does

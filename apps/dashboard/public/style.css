@@ -142,3 +142,6 @@ tbody tr:hover { background: color-mix(in srgb, currentColor 6%, transparent); }
 }
 .version-badge:has(#version-text:empty):has(#update-text.hidden) { display: none; }
 .version-badge button { font-size: 0.75rem; padding: 0.1rem 0.5rem; }
+/* An update waiting to be installed is the one thing here worth noticing. */
+#update-restart { color: #fff; background: var(--pass); border: 0; border-radius: 999px; padding: 0.2rem 0.7rem; font-weight: 600; cursor: pointer; }
+#update-restart:hover { filter: brightness(1.1); }

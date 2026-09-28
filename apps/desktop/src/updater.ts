@@ -2,15 +2,15 @@
  * Self-update from GitHub Releases.
  *
  * The installed app asks the repository's latest release whether a newer
- * version exists, downloads it in the background, and restarts itself into it
- * — no uninstall, no installer to click through. The window stays up until
- * the installer is ready to replace the files and closes it; the installer's
- * own progress window covers the few seconds until the new version opens, so
- * there is never a moment with nothing on screen. What it will not do is pull
- * the rug from under a crawl: while an audit is queued or running it holds
- * the downloaded update and says so, and installs the moment the queue is
- * empty. "Restart now" skips the wait; the audit is in the job store and
- * resumes on the next start.
+ * version exists and downloads it in the background. It never installs on its
+ * own: the version badge says the update is ready and offers a button, and
+ * the person decides when. Pressed, it restarts into the new version — no
+ * uninstall, no installer to click through. The window stays up until the
+ * installer is ready to replace the files and closes it; the installer's own
+ * progress window covers the few seconds until the new version opens, so
+ * there is never a moment with nothing on screen. Pressed while an audit is
+ * queued or running, it asks first; the audit is in the job store and resumes
+ * on the next start either way.
  *
  * Publishing is CI's job (`.github/workflows/release.yml`): a version on
  * `master` with no release yet is built and released, and every installed
@@ -31,20 +31,19 @@ export type UpdateStatus =
   | { readonly state: 'up-to-date' }
   | { readonly state: 'available'; readonly version: string }
   | { readonly state: 'downloading'; readonly version: string; readonly percent: number }
-  | { readonly state: 'waiting-for-idle'; readonly version: string }
+  | { readonly state: 'ready'; readonly version: string }
   | { readonly state: 'restarting'; readonly version: string }
   | { readonly state: 'error'; readonly message: string };
 
 export interface UpdaterOptions {
   readonly log: Logger;
-  /** True when no audit is queued or running, so a restart costs nothing. */
+  /** True when no audit is queued or running, so a restart interrupts nothing. */
   readonly isIdle: () => boolean;
   /** Told of every change, to pass on to the page's version badge. */
   readonly onStatus: (status: UpdateStatus) => void;
 }
 
 const CHECK_EVERY_MS = 60 * 60 * 1000;
-const IDLE_POLL_MS = 15 * 1000;
 /**
  * The installer says when it is ready to replace the files, and the app says
  * when the new version's window is up, each by writing a file into %TEMP%
@@ -74,7 +73,7 @@ export function announceStarted(log: Logger): void {
 export interface Updater {
   /** Checks now. `manual` answers "you are up to date" in a dialog too. */
   check(manual?: boolean): void;
-  /** Installs a downloaded update without waiting for the queue to empty. */
+  /** Installs the downloaded update, asking first if an audit would be cut short. */
   restartNow(): void;
 }
 
@@ -90,15 +89,14 @@ export function startUpdater(options: UpdaterOptions): Updater {
 
   autoUpdater.logger = log;
   autoUpdater.autoDownload = true;
-  // If the app is closed before the wait for an idle queue ends, the
-  // downloaded update still goes in on the way out.
-  autoUpdater.autoInstallOnAppQuit = true;
+  // Installing is the person's call, including on the way out: an update
+  // that went in silently on quit would be one they never chose.
+  autoUpdater.autoInstallOnAppQuit = false;
 
   let downloaded: string | null = null;
   // `download-progress` carries no version; remember the one announced.
   let pendingVersion = '';
   let manualCheck = false;
-  let idleTimer: NodeJS.Timeout | undefined;
 
   autoUpdater.on('checking-for-update', () => onStatus({ state: 'checking' }));
   autoUpdater.on('update-not-available', () => {
@@ -121,7 +119,8 @@ export function startUpdater(options: UpdaterOptions): Updater {
   });
   autoUpdater.on('update-downloaded', (info) => {
     downloaded = info.version;
-    installWhenIdle();
+    log.info(`updater: v${info.version} downloaded, waiting to be told to install`);
+    onStatus({ state: 'ready', version: info.version });
   });
   autoUpdater.on('error', (error) => {
     log.error('updater:', error);
@@ -132,21 +131,27 @@ export function startUpdater(options: UpdaterOptions): Updater {
     }
   });
 
-  function installWhenIdle(): void {
-    if (downloaded === null) return;
-    clearTimeout(idleTimer);
+  async function confirmThenRestart(version: string): Promise<void> {
     if (!isIdle()) {
-      onStatus({ state: 'waiting-for-idle', version: downloaded });
-      idleTimer = setTimeout(installWhenIdle, IDLE_POLL_MS);
-      return;
+      const { response } = await dialog.showMessageBox({
+        type: 'question',
+        title: 'SEO Optimizer',
+        message: `Install v${version} now?`,
+        detail:
+          'An audit is queued or running. The app restarts to install the update, ' +
+          'and the audit picks up again once it is back.',
+        buttons: ['Install now', 'Later'],
+        defaultId: 0,
+        cancelId: 1,
+      });
+      if (response !== 0) return;
     }
-    restartInto(downloaded);
+    restartInto(version);
   }
 
   let handingOver = false;
 
   function restartInto(version: string): void {
-    clearTimeout(idleTimer);
     if (handingOver) return;
     onStatus({ state: 'restarting', version });
     log.info(`updater: installing v${version}`);
@@ -185,12 +190,16 @@ export function startUpdater(options: UpdaterOptions): Updater {
   };
 
   check();
-  setInterval(check, CHECK_EVERY_MS).unref();
+  // Once an update is waiting, the hourly check would only replace its
+  // button with "checking…" for a moment. A manual check still runs.
+  setInterval(() => {
+    if (downloaded === null) check();
+  }, CHECK_EVERY_MS).unref();
 
   return {
     check,
     restartNow: () => {
-      if (downloaded !== null) restartInto(downloaded);
+      if (downloaded !== null) void confirmThenRestart(downloaded);
     },
   };
 }

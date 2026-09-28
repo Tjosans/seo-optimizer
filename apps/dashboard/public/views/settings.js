@@ -38,7 +38,7 @@ export async function settingsView(root) {
   const paintUpdate = () => {
     const status = window.seoUpdateStatus;
     if (!window.seoDesktop) update.textContent = 'Updates are handled by the desktop app. This is the browser dashboard.';
-    else update.textContent = (status && updateMessage(status)) ?? 'Up to date. The app checks for a new version on start and every hour.';
+    else update.textContent = (status && updateMessage(status)) ?? 'Up to date. The app checks for a new version on start and every hour, and installs one only when you press its Update button.';
   };
   const onUpdate = () => paintUpdate();
   window.addEventListener('seo-update-status', onUpdate);

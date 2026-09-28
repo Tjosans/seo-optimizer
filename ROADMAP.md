@@ -2,7 +2,7 @@
 
 ## Status
 Phases 0-8 are built, with all 134 of v5.0's detectors. Phase 9 proves them against real sites instead of fixtures.
-Last updated: 2026-09-28 (Phase 10: updates keep a window on screen throughout)
+Last updated: 2026-09-28 (Phase 10: updates keep a window on screen throughout; Phase 11: dedicated GUI planned, designer brief written)
 
 ## Phase 0 — Foundation ✅
 - [x] Create monorepo structure with TypeScript workspace packages

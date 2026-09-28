@@ -2,7 +2,7 @@
 
 ## Status
 Phases 0-8 are built, with all 134 of v5.0's detectors. Phase 9 proves them against real sites instead of fixtures.
-Last updated: 2026-09-28 (Phase 11: dedicated GUI planned, designer brief written)
+Last updated: 2026-09-28 (Phase 10: updates keep a window on screen throughout)
 
 ## Phase 0 — Foundation ✅
 - [x] Create monorepo structure with TypeScript workspace packages
@@ -240,6 +240,7 @@ Every v5.0 detector not yet implemented has its own line below, preceded by the 
 - [x] Publish a release from CI whenever `master` carries a version with no release yet (`.github/workflows/release.yml`), so shipping an update is bumping the version in a PR
 - [x] Give the app an icon (`apps/desktop/build/icon.ico`, drawn by `apps/desktop/scripts/make-icon.py`): on the exe, the installer and its shortcuts, and on the window when run from a checkout
 - [x] Publish the first release, v0.1.0, by merging this phase (first attempt on 2026-09-27 published a release missing its installer and `latest.yml`; see Decisions), and confirm an installed copy updates from GitHub. Confirmed 2026-09-28: v0.1.0 installed from its GitHub release updated itself to v0.1.1 on first start, with no uninstall (earlier, against a local feed only: 0.1.0 → 0.1.1 → 0.1.2)
+- [x] Keep something on screen through an update: the app stays open until the installer is ready to replace its files, the installer's progress window covers the install, and it steps aside only once the new version's window is up (`apps/desktop/build/installer.nsh`; measured 2026-09-28 against a local feed: installer window over the app at 0.6 s, app closed at 1.0 s, new window at 11.8 s, never an empty screen; an old-code 0.8.0 still updated into it, silently, in 29 s)
 - [ ] Sign the Windows installer, so SmartScreen stops warning on first install
 
 ## Phase 11 — Dedicated GUI
@@ -257,6 +258,7 @@ Every v5.0 detector not yet implemented has its own line below, preceded by the 
 - 2026-09-19: "Carry `AuditInputs` through a real audit" waits on "Add supplied evidence to the probe context" (itself blocked after 3 attempts): `AuditInputs`, `parseInputs` and `SiteContext.inputs` do not exist yet, and this task only wires them through `audits.inputs`, `submit`, `runAudit` and `POST /audits`. Unblock the first task, then retry this one (superseded the same day: the first task was never genuinely blocked, see the entry above on truncated prompts; both are open again)
 
 ## Decisions
+- 2026-09-28: An update hands over through two files in %TEMP% (`<exe>.update-close`, `<exe>.update-started`), not by the installer listing processes. The stock electron-builder check starts Windows PowerShell up to five times, and `tasklist`, tried first, took 1.5 to 4 s a call on this machine, so a ten-second wait loop ran for 80 s. Whether any process still runs the app is read instantly instead, by opening the exe for writing, which Windows refuses while it runs. The stock check remains the fallback, for an app that sends no signal and for installing by hand. A failed run of the old version's uninstaller no longer abandons the update (`customUnInstallCheck`): the stock handling gave up after five tries when Windows still listed an exited process, leaving the old version installed, while the new files overwrite the old ones regardless. The first update out of 0.1.2 still goes the old way (silent, no window for about 30 s), because 0.1.2's updater and uninstaller do the quitting.
 - 2026-09-27: `release.yml` creates each release as a draft before the build and publishes it only once the installer, its blockmap and `latest.yml` are all on it. Left to create the release itself, electron-builder ran two GitHub publishers that both tried; one created v0.1.0 with only the blockmap, the other failed with 422, and a published release with no `latest.yml` is one every installed copy would read as an update error. A failed run now leaves a draft, which the next run finishes.
 - 2026-09-27: MinIO now comes from `cgr.dev/chainguard/minio`, run as root, in CI and docker-compose. MinIO's own images stopped serving anonymous pulls: quay.io answers 401, and Docker Hub's `minio/minio` is gone. That failed CI's MinIO step on every branch. The Chainguard image runs as a non-root user that cannot write its data directory, hence `--user 0`.
 - 2026-09-27: Chose Electron over a Tauri or native shell for the desktop app. The API, scheduler and crawler are Node, and Electron runs them in its main process unchanged, where any other shell would need a Node sidecar. electron-updater gives in-place updates from GitHub Releases, which is what "push an update and it restarts itself" asks for.

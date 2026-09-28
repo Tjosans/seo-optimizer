@@ -1,7 +1,7 @@
 /**
  * The one bridge between the dashboard page and the desktop shell. The page
  * runs sandboxed with no Node access; all it may do is hear how the
- * self-updater is getting on and ask it to restart now instead of waiting.
+ * self-updater is getting on and ask it to install a downloaded update.
  * The browser dashboard has no `window.seoDesktop` and shows no update line.
  */
 

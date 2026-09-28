@@ -26,12 +26,13 @@ function showUpdate(status) {
     'up-to-date': null,
     available: `v${status.version} found, downloading…`,
     downloading: `downloading v${status.version} — ${Math.round(status.percent ?? 0)}%`,
-    'waiting-for-idle': `v${status.version} ready — installs when the running audit finishes`,
+    ready: `v${status.version} is ready to install`,
     restarting: `installing v${status.version} — reopens by itself`,
     error: 'update check failed',
   };
   const message = messages[status.state] ?? null;
   updateText.textContent = message ?? '';
   updateText.classList.toggle('hidden', message === null);
-  restartButton.classList.toggle('hidden', status.state !== 'waiting-for-idle');
+  if (status.state === 'ready') restartButton.textContent = `Update to v${status.version}`;
+  restartButton.classList.toggle('hidden', status.state !== 'ready');
 }

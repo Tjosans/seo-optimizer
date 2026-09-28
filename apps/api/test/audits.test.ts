@@ -93,7 +93,7 @@ describe.skipIf(!url)('audit lifecycle', () => {
     const statusRes = await req(`/audits/${body.auditId}`);
     expect(statusRes.status).toBe(200);
     const status = await statusRes.json();
-    expect(status).toMatchObject({ id: body.auditId, status: 'pending', corpusVersion: '4.4' });
+    expect(status).toMatchObject({ id: body.auditId, status: 'pending', corpusVersion: '4.4', crawl: null });
     expect(status.queue).toMatchObject({ state: 'queued', attempt: 0 });
 
     const readinessRes = await req(`/audits/${body.auditId}/readiness`);
@@ -103,6 +103,49 @@ describe.skipIf(!url)('audit lifecycle', () => {
     // The scheduler stays paused for every test but the last; leaving this
     // job queued would have it compete with that one once resumed.
     await scheduler.cancel(body.auditId);
+  });
+
+  it('cancels a queued audit, 202, and refuses to cancel it twice, 409', async () => {
+    const { auditId } = await (await post({ siteId, corpusVersion: '4.4' })).json();
+
+    const res = await req(`/audits/${auditId}/cancel`, { method: 'POST' });
+    expect(res.status).toBe(202);
+    expect(await res.json()).toEqual({ auditId, status: 'cancelled' });
+    expect((await (await req(`/audits/${auditId}`)).json()).status).toBe('cancelled');
+
+    const again = await req(`/audits/${auditId}/cancel`, { method: 'POST' });
+    expect(again.status).toBe(409);
+    expect((await again.json()).error).toMatch(/already cancelled/);
+  });
+
+  it('404s a cancel for an unknown audit, and 503s one without a scheduler', async () => {
+    const missing = '00000000-0000-0000-0000-000000000000';
+    expect((await req(`/audits/${missing}/cancel`, { method: 'POST' })).status).toBe(404);
+    expect((await fetch(`${noSchedulerBase}/audits/${missing}/cancel`, { method: 'POST' })).status).toBe(503);
+  });
+
+  it('lists audits across sites, newest first, with the site each belongs to', async () => {
+    const first = (await (await post({ siteId, corpusVersion: '4.4' })).json()).auditId;
+    const second = (await (await post({ siteId, corpusVersion: '4.4' })).json()).auditId;
+    await scheduler.cancel(first);
+    await scheduler.cancel(second);
+
+    // Other test files write audits to the same database at the same time,
+    // so this reads a wide page and looks at its own two.
+    const res = await req('/audits?limit=100');
+    expect(res.status).toBe(200);
+    const { audits: rows } = await res.json();
+    const times = rows.map((a: { createdAt: string }) => Date.parse(a.createdAt));
+    expect(times).toEqual([...times].sort((a, b) => b - a));
+    const mine = rows.filter((a: { siteId: string }) => a.siteId === siteId);
+    expect(mine.map((a: { id: string }) => a.id)).toEqual([second, first]);
+    expect(mine[0]).toMatchObject({ siteId, siteName: 'api audits fixture', siteOrigin: fixture.origin });
+    expect(mine[0]).not.toHaveProperty('checks');
+
+    expect((await (await req('/audits?limit=1')).json()).audits).toHaveLength(1);
+
+    expect((await req('/audits?limit=0')).status).toBe(400);
+    expect((await req('/audits?limit=many')).status).toBe(400);
   });
 
   it('refuses a missing siteId or corpusVersion, 400 naming both', async () => {
@@ -183,6 +226,9 @@ describe.skipIf(!url)('audit lifecycle', () => {
     const status = await statusRes.json();
     expect(status.status).toBe('complete');
     expect(status.finishedAt).not.toBeNull();
+    expect(status.crawl).toMatchObject({ status: 'complete', maxPages: 5 });
+    expect(status.crawl.pagesFetched).toBeGreaterThan(0);
+    expect(status.crawl.pagesFetched).toBeLessThanOrEqual(5);
 
     scheduler.pause();
   });

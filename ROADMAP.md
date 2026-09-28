@@ -2,7 +2,7 @@
 
 ## Status
 Phases 0-8 are built, with all 134 of v5.0's detectors. Phase 9 proves them against real sites instead of fixtures.
-Last updated: 2026-09-28 (Phase 10: updates keep a window on screen throughout; Phase 11: dedicated GUI planned, designer brief written)
+Last updated: 2026-09-28 (Phase 10: updates keep a window on screen throughout; Phase 11: the GUI built from the brief and mockup, with the corpus, audit list, cancel and crawl progress served over the API)
 
 ## Phase 0 — Foundation ✅
 - [x] Create monorepo structure with TypeScript workspace packages
@@ -246,12 +246,15 @@ Every v5.0 detector not yet implemented has its own line below, preceded by the 
 ## Phase 11 — Dedicated GUI
 - [x] Write the designer handoff brief (https://claude.ai/artifact/85AzEoDNqxt4njBu6HoCDz, 2026-09-28; a PDF copy for sharing without the link at `docs/SEO-Optimizer-GUI-Brief.pdf`): users, audit pipeline, objects, every state a screen shows, the rules the UI must keep, today's dashboard and its gaps, the API surface
 - [ ] Settle the brief's open questions before design starts: single user or several (a typed name versus a signed-in identity on attestations), whether there is a customer-facing report, forms versus YAML upload for supplied evidence and releases, and a visual identity
-- [ ] Serve the corpus over the API (`GET /corpus/:version`): each check's task, What to do, Done when, phase, priority, launch gate, owners, automation tier and sources, plus the site flags it knows (`knownFlags`), so the GUI can show check titles instead of bare ids and offer flags as a picker
-- [ ] Cancel an audit over the API (`POST /audits/:id/cancel`, through `scheduler.cancel`): the engine supports it and no endpoint does
-- [ ] Report live crawl progress on `GET /audits/:id`: pages fetched so far against the page budget, not only status and queue state
+- [x] Serve the corpus over the API (`GET /corpus/:version`): each check's task, What to do, Done when, phase, priority, launch gate, owners, automation tier and sources, plus the site flags it knows (`knownFlags`), so the GUI can show check titles instead of bare ids and offer flags as a picker
+- [x] Cancel an audit over the API (`POST /audits/:id/cancel`, through `scheduler.cancel`): the engine supports it and no endpoint does
+- [x] Report live crawl progress on `GET /audits/:id`: pages fetched so far against the page budget, not only status and queue state
 - [ ] Read releases and review runs back over the API: today `POST /releases` imports them and nothing reads them
 - [ ] Show a first-run state in the desktop app when Postgres is unreachable, with a place to set `DATABASE_URL`, instead of an empty site list
-- [ ] Choose the GUI's stack once designs arrive (keep plain JS, or bring a framework and component library) and record the choice under Decisions
+- [x] Choose the GUI's stack once designs arrive (keep plain JS, or bring a framework and component library) and record the choice under Decisions
+- [x] Build the GUI from the brief and the dashboard mockup (2026-09-28): an app shell with sidebar navigation and hash routes; Dashboard (latest audit and verdict, progress rings per lifecycle phase, recent audits, checks by automation tier, checks needing attention, quick actions); Sites (list, add/edit with a flag picker from `knownFlags` and an AI crawler policy editor, delete with a confirm step, readiness trend, history); Audits (every audit across sites, cancel); an audit's results (verdict and why, cutover and blockers, phase rings that filter, the check workspace with filters, evidence and the decision form); the methodology browser; Compare; Settings (theme, database status, version and updates). Light and dark. Also `GET /audits` (every site's audits, newest first) for the front page
+- [ ] Validate `origin` in `parseSiteInput` (`apps/api/src/sites.ts`): `POST /sites` accepts `example.com/path` as an origin today, which no crawl can seed from; refuse anything that is not `scheme://host[:port]`, listed with the other problems
+- [ ] Decide what "Reports" is (the mockup's nav item, and the brief's open question on a customer-facing report) before building a screen for it; the GUI ships without one
 
 ## Blocked
 - 2026-09-20 (resolved): both tasks named below are done and ticked; the entry stays because the history is the value.
@@ -608,3 +611,5 @@ Every v5.0 detector not yet implemented has its own line below, preceded by the 
 - 2026-09-20: `runAudit` probes a release audit twice (only when a previous audit exists): a first pass is graded to learn which gates fail now, then probes re-run with `SiteContext.gates`; gate history is otherwise circular (verdicts need probe runs).
 - 2026-09-20: `release-regression-review` reads gate history from a new `SiteContext.gates` (probes cannot see check states); absent it reports `error`, and a regressed gate with a `reopened` run passes since the review happened.
 - 2026-09-20: `a11y-regression-sampling` compares only pages with axe results in both audits (new `PreviousPage.axe`, snapshotted from the render; null = axe not run or failed, absent = unrecorded, as with snapshots rebuilt from the database); a page new to this crawl is not a regression, and "rising" counts serious violation ids across the compared pages.
+- 2026-09-28: The GUI stays plain browser JS modules with no framework and no build step (`apps/dashboard/public/{app.js,lib/,views/}`), with hash routes and one hand-written stylesheet of light/dark tokens. The desktop app ships `public/` as-is (`extraResources`), so a build step would add packaging work for no gain at this size; revisit if the screens outgrow it.
+- 2026-09-28: The GUI reads why a check sits where it does (awaiting confirmation, held by a warning) from the first word of its evidence line, because `check_states` does not store the grader's `basis`; store it if that wording ever changes.

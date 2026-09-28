@@ -52,7 +52,7 @@ describe('dashboard server', () => {
     const res = await fetch(`${base}/`);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('text/html');
-    expect(await res.text()).toContain('seo-optimizer dashboard');
+    expect(await res.text()).toContain('<title>SEO Optimizer</title>');
   });
 
   it('serves a static asset with the right content type', async () => {

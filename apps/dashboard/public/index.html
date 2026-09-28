@@ -3,105 +3,41 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>seo-optimizer dashboard</title>
+<title>SEO Optimizer</title>
+<script>
+  // The theme choice from Settings, applied before first paint.
+  try {
+    const theme = localStorage.getItem('seo-theme');
+    if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+  } catch {}
+</script>
 <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-<header>
-  <h1>seo-optimizer</h1>
-  <p class="sub">audit results &amp; historical trend</p>
-</header>
-
-<main>
-  <section id="sites-panel">
-    <h2>Sites</h2>
-    <ul id="site-list" class="site-list"><li class="empty">Loading&hellip;</li></ul>
-  </section>
-
-  <section id="detail-panel" class="hidden">
-    <h2 id="site-name"></h2>
-    <p id="site-origin" class="sub"></p>
-
-    <h3>Readiness trend</h3>
-    <div id="trend-chart"></div>
-
-    <h3>Audit history</h3>
-    <table id="audit-table">
-      <thead>
-        <tr><th>Date</th><th>Corpus</th><th>Status</th><th>Decision</th><th>Overall</th></tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-
-    <div id="result-panel" class="hidden">
-      <h3>Check results — <span id="result-audit-id"></span></h3>
-      <table id="checks-table">
-        <thead>
-          <tr><th>Check</th><th>Applicability</th><th>Status</th><th>Coverage</th><th>Evidence</th></tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-
-      <div id="evidence-panel" class="hidden">
-        <h3>Probe evidence — <span id="evidence-check-id"></span></h3>
-        <ul id="evidence-list"></ul>
-      </div>
-
-      <div id="attest-panel" class="hidden">
-        <h3>Attest — <span id="attest-check-id"></span></h3>
-        <form id="attest-form">
-          <label>Attested by
-            <input id="attest-by" type="text" required />
-          </label>
-          <label>Status
-            <select id="attest-status" required>
-              <option value="passed">passed</option>
-              <option value="failed">failed</option>
-              <option value="in-progress">in-progress</option>
-              <option value="skipped">skipped</option>
-              <option value="not-started">not-started</option>
-            </select>
-          </label>
-          <label>Applicability
-            <select id="attest-applicability">
-              <option value="yes">yes</option>
-              <option value="no">no</option>
-              <option value="review">review</option>
-            </select>
-          </label>
-          <label id="attest-rationale-label" class="hidden">Rationale (required when not applicable)
-            <input id="attest-rationale" type="text" />
-          </label>
-          <label>Statement
-            <textarea id="attest-statement" rows="3" required></textarea>
-          </label>
-          <label>Expires
-            <input id="attest-expires" type="date" required />
-          </label>
-          <button id="attest-submit" type="submit">Record attestation</button>
-        </form>
-        <p id="attest-message"></p>
-      </div>
-
-      <div id="compare-panel">
-        <h3>Compare with&hellip;</h3>
-        <div class="compare-controls">
-          <select id="compare-site-select"></select>
-          <select id="compare-audit-select" disabled></select>
-          <button id="compare-button" type="button" disabled>Compare</button>
-        </div>
-        <div id="compare-result"></div>
-      </div>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 4a6.5 6.5 0 1 0 0 13a6.5 6.5 0 1 0 0-13"/><path d="m20 20-4.8-4.8"/><path d="m7.8 10.6 2 2 3.6-4"/></svg>
+      </span>
+      <span class="brand-name">SEO Optimizer</span>
+      <span id="version-text" class="ver"></span>
     </div>
-  </section>
-</main>
-
-<footer id="version-badge" class="version-badge" aria-live="polite">
-  <span id="version-text"></span>
-  <span id="update-text" class="hidden"></span>
-  <button id="update-restart" type="button" class="hidden">Restart now</button>
-</footer>
-
+    <nav id="nav" class="nav" aria-label="Main"></nav>
+    <div class="side-foot">
+      <footer id="version-badge" class="update" aria-live="polite" hidden>
+        <span id="update-text"></span>
+        <div class="bar" id="update-bar" hidden><span></span></div>
+        <button id="update-restart" type="button" class="btn small primary" hidden>Restart now</button>
+      </footer>
+      <div id="methodology" class="method"></div>
+    </div>
+  </aside>
+  <div class="main">
+    <main id="view" class="view" tabindex="-1"></main>
+  </div>
+</div>
+<div id="toasts" class="toasts" aria-live="polite"></div>
 <script type="module" src="/app.js"></script>
 <script type="module" src="/version.js"></script>
 </body>

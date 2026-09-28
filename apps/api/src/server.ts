@@ -27,14 +27,26 @@
  * `check_evidence` to the `probe_results` rows behind it — probe, outcome,
  * the structured observation, and the page it was read from — the way
  * `recordGrade` (@seo/grader) wrote them.
+ *
+ * `GET /audits` is every site's audits at once, newest first, with the site
+ * each belongs to — the "what ran lately" a front page opens on — and
+ * `POST /audits/:id/cancel` is `scheduler.cancel` over HTTP. `GET /audits/:id`
+ * also reports the crawl under way: pages persisted so far against the page
+ * budget that crawl was given.
+ *
+ * `GET /corpus` (the current version) and `GET /corpus/:version` serve the
+ * methodology itself — every check's task, requirement, test, phase, owners
+ * and tier, and the site flags the version recognises — so a client can show
+ * check titles and offer flags as a picker instead of free text. No database.
  */
 
 import { createServer as createHttpServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, count, desc, eq } from 'drizzle-orm';
 import type { Corpus } from '@seo/core';
 import type { Database } from '@seo/db';
-import { audits, checkEvidence, checkStates, pages, probeResults, sites } from '@seo/db';
+import { knownFlags } from '@seo/corpus';
+import { audits, checkEvidence, checkStates, crawls, pages, probeResults, sites } from '@seo/db';
 import {
   InvalidAttestationError,
   ReleaseFileError,
@@ -107,8 +119,23 @@ async function handle(req: IncomingMessage, res: ServerResponse, options: ApiSer
       return;
     }
   }
-  if (req.method === 'POST' && path === '/audits') {
-    await postAudit(req, res, options);
+  if (req.method === 'GET' && (path === '/corpus' || path.startsWith('/corpus/'))) {
+    getCorpus(res, options, path === '/corpus' ? undefined : decodeURIComponent(path.slice('/corpus/'.length)));
+    return;
+  }
+  if (path === '/audits') {
+    if (req.method === 'POST') {
+      await postAudit(req, res, options);
+      return;
+    }
+    if (req.method === 'GET') {
+      await listAudits(req, res, options);
+      return;
+    }
+  }
+  const cancelMatch = /^\/audits\/([^/]+)\/cancel$/.exec(path);
+  if (cancelMatch && req.method === 'POST') {
+    await cancelAudit(res, options, decodeURIComponent(cancelMatch[1]!));
     return;
   }
   const attestationMatch = /^\/audits\/([^/]+)\/attestations$/.exec(path);
@@ -366,7 +393,136 @@ async function getAudit(res: ServerResponse, options: ApiServerOptions, id: stri
   send(res, 200, {
     ...row,
     queue: job === undefined ? null : { state: job.state, attempt: job.attempt, priority: job.priority },
+    crawl: await crawlProgress(options.db, id),
   });
+}
+
+/**
+ * The audit's latest crawl, as far as it has got: the pages persisted so far
+ * against the budget it was started with. A retry starts a second crawl under
+ * the same audit, and the latest one is the one running. Null before the
+ * first crawl row is written.
+ */
+async function crawlProgress(
+  db: Database,
+  auditId: string,
+): Promise<{ id: string; status: string; pagesFetched: number; maxPages: number } | null> {
+  const [crawl] = await db
+    .select({ id: crawls.id, status: crawls.status, maxPages: crawls.maxPages })
+    .from(crawls)
+    .where(eq(crawls.auditId, auditId))
+    .orderBy(desc(crawls.createdAt))
+    .limit(1);
+  if (crawl === undefined) return null;
+  const [fetched] = await db.select({ n: count() }).from(pages).where(eq(pages.crawlId, crawl.id));
+  return { ...crawl, pagesFetched: fetched?.n ?? 0 };
+}
+
+const AUDIT_LIST_DEFAULT = 20;
+const AUDIT_LIST_MAX = 100;
+
+/**
+ * Every site's audits, newest first, each with the site it belongs to.
+ * `?limit=` bounds it (default 20, at most 100). No `checkStates` join, for
+ * the reason `listSiteAudits` gives.
+ */
+async function listAudits(req: IncomingMessage, res: ServerResponse, options: ApiServerOptions): Promise<void> {
+  const raw = new URL(req.url ?? '', 'http://localhost').searchParams.get('limit');
+  let limit = AUDIT_LIST_DEFAULT;
+  if (raw !== null) {
+    const parsed = Number(raw);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > AUDIT_LIST_MAX) {
+      send(res, 400, { error: `limit: expected a whole number from 1 to ${AUDIT_LIST_MAX}` });
+      return;
+    }
+    limit = parsed;
+  }
+
+  const rows = await options.db
+    .select({
+      id: audits.id,
+      siteId: audits.siteId,
+      siteName: sites.name,
+      siteOrigin: sites.origin,
+      releaseId: audits.releaseId,
+      corpusVersion: audits.corpusVersion,
+      status: audits.status,
+      startedAt: audits.startedAt,
+      finishedAt: audits.finishedAt,
+      readiness: audits.readiness,
+      error: audits.error,
+      createdAt: audits.createdAt,
+    })
+    .from(audits)
+    .innerJoin(sites, eq(audits.siteId, sites.id))
+    .orderBy(desc(audits.createdAt))
+    .limit(limit);
+  send(res, 200, { audits: rows });
+}
+
+const TERMINAL = new Set(['complete', 'failed', 'cancelled']);
+
+/**
+ * Stop an audit, through `scheduler.cancel`. A queued one reads `cancelled`
+ * at once; a running one keeps reading `running` until its crawl stops after
+ * the request in flight, which is why this answers 202. An audit this process
+ * is not running — finished, or another worker's — is a 409, never a
+ * pretended success.
+ */
+async function cancelAudit(res: ServerResponse, options: ApiServerOptions, id: string): Promise<void> {
+  const scheduler = options.scheduler;
+  if (scheduler === undefined) {
+    send(res, 503, { error: 'no audit scheduler is configured on this server' });
+    return;
+  }
+
+  let row;
+  try {
+    [row] = await options.db.select({ status: audits.status }).from(audits).where(eq(audits.id, id));
+  } catch (error) {
+    if (isInvalidId(error)) {
+      send(res, 400, { error: `invalid audit id: ${id}` });
+      return;
+    }
+    throw error;
+  }
+  if (row === undefined) {
+    send(res, 404, { error: `no audit ${id}` });
+    return;
+  }
+  if (TERMINAL.has(row.status)) {
+    send(res, 409, { error: `audit ${id} is already ${row.status}` });
+    return;
+  }
+
+  if (!(await scheduler.cancel(id))) {
+    send(res, 409, { error: `audit ${id} is not queued or running in this process` });
+    return;
+  }
+  const [after] = await options.db.select({ status: audits.status }).from(audits).where(eq(audits.id, id));
+  send(res, 202, { auditId: id, status: after?.status ?? row.status });
+}
+
+const CORPUS_VERSION = /^\d+\.\d+$/;
+
+/**
+ * A corpus version as the engine loads it, plus the flags it recognises.
+ * The version is checked for shape before it reaches `loadCorpus`, which
+ * builds a path from it.
+ */
+function getCorpus(res: ServerResponse, options: ApiServerOptions, version: string | undefined): void {
+  if (version !== undefined && !CORPUS_VERSION.test(version)) {
+    send(res, 400, { error: `invalid corpus version: ${version}` });
+    return;
+  }
+  let corpus: Corpus;
+  try {
+    corpus = options.loadCorpus(version);
+  } catch {
+    send(res, 404, { error: `no corpus ${version ?? '(current)'}` });
+    return;
+  }
+  send(res, 200, { ...corpus, knownFlags: [...knownFlags(corpus)].sort() });
 }
 
 async function getAuditResult(res: ServerResponse, options: ApiServerOptions, id: string): Promise<void> {

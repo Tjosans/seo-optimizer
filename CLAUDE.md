@@ -21,7 +21,7 @@ seo-optimizer is an SEO launch-readiness auditor. It crawls a site, runs it agai
 - **@seo/storage** — content-addressed `BlobStore` over S3/GCS/MinIO for page bodies, keyed by their own sha256 so a body already stored costs a read, not a write; not yet called by anything (see gotcha 5)
 - **@seo/testkit** — in-memory fixture website for tests
 
-And three applications under `apps/`: **@seo/api** (the HTTP audit API; `startApi` in `start.ts` is the running process, shared by `npm run serve` and the desktop app), **@seo/dashboard** (the web UI, proxying `/api/*` onto the API and answering `GET /version`), and **@seo/desktop** (both in one Electron window that installs per-user and updates itself from GitHub Releases).
+And three applications under `apps/`: **@seo/api** (the HTTP audit API; `startApi` in `start.ts` is the running process, shared by `npm run serve` and the desktop app), **@seo/dashboard** (the web UI, proxying `/api/*` onto the API and answering `GET /version`; plain browser JS modules with no build step — `app.js` routes hash URLs to `public/views/*.js`, built from `public/lib/*.js`), and **@seo/desktop** (both in one Electron window that installs per-user and updates itself from GitHub Releases).
 
 Note: the corpus's "phases 0-7" are a property of the SEO check taxonomy. They are unrelated to the delivery phases in `ROADMAP.md`.
 
@@ -198,7 +198,7 @@ Pre-launch QA is the seventh, and the split is by what a finding sits between. 4
 
 ## Testing
 
-Unit tests (no database needed): `packages/core/test/{site,cutover}.test.ts`, `packages/corpus/test/{corpus,provenance,provenance-v5.0,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,fetch,protocol,render,robots,sitemap,url}.test.ts`, `packages/probes/test/{probes,detectors,facets,news,qa,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store,lease}.test.ts`, `packages/grader/test/{grade,release-file}.test.ts` (the parser half), `packages/scheduler/test/{retry,lane}.test.ts`.
+Unit tests (no database needed): `packages/core/test/{site,cutover}.test.ts`, `packages/corpus/test/{corpus,provenance,provenance-v5.0,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,fetch,protocol,render,robots,sitemap,url}.test.ts`, `packages/probes/test/{probes,detectors,facets,news,qa,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store,lease}.test.ts`, `packages/grader/test/{grade,release-file}.test.ts` (the parser half), `packages/scheduler/test/{retry,lane}.test.ts`, `apps/api/test/corpus.test.ts`.
 
 Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/{scheduler,recovery,cancel,flags,ai-policy,release}.test.ts`, `packages/job-store/test/postgres.test.ts`, `packages/grader/test/{record,release,release-file}.test.ts`, `apps/api/test/start.test.ts`, `packages/storage/test/s3-blob-store.test.ts` (against MinIO; skips on `STORAGE_ENDPOINT`, not `DATABASE_URL`, and creates its bucket itself on first run).
 
@@ -253,7 +253,7 @@ packages/
   testkit/src/{fixture-site,tls-server}.ts
 apps/
   api/src/{main,start,server,sites,audits,attestations}.ts
-  dashboard/src/{main,server}.ts  +  public/{index.html,app.js,compare.js,version.js,style.css}
+  dashboard/src/{main,server}.ts  +  public/{index.html,app.js,compare.js,version.js,style.css}, public/lib/*.js, public/views/*.js
   desktop/src/{main,updater,log,preload}.ts  +  scripts/{stage.mjs,make-icon.py}, build/icon.{ico,png}, electron-builder.config.cjs
 corpus/
   source/v4.4.tsv                  # immutable workbook export

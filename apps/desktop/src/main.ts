@@ -28,7 +28,7 @@ import { startApi } from '@seo/api';
 import type { RunningApi } from '@seo/api';
 import { createServer as createDashboard } from '@seo/dashboard';
 import { createLogger } from './log.js';
-import { startUpdater } from './updater.js';
+import { announceStarted, startUpdater } from './updater.js';
 import type { UpdateStatus, Updater } from './updater.js';
 
 const PRODUCT = 'SEO Optimizer';
@@ -177,7 +177,10 @@ function createWindow(url: string): BrowserWindow {
   });
   // The page's own <title> would replace the version in the title bar.
   win.on('page-title-updated', (event) => event.preventDefault());
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => {
+    win.show();
+    announceStarted(log);
+  });
   // Links out of the dashboard — an audited site, a source — open in the
   // person's browser, never in a window with the app's bridge in it.
   win.webContents.setWindowOpenHandler(({ url: target }) => {

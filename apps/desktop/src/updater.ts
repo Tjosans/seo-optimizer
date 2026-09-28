@@ -3,7 +3,10 @@
  *
  * The installed app asks the repository's latest release whether a newer
  * version exists, downloads it in the background, and restarts itself into it
- * — no uninstall, no installer to click through. What it will not do is pull
+ * — no uninstall, no installer to click through. The window stays up until
+ * the installer is ready to replace the files and closes it; the installer's
+ * own progress window covers the few seconds until the new version opens, so
+ * there is never a moment with nothing on screen. What it will not do is pull
  * the rug from under a crawl: while an audit is queued or running it holds
  * the downloaded update and says so, and installs the moment the queue is
  * empty. "Restart now" skips the wait; the audit is in the job store and
@@ -14,11 +17,14 @@
  * copy picks it up on its next check.
  */
 
+import { existsSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
 import { app, dialog } from 'electron';
 import electronUpdater from 'electron-updater';
 import type { Logger } from './log.js';
 
-const { autoUpdater } = electronUpdater;
+const { autoUpdater, BaseUpdater } = electronUpdater;
 
 export type UpdateStatus =
   | { readonly state: 'checking' }
@@ -39,8 +45,31 @@ export interface UpdaterOptions {
 
 const CHECK_EVERY_MS = 60 * 60 * 1000;
 const IDLE_POLL_MS = 15 * 1000;
-/** Long enough to read "restarting to install" before the window goes. */
-const RESTART_NOTICE_MS = 4 * 1000;
+/**
+ * The installer says when it is ready to replace the files, and the app says
+ * when the new version's window is up, each by writing a file into %TEMP%
+ * (apps/desktop/build/installer.nsh has the other half).
+ */
+const CLOSE_SIGNAL = join(tmpdir(), `${basename(process.execPath)}.update-close`);
+const STARTED_SIGNAL = join(tmpdir(), `${basename(process.execPath)}.update-started`);
+/**
+ * If the installer never gives the word — it failed to start, or died —
+ * quit anyway, so the update still goes in the way it did before.
+ */
+const INSTALLER_HANDOVER_MS = 60 * 1000;
+
+/**
+ * Called once the window is showing. After an update the installer is still
+ * on screen, waiting for this before it steps aside.
+ */
+export function announceStarted(log: Logger): void {
+  if (!app.isPackaged || !process.argv.includes('--updated')) return;
+  try {
+    writeFileSync(STARTED_SIGNAL, '');
+  } catch (error) {
+    log.warn('updater: could not tell the installer the app is up', error);
+  }
+}
 
 export interface Updater {
   /** Checks now. `manual` answers "you are up to date" in a dialog too. */
@@ -111,16 +140,43 @@ export function startUpdater(options: UpdaterOptions): Updater {
       idleTimer = setTimeout(installWhenIdle, IDLE_POLL_MS);
       return;
     }
-    restartInto(downloaded, RESTART_NOTICE_MS);
+    restartInto(downloaded);
   }
 
-  function restartInto(version: string, afterMs: number): void {
+  let handingOver = false;
+
+  function restartInto(version: string): void {
     clearTimeout(idleTimer);
+    if (handingOver) return;
     onStatus({ state: 'restarting', version });
-    log.info(`updater: restarting into v${version}`);
-    // Silent install, then relaunch: the one-click installer replaces the app
-    // in place and starts the new version, settings and database untouched.
-    setTimeout(() => autoUpdater.quitAndInstall(true, true), afterMs);
+    log.info(`updater: installing v${version}`);
+    // Not quitAndInstall, which quits the moment the installer is spawned and
+    // leaves nothing on screen while it starts. The one-click installer runs
+    // with its progress window showing, closes this app once it is ready to
+    // replace the files, and starts the new version when it is done;
+    // settings and database untouched.
+    // On Windows autoUpdater is the NsisUpdater, a BaseUpdater; the check is
+    // for the type, and quitAndInstall stays the way out anywhere else.
+    if (!(autoUpdater instanceof BaseUpdater)) {
+      autoUpdater.quitAndInstall(true, true);
+      return;
+    }
+    rmSync(CLOSE_SIGNAL, { force: true });
+    if (!autoUpdater.install(false, true)) return;
+    handingOver = true;
+    const started = Date.now();
+    const watch = setInterval(() => {
+      if (existsSync(CLOSE_SIGNAL)) {
+        log.info('updater: the installer is ready; closing');
+        // exit, not quit: nothing here needs an orderly shutdown (the job
+        // store is Postgres), and the installer is waiting on every process.
+        app.exit(0);
+      } else if (Date.now() - started > INSTALLER_HANDOVER_MS) {
+        clearInterval(watch);
+        log.warn('updater: no word from the installer; quitting for it');
+        app.quit();
+      }
+    }, 100);
   }
 
   const check = (manual = false): void => {
@@ -134,7 +190,7 @@ export function startUpdater(options: UpdaterOptions): Updater {
   return {
     check,
     restartNow: () => {
-      if (downloaded !== null) restartInto(downloaded, 0);
+      if (downloaded !== null) restartInto(downloaded);
     },
   };
 }

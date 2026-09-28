@@ -204,7 +204,10 @@ The installer (`SEO-Optimizer-Setup-<version>.exe`) is one click and per-user:
 no admin prompt, installed under `%LOCALAPPDATA%\Programs\seo-optimizer`.
 The installed app keeps itself up to date. Once an hour, and on every start,
 it asks this repository's latest GitHub release whether a newer version
-exists. If one does, it downloads it in the background and restarts into it.
+exists. If one does, it downloads it in the background and restarts into it:
+the window stays open until the installer needs to replace its files, the
+installer's progress window covers the few seconds that takes, and the new
+version opens by itself.
 It holds the restart while an audit is queued or running, and the badge
 offers "Restart now". An audit cut short by a restart resumes on the next
 start, because the app keeps its queue in the `jobs` table.

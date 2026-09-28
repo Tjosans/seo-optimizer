@@ -30,6 +30,9 @@ module.exports = {
     createStartMenuShortcut: true,
     // Settings (.env) and logs survive an uninstall; the database is not ours.
     deleteAppDataOnUninstall: false,
+    // A faster check for a running copy, which is also where an update
+    // closes the app (see the file).
+    include: 'build/installer.nsh',
   },
   // SEO_UPDATE_FEED points a build at a plain HTTP directory instead, to try
   // an update end to end without publishing a release: build one version with

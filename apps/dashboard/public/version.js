@@ -27,7 +27,7 @@ function showUpdate(status) {
     available: `v${status.version} found, downloading…`,
     downloading: `downloading v${status.version} — ${Math.round(status.percent ?? 0)}%`,
     'waiting-for-idle': `v${status.version} ready — installs when the running audit finishes`,
-    restarting: `restarting to install v${status.version}…`,
+    restarting: `installing v${status.version} — reopens by itself`,
     error: 'update check failed',
   };
   const message = messages[status.state] ?? null;

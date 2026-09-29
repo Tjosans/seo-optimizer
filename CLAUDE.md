@@ -198,7 +198,7 @@ Pre-launch QA is the seventh, and the split is by what a finding sits between. 4
 
 ## Testing
 
-Unit tests (no database needed): `packages/core/test/{site,cutover}.test.ts`, `packages/corpus/test/{corpus,provenance,provenance-v5.0,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,fetch,protocol,render,robots,sitemap,url}.test.ts`, `packages/probes/test/{probes,detectors,facets,news,qa,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store,lease}.test.ts`, `packages/grader/test/{grade,release-file}.test.ts` (the parser half), `packages/scheduler/test/{retry,lane}.test.ts`, `apps/api/test/corpus.test.ts`.
+Unit tests (no database needed): `packages/core/test/{site,cutover}.test.ts`, `packages/corpus/test/{corpus,provenance,provenance-v5.0,versions}.test.ts`, `packages/crawler/test/{crawl,cancel,fetch,protocol,render,robots,sitemap,url}.test.ts`, `packages/probes/test/{probes,detectors,facets,news,qa,matrix}.test.ts`, `packages/queue/test/{queue,crawl-queue,retry,store,lease}.test.ts`, `packages/grader/test/{grade,release-file}.test.ts` (the parser half), `packages/scheduler/test/{retry,lane}.test.ts`, `apps/api/test/{corpus,site-input}.test.ts`.
 
 Integration tests (need `npm run stack:up`): `packages/db/test/schema.test.ts`, `packages/persistence/test/persistence.test.ts`, `packages/scheduler/test/{scheduler,recovery,cancel,flags,ai-policy,release}.test.ts`, `packages/job-store/test/postgres.test.ts`, `packages/grader/test/{record,release,release-file}.test.ts`, `apps/api/test/start.test.ts`, `packages/storage/test/s3-blob-store.test.ts` (against MinIO; skips on `STORAGE_ENDPOINT`, not `DATABASE_URL`, and creates its bucket itself on first run).
 

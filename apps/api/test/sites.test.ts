@@ -74,6 +74,16 @@ describe.skipIf(!url)('site management', () => {
     });
   });
 
+  it('refuses an origin with a path, 400, and stores nothing', async () => {
+    const res = await post({ name: 'x', origin: `${ORIGIN}/shop` });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      problems: ['origin: expected scheme://host[:port], with no path, query or fragment'],
+    });
+    const { sites: rows } = await (await req('/sites')).json();
+    expect(rows.some((s: { origin: string }) => s.origin.startsWith(ORIGIN))).toBe(false);
+  });
+
   it('refuses an unknown field, 400', async () => {
     const res = await post({ name: 'x', origin: ORIGIN, nickname: 'x' });
     expect(res.status).toBe(400);

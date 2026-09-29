@@ -40,6 +40,26 @@ const isRecord = (value: unknown): value is Record_ =>
 const ALLOWED = ['name', 'origin', 'flags', 'profile', 'aiPolicy', 'profileCorpusVersion'] as const;
 
 /**
+ * Why `text` is not an origin a crawl can seed from, or null when it is:
+ * `http` or `https`, a host, an optional port, and nothing else. A path, a
+ * query or a fragment would be silently dropped by the crawler, and
+ * credentials would end up stored in plain text beside the site's name.
+ */
+function originProblem(text: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
+    return 'expected an origin like https://example.com';
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return 'expected an http or https origin';
+  if (url.username !== '' || url.password !== '') return 'must not carry a user name or password';
+  // Read off the text, not the parsed URL, which forgives `https:example.com` and resolves `/.` away.
+  if (!/^https?:\/\/[^/?#@\s]+$/i.test(text)) return 'expected scheme://host[:port], with no path, query or fragment';
+  return null;
+}
+
+/**
  * Validate a create or update body. `requireCore` demands `name` and
  * `origin` (a create); an update (`requireCore: false`) accepts any subset,
  * including an empty one — the caller decides whether that is worth an error.
@@ -74,7 +94,10 @@ export function parseSiteInput(value: unknown, requireCore: boolean): SiteWrite 
     if (typeof origin !== 'string' || origin.trim() === '') {
       problem('origin', 'expected non-empty text');
     } else {
-      out.origin = origin.trim().replace(/\/+$/, '');
+      const text = origin.trim().replace(/\/+$/, '');
+      const why = originProblem(text);
+      if (why) problem('origin', why);
+      else out.origin = text;
     }
   } else if (requireCore) {
     problem('origin', 'required');

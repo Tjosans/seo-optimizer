@@ -56,6 +56,21 @@ export interface RunningApi {
   readonly close: () => Promise<void>;
 }
 
+/**
+ * Whether a database answers at `databaseUrl`: one connection, one `select 1`,
+ * then closed. Throws what the driver threw. For a host that swallows packets
+ * the driver would wait 30 seconds; a person watching a setup page gets
+ * `timeoutSeconds` instead.
+ */
+export async function probeDatabase(databaseUrl: string, timeoutSeconds = 10): Promise<void> {
+  const handle = createDatabase(databaseUrl, { max: 1, connect_timeout: timeoutSeconds, onnotice: () => {} });
+  try {
+    await handle.sql`select 1`;
+  } finally {
+    await handle.close();
+  }
+}
+
 export async function startApi(options: StartApiOptions): Promise<RunningApi> {
   // Postgres notices ("schema drizzle already exists, skipping") are not news.
   const handle = createDatabase(options.databaseUrl, { onnotice: () => {} });

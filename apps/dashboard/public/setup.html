@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SEO Optimizer — Database</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<!--
+  The desktop app's database setup, opened from a file rather than served:
+  it is what the window shows when there is no database to serve anything
+  from. Everything it does goes through `window.seoDesktop.database`
+  (apps/desktop/src/preload.cts). Relative paths, because it loads as file://.
+-->
+<div class="setup">
+  <div class="brand">
+    <span class="logo" aria-hidden="true">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 4a6.5 6.5 0 1 0 0 13a6.5 6.5 0 1 0 0-13"/><path d="m20 20-4.8-4.8"/><path d="m7.8 10.6 2 2 3.6-4"/></svg>
+    </span>
+    <span class="brand-name">SEO Optimizer</span>
+    <span id="version" class="ver"></span>
+  </div>
+
+  <header class="page-head">
+    <div>
+      <h1 id="title">Connect to a database</h1>
+      <p class="sub" id="sub">SEO Optimizer keeps sites and audits in a Postgres database.</p>
+    </div>
+  </header>
+
+  <div id="notices"></div>
+
+  <div id="setup-body">
+  <section class="card">
+    <div class="card-body">
+      <form id="form" class="form" novalidate>
+        <div class="field" data-field="paste">
+          <label for="f-paste">Connection URL</label>
+          <input id="f-paste" type="text" autocomplete="off" spellcheck="false" class="mono" placeholder="postgres://user:password@host:5432/database" />
+          <p class="help">Paste the one your provider gives you to fill in the fields below, or fill them in yourself.</p>
+          <div class="problems"></div>
+        </div>
+        <div class="or">or</div>
+        <div class="row-port">
+          <div class="field" data-field="host">
+            <label for="f-host">Host</label>
+            <input id="f-host" name="host" type="text" autocomplete="off" spellcheck="false" />
+            <div class="problems"></div>
+          </div>
+          <div class="field" data-field="port">
+            <label for="f-port">Port</label>
+            <input id="f-port" name="port" type="text" inputmode="numeric" autocomplete="off" placeholder="5432" />
+            <div class="problems"></div>
+          </div>
+        </div>
+        <div class="field" data-field="database">
+          <label for="f-database">Database</label>
+          <input id="f-database" name="database" type="text" autocomplete="off" spellcheck="false" />
+          <div class="problems"></div>
+        </div>
+        <div class="row2">
+          <div class="field" data-field="user">
+            <label for="f-user">User</label>
+            <input id="f-user" name="user" type="text" autocomplete="off" spellcheck="false" />
+            <div class="problems"></div>
+          </div>
+          <div class="field" data-field="password">
+            <label for="f-password">Password</label>
+            <input id="f-password" name="password" type="password" autocomplete="off" />
+            <div class="problems"></div>
+          </div>
+        </div>
+        <label class="check-line"><input id="f-ssl" name="ssl" type="checkbox" /> Require SSL <span class="muted">— hosted databases (Neon, Supabase, RDS) usually do</span></label>
+
+        <div id="form-error"></div>
+
+        <div class="actions">
+          <button id="connect" class="btn primary" type="submit">Connect</button>
+          <button id="local" class="btn" type="button">Use the local stack</button>
+          <span class="spacer"></span>
+          <button id="back" class="btn ghost" type="button" hidden>Back to the app</button>
+          <button id="quit" class="btn ghost" type="button">Quit</button>
+        </div>
+        <p id="status" class="status" aria-live="polite"></p>
+      </form>
+    </div>
+  </section>
+
+  <p class="muted" style="font-size: 13px; margin: 14px 0 0;">
+    Saved to <code class="mono" id="env-path">.env</code> once it connects.
+    <button id="folder" class="btn ghost small" type="button">Open settings folder</button>
+  </p>
+  <p class="muted" style="font-size: 13px; margin: 6px 0 0;">
+    No database yet? From a checkout of the repository, <code class="mono">npm run stack:up</code> starts one on this computer; then press
+    <strong>Use the local stack</strong>.
+  </p>
+
+  </div>
+
+  <div id="update" class="update-line" hidden>
+    <span id="update-text"></span>
+    <button id="update-restart" class="btn small primary" type="button" hidden>Update</button>
+  </div>
+</div>
+<script src="setup.js"></script>
+</body>
+</html>

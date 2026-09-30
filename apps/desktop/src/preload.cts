@@ -3,8 +3,9 @@
  * sandboxed with no Node access; all they may do is hear how the self-updater
  * is getting on and ask it to install a downloaded update, and — for the
  * database setup page (`public/setup.html`) and the dashboard's Settings —
- * read and change which database the app connects to. The browser dashboard
- * has no `window.seoDesktop` and shows neither.
+ * read and change which database the app connects to; and keep the theme
+ * Settings chose, which `localStorage` cannot across launches. The browser
+ * dashboard has no `window.seoDesktop` and shows none of this.
  */
 
 // CommonJS, because a sandboxed preload cannot be an ES module.
@@ -22,6 +23,13 @@ contextBridge.exposeInMainWorld('seoDesktop', {
   },
   restartToUpdate(): void {
     ipcRenderer.send('update:restart-now');
+  },
+  /** Which theme Settings chose; synchronous, so a page can apply it before painting. */
+  theme: {
+    get: (): unknown => ipcRenderer.sendSync('theme:get'),
+    set(theme: string): void {
+      ipcRenderer.send('theme:set', theme);
+    },
   },
   /** Show the database setup page in place of the dashboard. */
   openDatabaseSettings(): void {

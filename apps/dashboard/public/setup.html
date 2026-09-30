@@ -4,6 +4,13 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>SEO Optimizer — Database</title>
+<script>
+  // The theme chosen in the dashboard's Settings, applied before first paint.
+  try {
+    const theme = window.seoDesktop.theme.get();
+    if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+  } catch {}
+</script>
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>

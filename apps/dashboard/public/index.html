@@ -5,9 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>SEO Optimizer</title>
 <script>
-  // The theme choice from Settings, applied before first paint.
+  // The theme choice from Settings, applied before first paint. The desktop
+  // app keeps it itself: its origin changes every launch, and localStorage
+  // with it (views/settings.js).
   try {
-    const theme = localStorage.getItem('seo-theme');
+    const theme = window.seoDesktop ? window.seoDesktop.theme.get() : localStorage.getItem('seo-theme');
     if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
   } catch {}
 </script>

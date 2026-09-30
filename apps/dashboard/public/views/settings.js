@@ -8,8 +8,12 @@ import { date } from '../lib/format.js';
 import { banner, card, pageHead } from '../lib/ui.js';
 import { updateMessage } from '../version.js';
 
+// The browser keeps the theme in localStorage. The desktop app serves this
+// page on a new port each launch, a new origin whose localStorage starts
+// empty, so there it is kept by the app through window.seoDesktop.theme.
 function currentTheme() {
   try {
+    if (window.seoDesktop) return window.seoDesktop.theme.get();
     return localStorage.getItem('seo-theme') ?? 'system';
   } catch {
     return 'system';
@@ -18,7 +22,8 @@ function currentTheme() {
 
 function setTheme(theme) {
   try {
-    if (theme === 'system') localStorage.removeItem('seo-theme');
+    if (window.seoDesktop) window.seoDesktop.theme.set(theme);
+    else if (theme === 'system') localStorage.removeItem('seo-theme');
     else localStorage.setItem('seo-theme', theme);
   } catch {}
   if (theme === 'system') delete document.documentElement.dataset.theme;

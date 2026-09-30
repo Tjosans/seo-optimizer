@@ -40,6 +40,7 @@ import {
 } from './database-settings.js';
 import type { DatabaseFields } from './database-settings.js';
 import { createLogger } from './log.js';
+import { isTheme, readTheme, saveTheme } from './preferences.js';
 import { announceStarted, startUpdater } from './updater.js';
 import type { UpdateStatus, Updater } from './updater.js';
 
@@ -64,6 +65,9 @@ const paths = app.isPackaged
         env: join(root, '.env'),
       };
     })();
+
+/** Settings the app keeps for itself: the theme (`preferences.ts`). */
+const preferencesFile = join(app.getPath('userData'), 'preferences.json');
 
 const log = createLogger(join(app.getPath('userData'), 'logs', 'main.log'), !app.isPackaged);
 process.on('uncaughtException', (error) => log.error('uncaught', error));
@@ -111,6 +115,7 @@ async function run(): Promise<void> {
   ipcMain.handle('update-status:get', () => lastStatus);
   ipcMain.on('update:restart-now', () => updater?.restartNow());
   handleDatabaseSettings();
+  handlePreferences();
 
   // The updater starts before the database is asked for anything, so a
   // release that fixes a start-up failure can still arrive.
@@ -169,10 +174,11 @@ function showSetup(): void {
  * page it shows is either the setup page or the dashboard, and nothing else
  * can load in it (`will-navigate` below).
  */
-function handleDatabaseSettings(): void {
-  const ours = (event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) =>
-    window !== undefined && event.sender === window.webContents;
+function ours(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): boolean {
+  return window !== undefined && event.sender === window.webContents;
+}
 
+function handleDatabaseSettings(): void {
   ipcMain.handle('database:state', (event) => {
     if (!ours(event)) return null;
     return {
@@ -235,6 +241,25 @@ function handleDatabaseSettings(): void {
   });
   ipcMain.on('app:quit', (event) => {
     if (ours(event)) app.quit();
+  });
+}
+
+/**
+ * The theme, for the dashboard and the setup page. Asked synchronously,
+ * because a page applies it before its first paint; `returnValue` is always
+ * set, since a page asking synchronously waits until it is.
+ */
+function handlePreferences(): void {
+  ipcMain.on('theme:get', (event) => {
+    event.returnValue = ours(event) ? readTheme(preferencesFile) : 'system';
+  });
+  ipcMain.on('theme:set', (event, theme: unknown) => {
+    if (!ours(event) || !isTheme(theme)) return;
+    try {
+      saveTheme(preferencesFile, theme);
+    } catch (error) {
+      log.error(`could not save the theme to ${preferencesFile}`, error);
+    }
   });
 }
 

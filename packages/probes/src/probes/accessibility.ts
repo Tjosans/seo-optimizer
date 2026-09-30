@@ -105,7 +105,9 @@ export const contentAccessibility: PageProbe = {
       data['tablesWithoutHeaders'] = sample(headerless);
     }
 
-    const uncaptioned = extracted.media.filter((media) => media.kind === 'video' && !media.hasCaptions);
+    // An ambient video — muted, no controls, looping or autoplaying — has no
+    // sound to caption.
+    const uncaptioned = extracted.media.filter((media) => media.kind === 'video' && !media.ambient && !media.hasCaptions);
     if (uncaptioned.length > 0) {
       doubts.push(`${uncaptioned.length} video(s) carry no caption track`);
       data['videosWithoutCaptions'] = sample(uncaptioned.map((media) => media.src));

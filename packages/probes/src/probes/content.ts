@@ -763,10 +763,15 @@ const MIN_LAUNCH_WORDS = 50;
  * Filler still on the page at launch: boilerplate copy, an open task marker,
  * or a bracketed instruction left for whoever was meant to replace it.
  * "Coming soon" and "lorem ipsum" are phrases, so they are matched without
- * word boundaries; "TODO", "TBD" and "xxx" are single tokens easily hidden
- * inside an unrelated word (a SKU, a name), so those are bounded.
+ * word boundaries and in any case; "TODO", "TBD" and "XXX" are single tokens
+ * easily hidden inside an unrelated word (a SKU, a name), so those are
+ * bounded. They are also matched only in capitals, the way a marker is
+ * written, and never as a domain label: todomvc.com is "the same Todo app" in
+ * every framework, iana.org lists the .xxx top-level domain, and both read as
+ * unfinished pages on 2026-09-30.
  */
-const PLACEHOLDER_TEXT = /lorem ipsum|coming soon|\[insert|\btodo\b|\btbd\b|\bxxx\b/i;
+const PLACEHOLDER_TEXT = /lorem ipsum|coming soon|\[insert/i;
+const PLACEHOLDER_MARKER = /(?<![.\w])(?:TODO|TBD|XXX)\b/;
 
 /**
  * 3.7 asks that every URL the launch inventory marks critical have "complete,
@@ -799,7 +804,7 @@ export const launchContentCompleteness: PageProbe = {
     if (words === 0) {
       return fail('The page has no reading matter at all.', { words });
     }
-    const placeholder = PLACEHOLDER_TEXT.exec(text);
+    const placeholder = PLACEHOLDER_TEXT.exec(text) ?? PLACEHOLDER_MARKER.exec(text);
     if (placeholder !== null) {
       return fail(`Placeholder text is still on the page: "${placeholder[0]}".`, { words, placeholder: placeholder[0] });
     }

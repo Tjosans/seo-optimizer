@@ -138,9 +138,17 @@ export const mediaAlternatives: PageProbe = {
     const extracted = page.extracted;
     if (extracted === null) return notApplicable(NO_HTML);
 
-    const media = extracted.media;
-    if (media.length === 0) {
+    if (extracted.media.length === 0) {
       return notApplicable('The page embeds no <video> or <audio> element.');
+    }
+    // A muted video with no controls that loops or plays itself is moving
+    // decoration: there is no speech in it to caption, and nothing a visitor
+    // can start in order to miss it.
+    const media = extracted.media.filter((item) => !item.ambient);
+    if (media.length === 0) {
+      return notApplicable(
+        `The page's ${extracted.media.length} video(s) are all muted, uncontrollable and looping or autoplaying: decoration, with nothing to caption.`,
+      );
     }
 
     // A caption track is the alternative; fallback text between the tags is a

@@ -150,12 +150,36 @@ describe('hreflang-cluster-qa', () => {
     expect(observation.summary).toMatch(/noindex/);
   });
 
-  it('fails an annotation pointing at a URL the crawl never reached', () => {
+  // The crawl follows links, not annotations: ted.com's talks name
+  // ?language= variants no page links to, and all of them went unfetched.
+  // Unverified is not broken, so it holds the check rather than failing it.
+  it('holds, rather than fails, an annotation pointing at a URL the crawl did not fetch', () => {
     const observation = runSite('hreflang-cluster-qa', [
       withHreflang('/en/', [['en', '/en/'], ['fr', '/fr/']]),
     ]);
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toMatch(/not fetched/);
+  });
+
+  // allbirds.com's /pages/our-materials, as served on 2026-09-30: an alias
+  // canonicalized to /pages/materials, whose annotation block names that
+  // page, not itself. Search engines read the canonical page's block.
+  it('leaves a page canonicalized elsewhere out of the cluster', () => {
+    const cluster: [string, string][] = [['en-US', '/pages/materials'], ['x-default', '/pages/materials']];
+    const observation = runSite('hreflang-cluster-qa', [
+      withHreflang('/pages/materials', cluster, `<link rel="canonical" href="${ORIGIN}/pages/materials">`),
+      withHreflang('/pages/our-materials', cluster, `<link rel="canonical" href="${ORIGIN}/pages/materials">`),
+    ]);
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data?.['annotatedPages']).toBe(1);
+  });
+
+  it('still fails a canonical page that omits its self-reference', () => {
+    const observation = runSite('hreflang-cluster-qa', [
+      withHreflang('/en/', [['de', '/de/']], `<link rel="canonical" href="${ORIGIN}/en/">`),
+      withHreflang('/de/', [['en', '/en/'], ['de', '/de/']]),
+    ]);
     expect(observation.outcome).toBe('fail');
-    expect(observation.summary).toMatch(/never reached/);
   });
 
   it('warns rather than fails when only x-default is absent', () => {
@@ -274,12 +298,33 @@ describe('hreflang-implementation', () => {
     expect(observation.summary).toMatch(/declared twice/);
   });
 
-  it('fails two locales served from one URL', () => {
+  it('fails two languages served from one URL', () => {
     const observation = runSite('hreflang-implementation', [
-      withHreflang('/en/', [['en', '/en/'], ['en-IE', '/en/']]),
+      withHreflang('/en/', [['en', '/en/'], ['de', '/en/']]),
     ]);
     expect(observation.outcome).toBe('fail');
     expect(observation.summary).toMatch(/not on distinct URLs/);
+  });
+
+  // mozilla.org, as served on 2026-09-30: every locale is named twice, bare
+  // and with its region, at one URL ("es" and "es-ES" at /es-ES/). That is
+  // how a site says which page a reader with no region should get, and all
+  // 90 of them failed as locales that were not on distinct URLs.
+  it('accepts a bare language beside one of its regions at one URL', () => {
+    const cluster: [string, string][] = [['en', '/en-US/'], ['en-US', '/en-US/'], ['es', '/es-ES/'], ['es-ES', '/es-ES/'], ['x-default', '/']];
+    const observation = runSite('hreflang-implementation', [
+      withHreflang('/en-US/', cluster),
+      withHreflang('/es-ES/', cluster),
+    ]);
+    expect(observation.outcome).toBe('pass');
+  });
+
+  it('holds several regions of one language at one URL for the locale plan', () => {
+    const observation = runSite('hreflang-implementation', [
+      withHreflang('/en/', [['en-GB', '/en/'], ['en-IE', '/en/'], ['de', '/de/']]),
+    ]);
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toMatch(/several regions of one language/);
   });
 
   it('fails two x-defaults, because a fallback has to be one place', () => {
@@ -361,6 +406,44 @@ describe('locale-canonical', () => {
     const observation = runPage('locale-canonical', uk, [us, uk, fr]);
     expect(observation.outcome).toBe('warn');
     expect(observation.summary).toMatch(/same-language "en-US"/);
+  });
+
+  // mozilla.org/en-US/firefox/enterprise/, as served on 2026-09-30: an en-US
+  // page moved to firefox.com, canonicalized to its new address, with a block
+  // naming that address as en-US and never naming itself. It failed as a
+  // locale collapsed into "en-US", which is the locale it is.
+  const moved = (path: string, lang: string, canonical: string, cluster: readonly [string, string][]): CrawledPage =>
+    page({
+      path,
+      html:
+        `<html lang="${lang}"><head><link rel="canonical" href="${canonical}">` +
+        cluster.map(([hreflang, href]) => `<link rel="alternate" hreflang="${hreflang}" href="${href}">`).join('') +
+        '</head><body><p>hello</p></body></html>',
+    });
+
+  it('says nothing about a second address for a locale the cluster already names', () => {
+    const cluster: [string, string][] = [
+      ['x-default', 'https://www.firefox.com/browsers/enterprise/'],
+      ['en-GB', 'https://www.firefox.com/en-GB/browsers/enterprise/'],
+      ['en-US', 'https://www.firefox.com/en-US/browsers/enterprise/'],
+      ['de', 'https://www.firefox.com/de/browsers/enterprise/'],
+    ];
+    const target = moved('/en-US/firefox/enterprise/', 'en-US', 'https://www.firefox.com/en-US/browsers/enterprise/', cluster);
+    const observation = runPage('locale-canonical', target, [target]);
+    expect(observation.outcome).toBe('not-applicable');
+    expect(observation.summary).toMatch(/not a locale variant of its own/);
+  });
+
+  it('holds such a page when its own language is a different region of the canonical', () => {
+    const cluster: [string, string][] = [['en-US', `${ORIGIN}/us/`], ['de', `${ORIGIN}/de/`]];
+    const target = moved('/uk/', 'en-GB', `${ORIGIN}/us/`, cluster);
+    expect(runPage('locale-canonical', target, [target]).outcome).toBe('warn');
+  });
+
+  it('still fails such a page when it is written in another language than its canonical', () => {
+    const cluster: [string, string][] = [['en', `${ORIGIN}/en/`], ['de', `${ORIGIN}/de/`]];
+    const target = moved('/fr/', 'fr', `${ORIGIN}/en/`, cluster);
+    expect(runPage('locale-canonical', target, [target]).outcome).toBe('fail');
   });
 
   it('still fails a translation canonicalized onto another language', () => {
@@ -569,6 +652,18 @@ describe('media-alternatives', () => {
   it('reads audio the same way as video', () => {
     const target = media('<audio src="/a.mp3"></audio>');
     expect(runPage('media-alternatives', target, [target]).outcome).toBe('fail');
+  });
+
+  // kjell.com's home page banner, as served on 2026-09-30: silent, looping,
+  // with no way for a visitor to start or stop it. There is no speech to
+  // caption, and it failed here and in content-accessibility for having none.
+  it('asks nothing of a muted looping video with no controls', () => {
+    const banner = '<video loop="" autoplay="" muted="" playsinline="" disableremoteplayback=""><source src="/bg_1400x400.mp4"></video>';
+    expect(runPage('media-alternatives', media(banner), [media(banner)]).outcome).toBe('not-applicable');
+    const both = media(`${banner}<video src="/talk.mp4" controls></video>`);
+    const observation = runPage('media-alternatives', both, [both]);
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toMatch(/^1 of 1 /);
   });
 });
 
@@ -1957,6 +2052,47 @@ describe('videoobject-schema', () => {
     expect(observation.summary).toMatch(/none is described by VideoObject/);
   });
 
+  // allbirds.com's product films, as served on 2026-09-30: muted, looping,
+  // playing by themselves, with no controls. Three a page, and each page failed
+  // for describing none of them.
+  it('says nothing about a muted looping video with no controls', () => {
+    const target = watchPage({
+      player:
+        `<video autoplay playsinline loop muted poster='${ORIGIN}/preview.jpg' preload='metadata'>` +
+        `<source data-src='${ORIGIN}/films/runner.mp4' type='video/mp4'></video>`,
+    });
+    const observation = runVideoPage('videoobject-schema', target, videoSite([target]));
+    expect(observation.outcome).toBe('not-applicable');
+  });
+
+  // theguardian.com's film reviews embed the trailer; v5.0 2.14 says a page
+  // like that is not a watch page, so it owes the trailer no VideoObject.
+  it('does not ask an article for markup describing its supplemental video', () => {
+    const article = {
+      '@context': SCHEMA,
+      '@type': 'NewsArticle',
+      headline: 'Rapture review',
+      datePublished: '2026-09-30T10:00:00Z',
+    };
+    const target = watchPage({
+      player: '<iframe src="https://www.youtube-nocookie.com/embed/9iXk8PaHG_g?wmode=opaque&feature=oembed"></iframe>',
+      schema: article,
+    });
+    const observation = runVideoPage('videoobject-schema', target, videoSite([target]));
+    expect(observation.outcome).toBe('not-applicable');
+    expect(observation.summary).toMatch(/an article/);
+  });
+
+  it('still judges the markup an article does carry', () => {
+    const { description, ...rest } = VIDEO_SCHEMA;
+    expect(description).toBeTruthy();
+    const target = watchPage({
+      player: YOUTUBE_EMBED,
+      schema: { '@context': SCHEMA, '@graph': [{ '@type': 'NewsArticle', headline: 'x', datePublished: '2026-09-30' }, rest] },
+    });
+    expect(runVideoPage('videoobject-schema', target, videoSite([target])).outcome).toBe('fail');
+  });
+
   it('passes markup that is complete and names the video the page plays', () => {
     const target = watchPage({ player: YOUTUBE_EMBED, schema: VIDEO_SCHEMA });
     const observation = runVideoPage('videoobject-schema', target, videoSite([target]));
@@ -3281,6 +3417,20 @@ describe('launch-content-completeness', () => {
     expect(clean.outcome).toBe('pass');
   });
 
+  // todomvc.com and iana.org, as served on 2026-09-30.
+  it('leaves a product named Todo and the .xxx domain alone', () => {
+    const app = runLaunchContent(
+      launchPage(`<main><h1>TodoMVC</h1><p>We created TodoMVC, the same Todo app in popular frameworks. ${words(60)}</p></main>`),
+    );
+    expect(app.outcome).toBe('pass');
+    const tld = runLaunchContent(
+      launchPage(`<main><h1>Root Zone Database</h1><p><a href="/domains/root/db/xxx.html">.xxx</a> generic. ${words(60)}</p></main>`),
+    );
+    expect(tld.outcome).toBe('pass');
+    const marker = runLaunchContent(launchPage(`<main><h1>Guide</h1><p>Price: TBD. ${words(60)}</p></main>`));
+    expect(marker.outcome).toBe('fail');
+  });
+
   it('warns on thin, placeholder-free reading matter', () => {
     const observation = runLaunchContent(launchPage(`<main><h1>Guide</h1><p>${words(20)}</p></main>`));
     expect(observation.outcome).toBe('warn');
@@ -4095,5 +4245,90 @@ describe('schema-validation-parity', () => {
   it('errors on a failed render unless the raw side already failed', () => {
     expect(run(withRender(page({ path: '/', html: ld(org) }), null, 'timeout')).outcome).toBe('error');
     expect(run(withRender(page({ path: '/', html: broken }), null, 'timeout')).outcome).toBe('fail');
+  });
+});
+
+// --- 3.3 orphan-pages -------------------------------------------------------
+
+describe('orphan-pages', () => {
+  const linking = (path: string, targets: readonly string[]): CrawledPage =>
+    page({ path, html: `<html><body>${targets.map((t) => `<a href="${t}">${t}</a>`).join('')}</body></html>` });
+
+  it('fails a page nothing links to, once the walk has read every linked page', () => {
+    const pages = [linking('/', ['/a']), linking('/a', ['/']), page({ path: '/listed-only' })];
+    const observation = runSite('orphan-pages', pages);
+    expect(observation.outcome).toBe('fail');
+  });
+
+  // theguardian.com on 2026-09-30: two video pages from the sitemap lane read
+  // as orphans after a twenty-page walk that left hundreds of linked pages
+  // unread, any of which may be the one linking to them.
+  it('holds the finding when the walk stopped before reading every linked page', () => {
+    const pages = [linking('/', ['/a', '/b']), linking('/a', ['/']), page({ path: '/video/listed' })];
+    const context = siteOf(pages);
+    const observation = siteProbe('orphan-pages').run({
+      ...context,
+      crawl: { ...context.crawl, notReached: [`${ORIGIN}/b`] },
+    });
+    expect(observation.outcome).toBe('warn');
+    expect(observation.data?.['unreadLinkedPages']).toBe(1);
+  });
+});
+
+// --- 2.1 index-bloat --------------------------------------------------------
+
+describe('index-bloat', () => {
+  const doc = (url: string, urlCount: number, newsCount: number, videoCount = 0): CrawlResult['sitemaps'][number] => ({
+    url, status: 200, urlCount, truncated: false, videoCount, newsCount, fetchedAt: '2026-09-30T09:00:00.000Z',
+  });
+  const withSitemaps = (sitemaps: CrawlResult['sitemaps']): SiteContext => {
+    const pages = ['/', '/sport', '/culture', '/world/2026/sep/30/story'].map((path) => page({ path }));
+    const context = siteOf(pages, [], [], [`${ORIGIN}/world/2026/sep/30/story`]);
+    return { ...context, crawl: { ...context.crawl, sitemaps } };
+  };
+
+  it('fails a sitemap that leaves most indexable pages out', () => {
+    const observation = siteProbe('index-bloat').run(withSitemaps([doc(`${ORIGIN}/sitemap.xml`, 1, 0)]));
+    expect(observation.outcome).toBe('fail');
+  });
+
+  // theguardian.com, 2026-09-30: robots.txt declares news.xml and video.xml
+  // and nothing else, and its section fronts read as bloat.
+  it('holds rather than fails when every sitemap is a news or video feed', () => {
+    const observation = siteProbe('index-bloat').run(
+      withSitemaps([doc(`${ORIGIN}/sitemaps/news.xml`, 1, 1), doc(`${ORIGIN}/sitemaps/video.xml`, 21, 0, 21)]),
+    );
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toMatch(/news or video feed/);
+  });
+});
+
+// --- 4.2 indexability-matrix-reconciliation ---------------------------------
+
+describe('indexability-matrix-reconciliation', () => {
+  const ROBOTS = 'User-agent: *\nDisallow: /checkouts/\nDisallow: /private/\n';
+  const run = (head: string): Observation => {
+    const target = page({ path: '/', html: `<html><head>${head}</head><body><p>shop</p></body></html>` });
+    const context = siteOf([target]);
+    return pageProbe('indexability-matrix-reconciliation').run({
+      page: target,
+      site: { ...context, crawl: { ...context.crawl, robots: parseRobots(ROBOTS), robotsTxt: ROBOTS } },
+    });
+  };
+
+  it('fails a stylesheet robots.txt keeps from Googlebot', () => {
+    expect(run('<link rel="stylesheet" href="/private/theme.css">').outcome).toBe('fail');
+  });
+
+  // allbirds.com, 2026-09-30: every page links Shopify's checkout preloader,
+  // which the store's robots.txt keeps under /checkouts/. Nothing in markup
+  // says whether a script is needed to render, so a person says.
+  it('holds a blocked script for a person rather than failing it', () => {
+    const observation = run(
+      '<link rel="stylesheet" href="/cdn/shop/theme.css">' +
+        '<script src="/checkouts/internal/preloads.js?locale=en-US&default_configuration_id=2737373264"></script>',
+    );
+    expect(observation.outcome).toBe('warn');
+    expect(observation.summary).toMatch(/confirm none is needed to render/);
   });
 });

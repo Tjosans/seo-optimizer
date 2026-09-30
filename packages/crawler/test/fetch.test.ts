@@ -56,6 +56,10 @@ beforeAll(async () => {
       case '/huge.html':
         send(response, { 'content-type': 'text/html' }, HUGE_HTML);
         return;
+      case '/typed':
+        // Whatever type the test names, carrying a small JSON document.
+        send(response, { 'content-type': url.searchParams.get('type') ?? 'application/json' }, Buffer.from('{"ok":true}'));
+        return;
       case '/huge.mp4':
         send(response, { 'content-type': 'video/mp4' }, HUGE_BINARY);
         return;
@@ -88,6 +92,34 @@ describe('a body past the limit', () => {
     expect(result.bytes).toBeUndefined();
     expect(result.byteLength).toBeLessThan(6 * MB);
   });
+});
+
+describe('which bodies are read', () => {
+  // Found live: every RDAP registry answers application/rdap+json, which the
+  // list of textual types did not name, so each lookup read an empty body and
+  // domain-expiry-rdap reported an error on every site.
+  for (const type of [
+    'application/json',
+    'application/json; charset=utf-8',
+    'application/rdap+json',
+    'application/problem+json',
+    'application/atom+xml',
+    'application/vnd.api+json',
+    'text/plain',
+  ]) {
+    it(`reads ${type} as text`, async () => {
+      const result = await fetchPage(`${origin}/typed?type=${encodeURIComponent(type)}`, { userAgent: UA });
+      expect(result.body).toBe('{"ok":true}');
+    });
+  }
+
+  for (const type of ['application/octet-stream', 'image/svg+xml', 'application/jsonx']) {
+    it(`measures ${type} without reading it`, async () => {
+      const result = await fetchPage(`${origin}/typed?type=${encodeURIComponent(type)}`, { userAgent: UA });
+      expect(result.body).toBe('');
+      expect(result.byteLength).toBe(11);
+    });
+  }
 });
 
 describe('a sitemap published as a gzip file', () => {

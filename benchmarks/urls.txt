@@ -10,3 +10,20 @@
 
 https://example.com
 https://www.iana.org
+
+# Added 2026-09-30 so the run reaches the site shapes the detectors split on.
+# Each is named by the shape it is here for; a site that stops having that
+# shape is a reason to add another URL, not to swap this one.
+
+# Catalogue with facets and product variants (commerce, facets): a Swedish
+# electronics retailer, and a Shopify store whose products carry ?variant=.
+https://www.kjell.com/se
+https://www.allbirds.com
+# Multilingual hreflang cluster (1.14, 4.9): dozens of locales per page.
+https://www.mozilla.org/en-US/
+# News publisher with a news sitemap, and a video sitemap beside it (2.18, 2.14).
+https://www.theguardian.com/international
+# Video site: one dedicated watch page per talk (2.14).
+https://www.ted.com
+# JavaScript-rendered SPA: the raw HTML is an empty shell (1.1, Phase 5).
+https://todomvc.com/examples/react/dist/

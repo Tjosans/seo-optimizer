@@ -187,6 +187,26 @@ describe('broken-links', () => {
     }
   });
 
+  // Every "broken" external link on 2026-09-30 was one of these: nytimes.com,
+  // fastcompany.com, support.ted.com and jobs.theguardian.com answered the
+  // crawler 403, and a visitor 200.
+  it('holds rather than fails an external target that refuses the crawler', () => {
+    const EXTERNAL = 'https://www.nytimes.com/2026/04/15/opinion/mythos-open-souce-internet.html';
+    for (const status of [401, 403, 999]) {
+      const observation = links(
+        [page('/', { links: [EXTERNAL] })],
+        { auxiliary: [{ reason: 'external-link', url: EXTERNAL, fetch: auxFetch(EXTERNAL, status) }] },
+      );
+      expect(observation.outcome).toBe('warn');
+      expect(observation.data?.['externalLinksNotChecked']).toBe(1);
+    }
+  });
+
+  it('still fails an internal link the site itself answers 403', () => {
+    const observation = links([page('/', { links: ['/members'] }), page('/members', { status: 403 })]);
+    expect(observation.outcome).toBe('fail');
+  });
+
   it('fails a dead URL and names every page that links to it', () => {
     const observation = links([
       page('/', { links: ['/gone', '/a'] }),
@@ -337,6 +357,40 @@ describe('metadata-completeness', () => {
     const observation = meta([page('/', { redirectedTo: '/europe' }), page('/europe', { canonical: '/' })]);
     expect(observation.outcome).toBe('warn');
     expect(samples(observation)).toContain('back to this page');
+  });
+
+  // theguardian.com from Sweden, 2026-09-30: / lands on /europe, which names
+  // / as its canonical, and /international names / too. From another country
+  // / lands elsewhere; this is one more edition, not a conflict.
+  it('holds a canonical that redirects to another edition naming the same canonical', () => {
+    const observation = meta([
+      page('/', { redirectedTo: '/europe' }),
+      page('/europe', { canonical: '/' }),
+      page('/international', { canonical: '/' }),
+    ]);
+    expect(observation.outcome).toBe('warn');
+    expect(observation.data).toMatchObject({ conflicts: 0, canonicalsVaryingByVisitor: 2 });
+    expect(samples(observation)).toContain('a page naming');
+  });
+
+  // The shape the live crawl had: / was fetched, landed on /europe, and its
+  // record holds /europe's document; /europe was never fetched on its own.
+  it('reads the landing page from the redirect record when it was not fetched on its own', () => {
+    const observation = meta([
+      page('/', { redirectedTo: '/europe', canonical: '/' }),
+      page('/international', { canonical: '/' }),
+    ]);
+    expect(observation.outcome).toBe('warn');
+    expect(observation.data).toMatchObject({ conflicts: 0 });
+  });
+
+  it('still fails a canonical that redirects to a page naming another canonical', () => {
+    const observation = meta([
+      page('/', { canonical: '/old' }),
+      page('/old', { redirectedTo: '/new' }),
+      page('/new', { canonical: '/new' }),
+    ]);
+    expect(observation.outcome).toBe('fail');
   });
 
   it('accepts a canonical onto a live, indexable page', () => {

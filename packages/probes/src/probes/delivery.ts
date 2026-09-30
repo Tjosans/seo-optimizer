@@ -502,9 +502,10 @@ const RESOURCE_AGENT = 'Googlebot';
 /**
  * v5.0 4.2 asks that "essential rendering resources" are not blocked, among a
  * matrix of cache, auth and directive checks a raw crawl cannot see. A
- * same-site stylesheet or script robots.txt turns Googlebot away from is the
- * one part of that matrix a crawl can name outright: the resource is linked,
- * the rule is on record, and the two disagree.
+ * same-site stylesheet robots.txt turns Googlebot away from is the one part of
+ * that matrix a crawl can name outright: the resource is linked, the rule is
+ * on record, and the two disagree. A blocked script is held for a person,
+ * because whether it is essential is not something markup states.
  */
 export const indexabilityMatrixReconciliation: PageProbe = {
   id: 'indexability-matrix-reconciliation',
@@ -529,9 +530,23 @@ export const indexabilityMatrixReconciliation: PageProbe = {
     }
 
     const blocked = sameSite.filter((url) => !isAllowed(site.crawl.robots, RESOURCE_AGENT, url));
-    if (blocked.length > 0) {
+    // A stylesheet is a rendering resource by definition. A script may be one
+    // or may be anything else — analytics, a consent banner, a checkout
+    // preloader — and markup does not say which: every allbirds.com page links
+    // Shopify's /checkouts/internal/preloads.js, which its robots.txt keeps
+    // under /checkouts/, and read as a page Google cannot render.
+    const styles = new Set(extracted.stylesheets);
+    const blockedStyles = blocked.filter((url) => styles.has(url));
+    if (blockedStyles.length > 0) {
       return fail(
-        `robots.txt blocks Googlebot from ${blocked.length} resource${blocked.length === 1 ? '' : 's'} this page needs to render: ${blocked.join(', ')}.`,
+        `robots.txt blocks Googlebot from ${blockedStyles.length} stylesheet${blockedStyles.length === 1 ? '' : 's'} this page needs to render: ${blockedStyles.join(', ')}.`,
+        { blocked },
+      );
+    }
+    if (blocked.length > 0) {
+      return warn(
+        `robots.txt blocks Googlebot from ${blocked.length} script${blocked.length === 1 ? '' : 's'} this page links: ${blocked.join(', ')}; ` +
+          'confirm none is needed to render the page.',
         { blocked },
       );
     }

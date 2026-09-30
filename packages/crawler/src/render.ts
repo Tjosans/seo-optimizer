@@ -90,12 +90,31 @@ export interface RenderOptions {
   readonly settleMs?: number;
   /** Run axe-core on the settled page and put the result on `RenderResult.accessibility`. */
   readonly accessibility?: boolean;
+  /**
+   * Ceiling on the axe-core run. Default 60s. axe runs inside the page with no
+   * limit of its own, and on iana.org's 5 MB, 3,865-link /domains/idn-tables
+   * it ran for over half an hour at 4 GB and held the whole crawl with it.
+   */
+  readonly axeTimeoutMs?: number;
   readonly signal?: AbortSignal;
 }
+
+/**
+ * The tallest a render's viewport is stretched to.
+ *
+ * Googlebot does not scroll: it renders with a viewport stretched to the
+ * page's height, so content a site loads when it scrolls into view is
+ * rendered. A render left at a screen's height never loads it, and kjell.com's
+ * footer — twenty-odd links swapped for a placeholder until visible — read as
+ * links rendering removed. Past this the page is cut, which is a browser's
+ * texture limit rather than a site's length.
+ */
+export const MAX_RENDER_HEIGHT = 16_000;
 
 const DEFAULTS = {
   timeoutMs: 20_000,
   settleMs: 500,
+  axeTimeoutMs: 60_000,
 };
 
 /**
@@ -129,15 +148,35 @@ export async function closeBrowser(): Promise<void> {
   clearTimeout(timer);
 }
 
-async function runAxe(page: Page): Promise<AccessibilityResult> {
+/**
+ * axe-core on the settled page, bounded by `timeoutMs`.
+ *
+ * A run past the bound closes the page, which is the only way to stop a
+ * script already evaluating inside it, and is reported as an `error`: axe
+ * did not finish, so it says nothing about the page, never that it passed.
+ */
+async function runAxe(page: Page, timeoutMs: number): Promise<AccessibilityResult> {
+  let timer: NodeJS.Timeout | undefined;
+  const expired = new Promise<'expired'>((resolve) => {
+    timer = setTimeout(() => resolve('expired'), timeoutMs);
+  });
+  const analysis = new AxeBuilder({ page }).analyze();
+  // Once the page is closed the analysis rejects; nobody is waiting for it then.
+  analysis.catch(() => {});
   try {
-    const { violations } = await new AxeBuilder({ page }).analyze();
+    const outcome = await Promise.race([analysis, expired]);
+    if (outcome === 'expired') {
+      await page.close().catch(() => {});
+      return { violations: [], error: `axe-core did not finish within ${Math.round(timeoutMs / 1000)}s` };
+    }
     return {
-      violations: violations.map((v) => ({ id: v.id, impact: v.impact ?? null, nodes: v.nodes.length })),
+      violations: outcome.violations.map((v) => ({ id: v.id, impact: v.impact ?? null, nodes: v.nodes.length })),
       error: null,
     };
   } catch (cause) {
     return { violations: [], error: cause instanceof Error ? cause.message : String(cause) };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -212,8 +251,18 @@ export async function renderPage(url: string, options: RenderOptions): Promise<R
       const response = await page.goto(url, { waitUntil: 'load', timeout: timeoutMs });
       if (aborted()) return failure('cancelled');
       await page.waitForTimeout(settleMs);
+      const viewport = page.viewportSize();
+      // A string, because this package is typed for Node and has no DOM.
+      const height = Number(await page.evaluate('document.documentElement.scrollHeight').catch(() => 0));
+      if (viewport !== null && height > viewport.height) {
+        await page.setViewportSize({ width: viewport.width, height: Math.min(height, MAX_RENDER_HEIGHT) });
+        await page.waitForTimeout(settleMs);
+      }
+      if (aborted()) return failure('cancelled');
       const html = await page.content();
-      const accessibility = options.accessibility === true ? await runAxe(page) : undefined;
+      const accessibility = options.accessibility === true
+        ? await runAxe(page, options.axeTimeoutMs ?? DEFAULTS.axeTimeoutMs)
+        : undefined;
       return {
         requestedUrl: url,
         finalUrl: page.url(),

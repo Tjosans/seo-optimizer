@@ -160,14 +160,35 @@ export const localeCanonical: PageProbe = {
 
     const locale = cluster.get(declared);
     const own = [...selves].map((url) => cluster.get(url)).find((value) => value !== undefined);
-    if (locale !== undefined && own !== undefined && sameLanguage(own, locale)) {
+    // A page the cluster never names speaks for its locale through its lang.
+    const declaredLang = extracted.lang?.trim() || undefined;
+    if (
+      locale !== undefined &&
+      own === undefined &&
+      declaredLang !== undefined &&
+      declaredLang.toLowerCase() === locale.trim().toLowerCase()
+    ) {
+      // The cluster never names this URL, and the page is in the language the
+      // cluster gives its canonical: this is a second address for that
+      // locale's page, not a locale of its own. mozilla.org/en-US/firefox/
+      // enterprise/ is lang="en-US" and canonicalizes to firefox.com/en-US/
+      // browsers/enterprise/, which the cluster calls en-US. Nothing crosses a
+      // language; whether a duplicate should point across hosts is
+      // canonicalization's question. A page in another language than its
+      // canonical still fails below, cluster or no cluster.
+      return notApplicable(
+        `Canonicalizes to ${declared}, which the cluster names as "${locale}"; this URL is not a locale variant of its own.`,
+      );
+    }
+    const ownLocale = own ?? declaredLang;
+    if (locale !== undefined && ownLocale !== undefined && sameLanguage(ownLocale, locale)) {
       // v5.0 0.7 and 1.14 allow "same-language regional consolidation" when the
       // locale plan documents it — en-GB onto en-US is a choice a site may make.
       // Only the plan can say it was chosen, so it holds for a person.
       return warn(
-        `Canonicalizes the "${own}" page to its same-language "${locale}" variant at ${declared}; ` +
+        `Canonicalizes the "${ownLocale}" page to its same-language "${locale}" variant at ${declared}; ` +
           'confirm the locale plan consolidates these regions deliberately.',
-        { canonical: declared, locale, own, pageUrl: page.normalizedUrl },
+        { canonical: declared, locale, own: ownLocale, pageUrl: page.normalizedUrl },
       );
     }
     if (locale !== undefined) {

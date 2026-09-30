@@ -166,6 +166,54 @@ describe('extract', () => {
     ]);
   });
 
+  it('reads the document title, never the title of an inline SVG icon', () => {
+    const extracted = extract(
+      '<html><body><svg><title>Download_on_the_App_Store_Badge_US-UK_RGB_blk_4SVG_092917</title></svg>' +
+        '<p>Talk</p></body></html>',
+      'https://example.com/',
+    );
+    expect(extracted.title).toBeNull();
+    const withHead = extract(
+      '<html><head><title>Browse TED Playlists</title></head><body><svg><title>Badge</title></svg></body></html>',
+      'https://example.com/',
+    );
+    expect(withHead.title).toBe('Browse TED Playlists');
+  });
+
+  // ted.com's social links, as served on 2026-09-30: the name is on the icon,
+  // and a name-from-content that only asked role="img" read all seven as
+  // nameless, failing content-accessibility on every page of the site.
+  it('names an icon link by the label on the icon, but not by a hidden one', () => {
+    const links = extract(
+      '<html><body>' +
+        '<a rel="noreferrer noopener" href="https://twitter.com/tedtalks" class="relative">' +
+        '<svg class="h-8" aria-label="Twitter" width="32" height="32" viewBox="0 0 32 32"><g><path d="M16 0"></path></g></svg></a>' +
+        '<a href="/close"><svg aria-hidden="true" role="img"><path d="M3 20"></path></svg></a>' +
+        '<a href="/x"><span aria-hidden="true"><img src="/i.png" alt="Decoration"></span></a>' +
+        '</body></html>',
+      'https://example.com/',
+    ).links.map((link) => link.name);
+    expect(links).toEqual(['Twitter', '', '']);
+  });
+
+  // kjell.com's banner, allbirds.com's product films and theguardian.com's
+  // front-page previews, as served on 2026-09-30, beside a player a visitor
+  // controls.
+  it('tells a muted looping or autoplaying video with no controls from one to watch', () => {
+    const media = extract(
+      '<html><body>' +
+        '<video loop="" autoplay="" muted="" playsinline="" disableremoteplayback="" class="gq b6"><source src="/bg.mp4"></video>' +
+        "<video autoplay playsinline loop muted poster='/p.jpg' preload='metadata'><source data-src='/film.mp4'></video>" +
+        '<video id="v" crossorigin="anonymous" tabindex="0" preload="none" loop="" muted="" playsinline=""></video>' +
+        '<video controls muted autoplay src="/talk.mp4"></video>' +
+        '<video autoplay src="/sound.mp4"></video>' +
+        '<audio autoplay loop muted src="/a.mp3"></audio>' +
+        '</body></html>',
+      'https://example.com/',
+    ).media.map((item) => item.ambient);
+    expect(media).toEqual([true, true, true, false, false, false]);
+  });
+
   it('marks an image that needs no alt: hidden from assistive technology, or named another way', () => {
     const images = extract(
       '<html><body>' +

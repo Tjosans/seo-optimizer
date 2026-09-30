@@ -260,6 +260,21 @@ export const indexBloat: SiteProbe = {
     const unlisted = indexable.filter((page) => !listed.has(page.normalizedUrl));
     const ratio = unlisted.length / indexable.length;
 
+    // A news sitemap lists the last two days' articles and a video sitemap its
+    // watch pages, by design. A site whose only sitemaps are feeds like these
+    // has no list of its other pages to be absent from: theguardian.com
+    // declares news.xml and video.xml, and its section fronts read as bloat.
+    const read = crawl.sitemaps.filter((document) => document.urlCount > 0);
+    const feedsOnly = read.length > 0 &&
+      read.every((document) => document.newsCount >= document.urlCount || document.videoCount >= document.urlCount);
+    if (feedsOnly && unlisted.length > 0) {
+      return warn(
+        `${unlisted.length} of ${indexable.length} indexable pages are absent from the sitemaps, but every sitemap read ` +
+          'is a news or video feed, which lists recent articles or watch pages only; whether the rest belong in a sitemap is for a person.',
+        { samples: unlisted.slice(0, 10).map((page) => page.normalizedUrl), feeds: read.map((document) => document.url) },
+      );
+    }
+
     if (ratio > 0.25) {
       return fail(
         `${unlisted.length} of ${indexable.length} indexable pages are absent from the sitemap.`,
@@ -292,12 +307,23 @@ export const orphanPages: SiteProbe = {
     const orphans = htmlPages(crawl.pages).filter(
       (page) => !linked.has(page.normalizedUrl) && !seeds.has(page.normalizedUrl),
     );
+    if (orphans.length === 0) return pass('Every crawled page has at least one internal link pointing at it.');
 
-    return orphans.length === 0
-      ? pass('Every crawled page has at least one internal link pointing at it.')
-      : fail(`${orphans.length} page(s) are reachable only from the sitemap.`, {
-          samples: orphans.slice(0, 10).map((page) => page.normalizedUrl),
-        });
+    // An orphan is a page no page links to, and only a walk that reached every
+    // page it found a link to has read every link there is. A walk the budget
+    // stopped leaves linked pages unread, and any of them may link to the
+    // page: theguardian.com's sitemap-listed video pages read as orphans after
+    // twenty pages of a news site with hundreds of links left to follow.
+    const unread = crawl.notReached.filter((url) => linked.has(url));
+    const data = { samples: orphans.slice(0, 10).map((page) => page.normalizedUrl) };
+    if (unread.length > 0) {
+      return warn(
+        `${orphans.length} page(s) reached from the sitemap have no link from the ${crawl.pages.length} page(s) crawled, ` +
+          `but ${unread.length} linked page(s) were never read, and any of them may link there.`,
+        { ...data, unreadLinkedPages: unread.length },
+      );
+    }
+    return fail(`${orphans.length} page(s) are reachable only from the sitemap.`, data);
   },
 };
 
@@ -373,9 +399,25 @@ export const hreflangClusterQa: SiteProbe = {
   title: 'Hreflang clusters are complete, reciprocal and indexable',
   run({ crawl, origin }) {
     const pages = htmlPages(crawl.pages);
-    const annotated = pages.filter((page) => (page.extracted?.hreflang.length ?? 0) > 0);
-    if (annotated.length === 0) {
+    const carrying = pages.filter((page) => (page.extracted?.hreflang.length ?? 0) > 0);
+    if (carrying.length === 0) {
       return notApplicable('No crawled page carries an hreflang annotation.');
+    }
+    // A page canonicalized elsewhere is not a member of any cluster: search
+    // engines read the annotations of the page it names, so asking this one
+    // to name itself or be named back asks for something nobody reads.
+    // allbirds.com's /pages/our-materials canonicalizes to /pages/materials
+    // and lists that page, not itself, as en-US; mozilla.org's /en-US/firefox/
+    // pages do the same onto firefox.com. Whether such a canonical crosses a
+    // locale is locale-canonical's question.
+    const annotated = carrying.filter((page) => {
+      const canonical = page.extracted?.canonical == null ? null : normalizeUrl(page.extracted.canonical);
+      return canonical === null || canonical === page.normalizedUrl || canonical === normalizeUrl(page.fetch.finalUrl);
+    });
+    if (annotated.length === 0) {
+      return notApplicable(
+        `All ${carrying.length} annotated page(s) canonicalize elsewhere, so their clusters belong to pages the crawl did not judge.`,
+      );
     }
 
     const byUrl = new Map(pages.map((page) => [page.normalizedUrl, page]));
@@ -440,14 +482,18 @@ export const hreflangClusterQa: SiteProbe = {
         samples: noindex.slice(0, 10).map((page) => page.normalizedUrl),
       });
     }
-    if (unreachable.length > 0) {
-      return fail(`${unreachable.length} hreflang target(s) were never reached by the crawl.`, {
-        samples: unreachable.slice(0, 10),
-      });
-    }
     if (badCodes.length > 0) {
       return fail(`${badCodes.length} hreflang value(s) are not a valid language tag.`, {
         samples: badCodes.slice(0, 10),
+      });
+    }
+    // The crawl follows links, not annotations, so a locale no page links to
+    // is never fetched however well it works: ted.com's talks name ?language=
+    // variants that nothing on the page links. Whether those pages reciprocate
+    // is unknown, which holds the check rather than failing it.
+    if (unreachable.length > 0) {
+      return warn(`${unreachable.length} hreflang target(s) were not fetched by the crawl, so their reciprocity is unverified.`, {
+        samples: unreachable.slice(0, 10),
       });
     }
 
@@ -507,6 +553,7 @@ export const hreflangImplementation: SiteProbe = {
     const relative: { page: string; hreflang: string; href: string }[] = [];
     const conflicting: { page: string; hreflang: string; urls: string[] }[] = [];
     const shared: { page: string; url: string; hreflangs: string[] }[] = [];
+    const regional: { page: string; url: string; hreflangs: string[] }[] = [];
     const repeatedDefault: string[] = [];
     const lonelyDefault: string[] = [];
     const locales = new Set<string>();
@@ -554,10 +601,19 @@ export const hreflangImplementation: SiteProbe = {
         }
       }
       for (const [url, tags] of byUrl) {
-        // x-default is meant to double up on a real locale's URL; two *locales*
-        // on one URL is the thing 1.14 asks against.
+        // x-default is meant to double up on a real locale's URL, and so is a
+        // bare language beside one of its regions: mozilla.org names /es-ES/
+        // as both "es" and "es-ES", which is how a site says which Spanish
+        // page a reader with no region should get. Two *languages* on one URL
+        // is what 1.14's "distinct URLs per locale" asks against: one of them
+        // is not the language of the page. Several regions of one language on
+        // one URL is the "same-language regional consolidation" v5.0 allows
+        // when the locale plan (0.7) records it, which only a person holds.
         const named = [...tags].filter((tag) => tag !== 'x-default');
-        if (named.length > 1) shared.push({ page: page.normalizedUrl, url, hreflangs: named });
+        const languages = new Set(named.map((tag) => tag.split(/[-_]/)[0]));
+        const regions = named.filter((tag) => /[-_]/.test(tag));
+        if (languages.size > 1) shared.push({ page: page.normalizedUrl, url, hreflangs: named });
+        else if (regions.length > 1) regional.push({ page: page.normalizedUrl, url, hreflangs: named });
       }
       if (defaults > 1) repeatedDefault.push(page.normalizedUrl);
       if (defaults === 1 && byTag.size <= 2) lonelyDefault.push(page.normalizedUrl);
@@ -582,7 +638,7 @@ export const hreflangImplementation: SiteProbe = {
       });
     }
     if (shared.length > 0) {
-      return fail(`${shared.length} URL(s) are claimed by more than one locale, so the locales are not on distinct URLs.`, {
+      return fail(`${shared.length} URL(s) are claimed by more than one language, so the locales are not on distinct URLs.`, {
         samples: shared.slice(0, 10),
       });
     }
@@ -598,6 +654,12 @@ export const hreflangImplementation: SiteProbe = {
         ...detail,
         samples: unsupported.slice(0, 10),
       });
+    }
+    if (regional.length > 0) {
+      return warn(
+        `${regional.length} URL(s) serve several regions of one language; confirm the locale plan consolidates them deliberately.`,
+        { ...detail, samples: regional.slice(0, 10) },
+      );
     }
     if (lonelyDefault.length > 0) {
       return warn(`${lonelyDefault.length} page(s) declare x-default beside a single locale, so there is nothing to fall back from.`, {

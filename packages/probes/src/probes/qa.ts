@@ -32,12 +32,21 @@ const SAMPLES = 10;
  * A 429 is the site asking this crawler to slow down, which says nothing about
  * the URL, so it leaves the target unverified. So does a request that never
  * came back: a timeout may be ours as easily as theirs.
+ *
+ * Off the crawled site, so does a refusal. 401, 403 and LinkedIn's 999 are how
+ * a third party turns away a client it does not know, and on 2026-09-30 they
+ * were every "broken" external link in eight sites' crawls: nytimes.com,
+ * fastcompany.com, support.ted.com and jobs.theguardian.com all answer a
+ * crawler 403 and a visitor 200. A page that is gone says 404 or 410.
  */
 type TargetState = 'ok' | 'broken' | 'unverified';
 
-const stateOf = (fetch: FetchResult): TargetState => {
+const REFUSALS = new Set([401, 403, 999]);
+
+const stateOf = (fetch: FetchResult, external: boolean): TargetState => {
   const { status, error } = fetch;
   if (error !== null || status === null || status === 429) return 'unverified';
+  if (external && REFUSALS.has(status)) return 'unverified';
   return status >= 400 ? 'broken' : 'ok';
 };
 
@@ -129,7 +138,7 @@ export const brokenLinks: SiteProbe = {
             externalUnchecked.add(target);
             continue;
           }
-          const state = stateOf(checked);
+          const state = stateOf(checked, true);
           if (state === 'unverified') externalUnchecked.add(target);
           if (state !== 'broken') continue;
           const entry = broken.get(target) ?? { status: checked.status, external: true, from: new Set<string>() };
@@ -143,7 +152,7 @@ export const brokenLinks: SiteProbe = {
           else unchecked.add(target);
           continue;
         }
-        const state = stateOf(reached.fetch);
+        const state = stateOf(reached.fetch, false);
         if (state === 'unverified') unchecked.add(target);
         if (state !== 'broken') continue;
         const entry = broken.get(target) ?? { status: reached.fetch.status, external: false, from: new Set<string>() };
@@ -323,12 +332,28 @@ export const metadataCompleteness: SiteProbe = {
       if (!noindex && canonical !== null && canonical !== self) {
         const target = fetched.get(canonical);
         const why = target === undefined ? null : unusableCanonical(target);
-        if (why !== null && target !== undefined && landedAt(target) === self) {
+        // Where the canonical sends a visitor, and what that page calls its own
+        // canonical: the same URL again means the redirect depends on who asks.
+        const landing = target === undefined ? null : landedAt(target);
+        // A redirect's record holds its destination's document, so it answers
+        // for the destination when the crawl never fetched that on its own.
+        const landingPage = landing === null ? undefined : fetched.get(landing) ?? target;
+        const loops = landing !== canonical && landingPage?.extracted?.canonical != null &&
+          normalizeUrl(landingPage.extracted.canonical) === canonical;
+        if (why !== null && target !== undefined && (landing === self || loops)) {
           // A canonical onto a URL that sends this visitor straight back: an
           // edition front naming the home page, which redirects by location.
           // From here the page is its own canonical; from elsewhere it may not
           // be, and only a person can say which visitor the site meant.
-          varying.push({ url, issue: `names ${canonical} as its canonical, which ${why}, back to this page` });
+          // The redirect need not come back to this page to be that: from
+          // Sweden theguardian.com/ lands on /europe, which names / as its
+          // canonical too, and /international, naming /, is one more edition.
+          varying.push({
+            url,
+            issue: landing === self
+              ? `names ${canonical} as its canonical, which ${why}, back to this page`
+              : `names ${canonical} as its canonical, which ${why}, a page naming ${canonical} as its canonical too`,
+          });
         } else if (why !== null) {
           conflicts.push({ url, issue: `names ${canonical} as its canonical, which ${why}` });
         }
@@ -383,7 +408,7 @@ export const metadataCompleteness: SiteProbe = {
     }
     if (varying.length > 0) {
       return warn(
-        `${varying.length} page(s) name a canonical that redirects back to them; confirm which ` +
+        `${varying.length} page(s) name a canonical that redirects by visitor; confirm which ` +
           'address each visitor is meant to index.',
         { ...data, samples: [...varying, ...gaps].slice(0, SAMPLES) },
       );

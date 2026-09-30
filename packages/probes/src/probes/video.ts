@@ -124,7 +124,8 @@ function videoObjects(page: CrawledPage): Record<string, unknown>[] {
  * matters; counting only the ones with a `src` attribute made eight such pages
  * read as carrying no video, and the detectors said nothing about any of them.
  * `urls` is the subset the markup does state, which is all that robots.txt and
- * the markup comparison can be asked about.
+ * the markup comparison can be asked about. Ambient video (`ExtractedMedia.ambient`)
+ * is not counted at all.
  */
 interface PageVideo {
   /** Players a visitor would see, sourced or not. */
@@ -139,7 +140,12 @@ function videosOn(page: CrawledPage): PageVideo {
   const extracted = page.extracted;
   if (extracted === null) return { count: 0, urls: [], posters: [], nodes: [] };
 
-  const elements = extracted.media.filter((item) => item.kind === 'video');
+  // An ambient video is left out: muted, with no controls, looping or playing
+  // by itself, it is a moving picture — a retail hero banner, a news front's
+  // preview of a clip that has its own page — and not a video anyone came to
+  // watch or that video search could offer. allbirds.com's product pages
+  // carried three each and failed videoobject-schema for describing none.
+  const elements = extracted.media.filter((item) => item.kind === 'video' && !item.ambient);
   const frames = extracted.frames.filter((frame) => isPlayerFrame(frame.src));
 
   return {
@@ -335,6 +341,16 @@ export const videoObjectSchema: PageProbe = {
       return notApplicable('The page plays no video and declares none.');
     }
 
+    if (video.nodes.length === 0 && (isProductPage(page) || declaresArticle(extracted))) {
+      // v5.0 2.14 asks for VideoObject on watch pages, and says a product or
+      // article page with supplemental video is not one. Markup it does carry
+      // is still judged below; its absence is not a defect. theguardian.com's
+      // film reviews embed the trailer and failed here.
+      return notApplicable(
+        `The page declares itself ${isProductPage(page) ? 'a product' : 'an article'}, so its ` +
+          `${video.count} video(s) support the page and need not be described as a watch page's video.`,
+      );
+    }
     if (video.nodes.length === 0) {
       return fail(
         `${video.count} video(s) play on this page and none is described by ` +

@@ -57,6 +57,16 @@ async function startServer(): Promise<string> {
       response.end('<!doctype html><html><head><title>Device</title><meta name="viewport" content="width=device-width"></head><body><script>document.body.textContent = [innerWidth, navigator.userAgent, matchMedia("(pointer: coarse)").matches].join("|");</script></body></html>');
       return;
     }
+    if (path === '/lazy') {
+      // A footer mounted only once it scrolls into view, as kjell.com's is.
+      response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      response.end('<!doctype html><html><head><title>Lazy</title></head><body>' +
+        '<div style="height:3000px">Top</div><footer id="f"></footer><script>' +
+        'new IntersectionObserver((entries, observer) => { if (entries.some((e) => e.isIntersecting)) {' +
+        ' document.getElementById("f").innerHTML = `<a href="/customer-service">Customer service</a>`; observer.disconnect(); } })' +
+        '.observe(document.getElementById("f"));</script></body></html>');
+      return;
+    }
     if (path === '/slow') {
       // Never responds within renderPage's timeout.
       return;
@@ -168,6 +178,14 @@ describe('renderPage', () => {
     expect(deskAgent).not.toContain('Mobile');
   }, 30_000);
 
+  it('renders what a page mounts once it is in view, as a crawler with a page-tall viewport does', async () => {
+    const origin = await startServer();
+    const result = await renderPage(`${origin}/lazy`, { userAgent: 'seo-optimizer/0.1 (+test)' });
+    expect(result.error).toBeNull();
+    // Read as links, not as text: the script that mounts it spells it out too.
+    expect(extract(result.html, result.finalUrl).links.map((link) => link.href)).toContain('/customer-service');
+  }, 30_000);
+
   it('records axe-core violations only when asked', async () => {
     const origin = await startServer();
     const plain = await renderPage(`${origin}/axe`, { userAgent: 'seo-optimizer/0.1 (+test)' });
@@ -181,5 +199,21 @@ describe('renderPage', () => {
     expect(audited.accessibility?.error).toBeNull();
     const imageAlt = audited.accessibility?.violations.find((v) => v.id === 'image-alt');
     expect(imageAlt).toMatchObject({ impact: 'critical', nodes: 1 });
+  }, 60_000);
+
+  // iana.org's /domains/idn-tables held a crawl for over half an hour inside
+  // axe. A run past its bound is given up on, and the render keeps its HTML.
+  it('gives up on an axe-core run past its bound, keeping the render', async () => {
+    const origin = await startServer();
+    const started = Date.now();
+    const result = await renderPage(`${origin}/axe`, {
+      userAgent: 'seo-optimizer/0.1 (+test)',
+      accessibility: true,
+      axeTimeoutMs: 1,
+    });
+    expect(Date.now() - started).toBeLessThan(20_000);
+    expect(result.error).toBeNull();
+    expect(result.html).toContain('<img');
+    expect(result.accessibility).toEqual({ violations: [], error: 'axe-core did not finish within 0s' });
   }, 60_000);
 });

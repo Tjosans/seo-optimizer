@@ -130,8 +130,15 @@ const headersToObject =(headers: Headers): Record<string, string> => {
   return out;
 };
 
-/** Only these bodies are worth reading; anything else is measured, not parsed. */
-const TEXTUAL = /^(text\/|application\/(xhtml\+xml|xml|json|ld\+json|rss\+xml))/;
+/**
+ * Only these bodies are worth reading; anything else is measured, not parsed.
+ *
+ * Any `application/…+json` or `…+xml` is JSON or XML by its structured syntax
+ * suffix (RFC 6839), whatever the part before the plus: RDAP registries answer
+ * `application/rdap+json`, and a list naming only the suffixed types someone
+ * thought of read every registry record as an empty body.
+ */
+const TEXTUAL = /^(text\/|application\/(xml|json|[\w.-]+\+(xml|json))\s*(;|$))/i;
 
 interface BodyRead {
   readonly byteLength: number;

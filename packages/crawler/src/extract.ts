@@ -23,8 +23,9 @@ export interface ExtractedLink {
   /**
    * What a screen reader announces for the link, approximated from markup:
    * `aria-label`, else the text of the elements `aria-labelledby` names, else
-   * the text inside plus the alt of any image inside, else `title`. Empty when
-   * none of those says anything — a link nobody can tell the purpose of.
+   * the text inside plus the alt or aria-label of anything inside that is not
+   * `aria-hidden`, else `title`. Empty when none of those says anything — a
+   * link nobody can tell the purpose of.
    */
   readonly name: string;
   readonly rel: string | null;
@@ -84,6 +85,16 @@ export interface ExtractedMedia {
   readonly hasTrack: boolean;
   /** Text between the tags, shown by browsers that cannot play the media. */
   readonly hasFallbackText: boolean;
+  /**
+   * A video that plays as moving decoration rather than as something to
+   * watch: `muted`, with no `controls`, and set to `autoplay` or `loop`.
+   *
+   * Nobody can turn its sound on or find its start, so it carries no speech to
+   * caption and no programme to mark up for video search. Retail hero banners
+   * (kjell.com, allbirds.com) and a news front's looping previews
+   * (theguardian.com) are all this shape. Always false on audio.
+   */
+  readonly ambient: boolean;
 }
 
 /**
@@ -370,12 +381,18 @@ export function extract(html: string, pageUrl: string): Extracted {
         .join(' '),
     );
     if (referenced !== '') return referenced;
+    // Name from content: the text inside, and the alt or aria-label of what is
+    // inside. Any labelled descendant counts, not only `role="img"`: an icon
+    // link is almost always `<a><svg aria-label="Twitter">`, and ted.com's
+    // social links read as nameless until this said so. A subtree hidden from
+    // assistive technology contributes nothing.
     const inner = clean(
       [
         node.text(),
         ...node
-          .find('img[alt], [role="img"][aria-label]')
-          .map((_i, image) => $(image).attr('alt') ?? $(image).attr('aria-label') ?? '')
+          .find('img[alt], [aria-label]')
+          .filter((_i, child) => $(child).closest('[aria-hidden="true"]').length === 0)
+          .map((_i, child) => $(child).attr('aria-label') ?? $(child).attr('alt') ?? '')
           .get(),
       ].join(' '),
     );
@@ -453,6 +470,11 @@ export function extract(html: string, pageUrl: string): Extracted {
       // `clone().children().remove()` would drop <source> and <track> too, so
       // the fallback is the element's own text minus its track labels.
       hasFallbackText: clean(node.clone().find('track, source').remove().end().text()) !== '',
+      ambient:
+        tag.toLowerCase() !== 'audio' &&
+        node.attr('muted') !== undefined &&
+        node.attr('controls') === undefined &&
+        (node.attr('autoplay') !== undefined || node.attr('loop') !== undefined),
     });
   });
 
@@ -619,7 +641,10 @@ export function extract(html: string, pageUrl: string): Extracted {
   });
 
   const canonicalHref = $('link[rel="canonical"]').first().attr('href');
-  const titleText = $('title').first().text();
+  // The document's title is the first <title> that is not an SVG's: an inline
+  // icon names itself with one too, and ted.com's rendered pages carry three
+  // App Store badges titled "Download_on_the_App_Store_Badge…" in the body.
+  const titleText = $('title').filter((_i, element) => $(element).closest('svg').length === 0).first().text();
 
   // Script and style content is markup, not reading matter.
   $('script, style, noscript, template').remove();

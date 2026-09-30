@@ -56,6 +56,16 @@ of iana.org took 63 s rendered against 15 s raw. The snapshot records
 `settings.render`, and `compare` warns when one run rendered and the other did
 not.
 
+## Reading a failure from the snapshot
+
+Each site's `probeFailures` lists every `fail` and `error` observation with its
+detector, page and summary, and — where the detector recorded one — its `data`:
+which links, URLs, tags or values the summary is about. Triage a suspect fail
+from there before crawling the site again. The detail is bounded so a
+site-wide list cannot swell the file: arrays keep their first 25 items and
+strings their first 500 characters, each cut followed by a marker saying how
+much was dropped. Snapshots taken before 2026-09-30 evening have no `data`.
+
 ## Caveats, so nobody over-reads a diff
 
 - These are live sites. A moved verdict can be the site changing rather than

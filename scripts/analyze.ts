@@ -114,6 +114,56 @@ export interface ProbeFailure {
    * theirs.
    */
   readonly outcome: 'fail' | 'error';
+  /**
+   * The observation's own detail — which links, URLs, tags or values the
+   * summary is about — bounded by `boundData`, so a site-wide list cannot
+   * swell the snapshot. Triage reads this instead of crawling the site again.
+   * Absent when the detector recorded none, and from snapshots taken before
+   * it existed.
+   */
+  readonly data?: Readonly<Record<string, unknown>>;
+}
+
+/** Longest array a snapshot keeps from an observation's `data`. */
+export const DATA_MAX_ITEMS = 25;
+/** Longest string a snapshot keeps from an observation's `data`. */
+export const DATA_MAX_CHARS = 500;
+/** Deepest nesting a snapshot keeps from an observation's `data`. */
+const DATA_MAX_DEPTH = 6;
+
+/**
+ * An observation's `data`, cut down to what a person triaging it reads: the
+ * first `DATA_MAX_ITEMS` of any array, followed by a marker saying how many
+ * were dropped, and strings past `DATA_MAX_CHARS` cut with the same kind of
+ * marker. The cut is always visible, so a list that stops is never read as a
+ * list that was short.
+ */
+export function boundData(value: unknown, depth = 0): unknown {
+  if (typeof value === 'string') {
+    return value.length <= DATA_MAX_CHARS
+      ? value
+      : `${value.slice(0, DATA_MAX_CHARS)}… (${value.length - DATA_MAX_CHARS} more characters)`;
+  }
+  if (value === null || typeof value !== 'object') {
+    // JSON has no undefined, bigint or function; say what was there rather
+    // than let JSON.stringify drop or throw on it.
+    return typeof value === 'bigint' || typeof value === 'function' || typeof value === 'symbol'
+      ? String(value)
+      : value;
+  }
+  if (depth >= DATA_MAX_DEPTH) return '… (nested too deep to record)';
+  if (Array.isArray(value)) {
+    const kept = value.slice(0, DATA_MAX_ITEMS).map((item) => boundData(item, depth + 1));
+    return value.length <= DATA_MAX_ITEMS
+      ? kept
+      : [...kept, `… (${value.length - DATA_MAX_ITEMS} more)`];
+  }
+  if (value instanceof Map) return boundData(Object.fromEntries(value), depth);
+  if (value instanceof Set) return boundData([...value], depth);
+  if (value instanceof Date) return value.toISOString();
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, boundData(item, depth + 1)]),
+  );
 }
 
 export interface SiteReport {
@@ -413,6 +463,9 @@ async function analyze(
         pageUrl: run.pageUrl ?? null,
         summary: run.observation.summary,
         outcome: run.observation.outcome === 'error' ? ('error' as const) : ('fail' as const),
+        ...(run.observation.data === undefined
+          ? {}
+          : { data: boundData(run.observation.data) as Record<string, unknown> }),
       })),
   };
 }

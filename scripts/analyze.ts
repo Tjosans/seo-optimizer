@@ -9,6 +9,7 @@
  *
  *     npm run analyze -- https://example.com
  *     npm run analyze -- --file benchmarks/urls.txt --pages 25 --label baseline
+ *     npm run analyze -- https://example.com --render
  *
  * The snapshot is the deliverable. The console report is for reading now.
  */
@@ -39,6 +40,21 @@ export interface Settings {
   readonly requestDelayMs: number;
   readonly timeoutMs: number;
   readonly flags: readonly string[];
+  /**
+   * Whether each HTML page was also rendered in a headless browser — desktop
+   * with axe-core, then as a phone. Absent from snapshots taken before
+   * `--render` existed, which means false.
+   */
+  readonly render?: boolean;
+}
+
+/** What the render pass produced, when `--render` asked for one. */
+export interface RenderSummary {
+  /** HTML pages a desktop render was attempted on. */
+  readonly desktop: number;
+  readonly desktopFailed: number;
+  readonly mobile: number;
+  readonly mobileFailed: number;
 }
 
 export interface CrawlSummary {
@@ -52,6 +68,8 @@ export interface CrawlSummary {
   readonly robotsTxt: boolean;
   readonly medianTtfbMs: number | null;
   readonly durationMs: number;
+  /** Absent when the run did not render. */
+  readonly renders?: RenderSummary;
 }
 
 export interface ObservationSummary {
@@ -154,6 +172,7 @@ function parseArgs(argv: readonly string[]): Args {
   let baseline: Snapshot | null = null;
   let inputs: AuditInputs = {};
   let inputsFile: string | null = null;
+  let render = false;
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i] ?? '';
@@ -172,6 +191,7 @@ function parseArgs(argv: readonly string[]): Args {
       case '--label': label = next(); break;
       case '--out': out = next(); break;
       case '--no-save': save = false; break;
+      case '--render': render = true; break;
       case '--baseline': baseline = JSON.parse(readFileSync(next(), 'utf8')) as Snapshot; break;
       case '--inputs': { const file = next(); inputs = loadLighthouseMetricsFor(parseInputs(parseYaml(readFileSync(file, 'utf8'))), file); inputsFile = file; break; }
       case '--file': {
@@ -192,12 +212,12 @@ function parseArgs(argv: readonly string[]): Args {
     throw new Error(
       'usage: npm run analyze -- <url...> [--file urls.txt] [--pages N] [--depth N]\n' +
         '       [--delay ms] [--timeout ms] [--flags a,b] [--label name] [--no-save]\n' +
-        '       [--baseline snapshot.json] [--inputs inputs.yaml]',
+        '       [--baseline snapshot.json] [--inputs inputs.yaml] [--render]',
     );
   }
   return {
     urls,
-    settings: { maxPages, maxDepth, requestDelayMs, timeoutMs, flags },
+    settings: { maxPages, maxDepth, requestDelayMs, timeoutMs, flags, render },
     label,
     save,
     out,
@@ -216,7 +236,18 @@ const median = (values: readonly number[]): number | null => {
   return sorted.length % 2 === 0 ? Math.round((low + high) / 2) : Math.round(high);
 };
 
-function summarizeCrawl(result: CrawlResult, durationMs: number): CrawlSummary {
+function summarizeRenders(result: CrawlResult): RenderSummary {
+  const desktop = result.pages.flatMap((page) => (page.rendered == null ? [] : [page.rendered]));
+  const mobile = result.pages.flatMap((page) => (page.renderedMobile == null ? [] : [page.renderedMobile]));
+  return {
+    desktop: desktop.length,
+    desktopFailed: desktop.filter((capture) => capture.render.error !== null).length,
+    mobile: mobile.length,
+    mobileFailed: mobile.filter((capture) => capture.render.error !== null).length,
+  };
+}
+
+function summarizeCrawl(result: CrawlResult, durationMs: number, render: boolean): CrawlSummary {
   const ttfb = result.pages
     .map((page) => page.fetch.ttfbMs)
     .filter((value): value is number => value !== null);
@@ -233,6 +264,7 @@ function summarizeCrawl(result: CrawlResult, durationMs: number): CrawlSummary {
     robotsTxt: result.robotsTxt !== null,
     medianTtfbMs: median(ttfb),
     durationMs,
+    ...(render ? { renders: summarizeRenders(result) } : {}),
   };
 }
 
@@ -319,6 +351,12 @@ async function analyze(
       })),
       redirectMapUrls: redirectMapUrls(inputs.redirectMap),
       ...(indexNowKeyUrl(inputs.indexNow, origin) === undefined ? {} : { indexNowKeyUrl: indexNowKeyUrl(inputs.indexNow, origin) as string }),
+      // Everything the render-reading detectors look at: the desktop capture
+      // (rendering strategy, raw/rendered diff), axe-core run on it, and the
+      // phone capture mobile-journey-qa compares against it.
+      ...(settings.render === true
+        ? { renderPages: true, renderAccessibility: true, renderMobile: true }
+        : {}),
     });
   } catch (cause) {
     return {
@@ -355,7 +393,7 @@ async function analyze(
     origin,
     ok: true,
     error: null,
-    crawl: summarizeCrawl(result, Date.now() - started),
+    crawl: summarizeCrawl(result, Date.now() - started, settings.render === true),
     observations: summarizeObservations(runs),
     checks: summarizeChecks(graded),
     readiness: graded.readiness,
@@ -401,6 +439,12 @@ function printSite(site: SiteReport): void {
     `discovery   ${c.sitemapUrls} sitemap urls, ${c.blockedByRobots} robots-blocked, ` +
       `${c.notReached} left unfetched, robots.txt ${c.robotsTxt ? 'found' : 'absent'}`,
   );
+  if (c.renders !== undefined) {
+    console.log(
+      `render      ${c.renders.desktop} desktop (${c.renders.desktopFailed} failed), ` +
+        `${c.renders.mobile} mobile (${c.renders.mobileFailed} failed)`,
+    );
+  }
   console.log(
     `probes      ${o.total} observations from ${o.detectorsFiring} detectors: ` +
       `${o.pass} pass, ${o.fail} fail, ${o.warn} warn, ${o.notApplicable} n/a, ${o.error} error`,
@@ -493,6 +537,7 @@ async function main(): Promise<void> {
     `corpus ${corpus.version} · ${corpus.checks.length} checks · ` +
       `${PROBES.length} detectors implemented · budget ${args.settings.maxPages} pages ` +
       `/ depth ${args.settings.maxDepth}` +
+      (args.settings.render === true ? ' · rendering' : '') +
       (args.settings.flags.length === 0 ? ' · no site flags' : ` · flags ${args.settings.flags.join(',')}`),
   );
 
@@ -526,7 +571,16 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((cause: unknown) => {
-  console.error(cause instanceof Error ? cause.message : String(cause));
-  process.exitCode = 1;
-});
+main()
+  .catch((cause: unknown) => {
+    console.error(cause instanceof Error ? cause.message : String(cause));
+    process.exitCode = 1;
+  })
+  // Leave explicitly rather than wait for the event loop to drain. A render
+  // keeps Chromium running, and on some Windows machines its processes take
+  // minutes to finish exiting after closeBrowser() asks them to — the process
+  // would sit there with the report already written. Playwright's exit hook
+  // kills what it launched, and Chromium shuts down once its pipe closes.
+  .finally(() => {
+    process.stdout.write('', () => process.exit());
+  });

@@ -56,7 +56,7 @@ Key scripts:
 - `npm run corpus:compile -- <version>` — bootstrap a new corpus version from its TSV export; refuses to overwrite one that exists
 - `npm run corpus:validate` — corpus integrity
 - `npm run probes:matrix` — detector coverage vs corpus checks
-- `npm run analyze -- <url>` — prototype: crawl, probe and grade a live URL, print a report, save a snapshot to `benchmarks/runs/`
+- `npm run analyze -- <url>` — prototype: crawl, probe and grade a live URL, print a report, save a snapshot to `benchmarks/runs/`; `--render` also renders every HTML page in headless Chromium (desktop with axe-core, then as a phone), which the render-reading detectors need to say anything live
 - `npm run compare -- <older.json> <newer.json>` — diff two snapshots to see whether a change improved coverage or verdicts
 - `npm run release -- <file.yaml> [--dry-run]` — enter a site's release and review runs from a file (format: `scripts/release.example.yaml`); needs the database
 - `npm run db:generate` — diff schema and write a new migration

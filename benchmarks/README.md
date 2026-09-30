@@ -38,6 +38,24 @@ detector work should move. Everything else is context for it:
 - `verdicts moved` in a comparison — the checks whose status or basis changed.
   This is the part to read closely.
 
+## Rendering
+
+Without `--render` the analyzer only makes raw fetches, so every detector that
+reads a browser's view of a page — `rendering-strategy-classifier`,
+`raw-rendered-parity`, `raw-rendered-crawl-diff`, `mobile-journey-qa`,
+`axe-accessibility` — reports `not-applicable`. `--render` runs each HTML page
+through headless Chromium twice (desktop with axe-core, then as a phone), each
+visit paced like a fetch:
+
+```bash
+npm run analyze -- --file benchmarks/urls.txt --pages 15 --render --label rendered
+```
+
+It needs `npx playwright install chromium` once, and it is slow: a 4-page crawl
+of iana.org took 63 s rendered against 15 s raw. The snapshot records
+`settings.render`, and `compare` warns when one run rendered and the other did
+not.
+
 ## Caveats, so nobody over-reads a diff
 
 - These are live sites. A moved verdict can be the site changing rather than

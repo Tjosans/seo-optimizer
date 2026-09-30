@@ -46,6 +46,9 @@ function compareSettings(a: Snapshot, b: Snapshot): void {
   if (a.settings.flags.join(',') !== b.settings.flags.join(',')) {
     notes.push(`flags [${a.settings.flags.join(',')}] -> [${b.settings.flags.join(',')}]`);
   }
+  if ((a.settings.render === true) !== (b.settings.render === true)) {
+    notes.push(`render ${a.settings.render === true ? 'on' : 'off'} -> ${b.settings.render === true ? 'on' : 'off'}`);
+  }
   if (a.corpusVersion !== b.corpusVersion) {
     notes.push(`corpus ${a.corpusVersion} -> ${b.corpusVersion}`);
   }

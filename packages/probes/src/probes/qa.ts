@@ -1372,7 +1372,8 @@ export const quarterlyRegressionCrawl: SiteProbe = {
       ageDays,
       regressions,
     };
-    const between = `audit of ${previous.takenAt} and audit of ${now ?? 'this crawl'}`;
+    const before = `the audit of ${previous.takenAt}`;
+    const after = now === null ? 'this crawl' : `the audit of ${now}`;
 
     if (regressions.length > 0) {
       const named = regressions
@@ -1381,7 +1382,7 @@ export const quarterlyRegressionCrawl: SiteProbe = {
         .join(', ');
       const more = regressions.length > 10 ? `, and ${regressions.length - 10} more` : '';
       return fail(
-        `${regressions.length} probe result${regressions.length === 1 ? '' : 's'} passed in the ${between} and now fail: ${named}${more}.`,
+        `${regressions.length} probe result${regressions.length === 1 ? '' : 's'} passed in ${before} and ${regressions.length === 1 ? 'fails' : 'fail'} in ${after}: ${named}${more}.`,
         data,
       );
     }
@@ -1391,7 +1392,7 @@ export const quarterlyRegressionCrawl: SiteProbe = {
         data,
       );
     }
-    return pass(`No probe that passed in the ${between} fails now.`, data);
+    return pass(`No probe that passed in ${before} fails in ${after}.`, data);
   },
 };
 

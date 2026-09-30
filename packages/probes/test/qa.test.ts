@@ -930,8 +930,17 @@ describe('quarterly-regression-crawl (7.3)', () => {
   it('fails a probe that passed before and fails now, naming both audits', () => {
     const result = run(previous(), [{ probeId: 'a', outcome: 'fail' }]);
     expect(result.outcome).toBe('fail');
-    expect(result.summary).toContain('2026-08-01');
-    expect(result.summary).toContain('2026-09-01');
+    // Read live: "passed in the audit of X and audit of Y and now fail" named
+    // the second audit as a place the probe passed.
+    expect(result.summary).toBe(
+      '1 probe result passed in the audit of 2026-08-01T00:00:00.000Z and fails in the audit of 2026-09-01T00:00:00.000Z: a.',
+    );
+  });
+
+  it('says which audit it passed in and which it holds for', () => {
+    expect(run(previous(), [{ probeId: 'a', outcome: 'pass' }]).summary).toBe(
+      'No probe that passed in the audit of 2026-08-01T00:00:00.000Z fails in the audit of 2026-09-01T00:00:00.000Z.',
+    );
   });
 
   it('matches page-scoped probes by page', () => {

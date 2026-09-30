@@ -56,6 +56,27 @@ of iana.org took 63 s rendered against 15 s raw. The snapshot records
 `settings.render`, and `compare` warns when one run rendered and the other did
 not.
 
+## Against an earlier run
+
+Four detectors answer only against an earlier look at the same site —
+`quarterly-regression-crawl` (7.3), `conditional-template-monitor` (6.9),
+`a11y-regression-sampling` (7.7) and `schema-hreflang-maintenance` (7.9) — and
+say `not-applicable` without one. Every snapshot's sites carry a `previous`
+block for this, so a second run can name the first:
+
+```bash
+npm run analyze -- --file benchmarks/urls.txt --pages 20 --render --baseline benchmarks/runs/<earlier>.json --label vs-baseline
+```
+
+Match the earlier run's settings. Pages are compared by URL, so a different
+budget compares less; `a11y-regression-sampling` needs `--render` on both
+runs, because the axe results come from the render. A rerun a few hours later
+mostly shows the plumbing working. News and live pages are where a real
+regression turns up: `2026-09-30T19-59-17-shapes-rendered-vs-baseline` against
+`…T15-25-27-shapes-rendered-tall` compared 12 to 20 pages per site on each
+detector, and found one. A Guardian live blog had added contributor
+headshots without width/height since the first run.
+
 ## Reading a failure from the snapshot
 
 Each site's `probeFailures` lists every `fail` and `error` observation with its

@@ -60,7 +60,9 @@ export async function settingsView(root) {
   fill(connection, sites.status === 'fulfilled'
     ? banner('pass', 'database', `Connected. ${sites.value.sites.length} ${sites.value.sites.length === 1 ? 'site' : 'sites'} on record.`)
     : banner('fail', 'database', 'The database is not answering.', h('p', { class: 'muted' }, sites.reason?.message ?? '')),
-  h('p', { class: 'muted', style: { margin: 0, fontSize: '13px' } }, 'The desktop app reads its database address from ', h('code', { class: 'mono' }, 'DATABASE_URL'), ' in ', h('code', { class: 'mono' }, '%APPDATA%\\SEO Optimizer\\.env'), '. Changing it takes a restart.'));
+  window.seoDesktop?.openDatabaseSettings
+    ? h('button', { class: 'btn', type: 'button', onclick: () => window.seoDesktop.openDatabaseSettings() }, icon('database', 16), 'Change database…')
+    : h('p', { class: 'muted', style: { margin: 0, fontSize: '13px' } }, 'The browser dashboard uses whatever ', h('code', { class: 'mono' }, 'DATABASE_URL'), ' the API server was started with. The desktop app changes it here.'));
 
   return () => window.removeEventListener('seo-update-status', onUpdate);
 }

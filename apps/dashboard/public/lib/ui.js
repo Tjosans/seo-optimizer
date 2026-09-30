@@ -38,14 +38,22 @@ export function errorPanel(error, retry) {
       banner('fail', 'fail', 'The window is up, but the engine behind it did not answer. Restarting the app usually brings it back.', h('p', { class: 'muted' }, `Details: ${error.message}`)),
       retry ? h('button', { class: 'btn', type: 'button', onclick: retry }, icon('refresh', 16), 'Try again') : null);
   }
+  if (isUnreachable(error) && window.seoDesktop?.openDatabaseSettings) {
+    return card({ title: 'The database is not answering' },
+      banner('fail', 'database',
+        'SEO Optimizer keeps sites and audits in a Postgres database, and it has stopped answering.',
+        h('p', { class: 'muted' }, `Details: ${error.message}`)),
+      h('div', { class: 'actions', style: { display: 'flex', gap: '8px' } },
+        retry ? h('button', { class: 'btn', type: 'button', onclick: retry }, icon('refresh', 16), 'Try again') : null,
+        h('button', { class: 'btn', type: 'button', onclick: () => window.seoDesktop.openDatabaseSettings() }, icon('database', 16), 'Change database…')));
+  }
   if (isUnreachable(error)) {
     return card({ title: 'The database is not answering' },
       banner('fail', 'database',
         'SEO Optimizer keeps sites and audits in a Postgres database, and it could not reach it.',
         h('p', { class: 'muted' }, `Details: ${error.message}`)),
-      h('p', null, 'Start the database (', h('code', { class: 'mono' }, 'npm run stack:up'), ' from a checkout), or point the app at another one by setting ',
-        h('code', { class: 'mono' }, 'DATABASE_URL'), ' in the app’s settings file, ',
-        h('code', { class: 'mono' }, '%APPDATA%\\SEO Optimizer\\.env'), ', then restart the app.'),
+      h('p', null, 'Start the database (', h('code', { class: 'mono' }, 'npm run stack:up'), ' from a checkout), or restart the API server with ',
+        h('code', { class: 'mono' }, 'DATABASE_URL'), ' pointing at another one.'),
       retry ? h('button', { class: 'btn', type: 'button', onclick: retry }, icon('refresh', 16), 'Try again') : null);
   }
   return card({ title: 'Something went wrong' },

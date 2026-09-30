@@ -11,8 +11,11 @@
  *
  * Postgres is still a server of its own: the local stack (`npm run
  * stack:up`) by default, or whatever `DATABASE_URL` says in
- * `<userData>/.env`. The app brings its schema up to date on every start,
- * because an update may carry a migration and there is nobody to run one.
+ * `<userData>/.env`. When it does not answer, the window opens on a setup
+ * page (`public/setup.html`) instead of the dashboard, where the address can
+ * be changed and tried again; it is written to `.env` once it connects. The
+ * app brings its schema up to date on every start, because an update may
+ * carry a migration and there is nobody to run one.
  *
  * Audits are written to the `jobs` table, so quitting — or restarting into an
  * update — mid-crawl resumes the audit on the next start instead of losing it.
@@ -24,16 +27,23 @@ import { fileURLToPath } from 'node:url';
 import type { AddressInfo } from 'node:net';
 import { BrowserWindow, Menu, app, dialog, ipcMain, shell } from 'electron';
 import type { MenuItemConstructorOptions } from 'electron';
-import { startApi } from '@seo/api';
+import { probeDatabase, startApi } from '@seo/api';
 import type { RunningApi } from '@seo/api';
 import { createServer as createDashboard } from '@seo/dashboard';
+import {
+  DEFAULT_DATABASE_URL,
+  describe,
+  fromFields,
+  redact,
+  saveDatabaseUrl,
+  toFields,
+} from './database-settings.js';
+import type { DatabaseFields } from './database-settings.js';
 import { createLogger } from './log.js';
 import { announceStarted, startUpdater } from './updater.js';
 import type { UpdateStatus, Updater } from './updater.js';
 
 const PRODUCT = 'SEO Optimizer';
-/** The local stack's database, as `.env.example` and docker-compose.yml have it. */
-const DEFAULT_DATABASE_URL = 'postgres://seo:seo@localhost:5433/seo_optimizer';
 const LOOPBACK = '127.0.0.1';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -70,17 +80,26 @@ let window: BrowserWindow | undefined;
 let api: RunningApi | undefined;
 let updater: Updater | undefined;
 let lastStatus: UpdateStatus | null = null;
+/** Where the dashboard is served once the API runs; undefined until then. */
+let dashboardUrl: string | undefined;
+/** The address the app connects to, or last tried to. */
+let databaseUrl = DEFAULT_DATABASE_URL;
+/** Why the last attempt to connect failed, for the setup page. */
+let connectError: string | null = null;
+/** DATABASE_URL came from the environment, which `.env` cannot override. */
+let urlFromEnvironment = false;
 
 async function run(): Promise<void> {
   await app.whenReady();
   log.info(`${PRODUCT} v${app.getVersion()} starting (packaged: ${app.isPackaged})`);
 
+  urlFromEnvironment = process.env['DATABASE_URL'] !== undefined;
   try {
     process.loadEnvFile(paths.env);
   } catch {
     // No .env: the environment, or the local stack's default below.
   }
-  const databaseUrl = process.env['DATABASE_URL'] ?? DEFAULT_DATABASE_URL;
+  databaseUrl = process.env['DATABASE_URL'] ?? DEFAULT_DATABASE_URL;
 
   app.on('second-instance', () => {
     if (window === undefined) return;
@@ -91,6 +110,7 @@ async function run(): Promise<void> {
 
   ipcMain.handle('update-status:get', () => lastStatus);
   ipcMain.on('update:restart-now', () => updater?.restartNow());
+  handleDatabaseSettings();
 
   // The updater starts before the database is asked for anything, so a
   // release that fixes a start-up failure can still arrive.
@@ -105,58 +125,120 @@ async function run(): Promise<void> {
 
   Menu.setApplicationMenu(buildMenu());
 
-  api = await startApiUntilItRuns(databaseUrl);
-  if (api === undefined) {
-    app.quit();
-    return;
+  window = createWindow();
+  connectError = await connect(databaseUrl);
+  if (connectError !== null) showSetup();
+}
+
+/**
+ * Start the API and the dashboard against `url` and show the dashboard, or
+ * say why not. Starting is where a missing database shows itself; rather than
+ * a window full of 502s, the caller shows the setup page with the reason.
+ */
+async function connect(url: string): Promise<string | null> {
+  try {
+    // Fails in seconds on a host that swallows packets, where the pool would wait 30.
+    await probeDatabase(url);
+    api = await startApi({
+      databaseUrl: url,
+      corpusDir: paths.corpus,
+      migrationsDir: paths.migrations,
+      jobOwner: 'desktop',
+      host: LOOPBACK,
+      port: 0,
+    });
+  } catch (error) {
+    log.error(`could not connect to ${redact(url)}`, error);
+    return describe(error);
   }
 
   const dashboard = createDashboard({ apiUrl: api.url, publicDir: paths.public, version: app.getVersion() });
   await new Promise<void>((resolve) => dashboard.listen(0, LOOPBACK, resolve));
-  const dashboardUrl = `http://${LOOPBACK}:${(dashboard.address() as AddressInfo).port}/`;
+  dashboardUrl = `http://${LOOPBACK}:${(dashboard.address() as AddressInfo).port}/`;
   log.info(`api on ${api.url}, dashboard on ${dashboardUrl}`);
+  void window?.loadURL(dashboardUrl);
+  return null;
+}
 
-  window = createWindow(dashboardUrl);
+function showSetup(): void {
+  void window?.loadFile(join(paths.public, 'setup.html'));
 }
 
 /**
- * Starting the API is where a missing database shows itself. Rather than a
- * window full of 502s, say what is wrong and where to fix it, and try again
- * when asked.
+ * What the setup page may ask. Only the app's own window is answered: the
+ * page it shows is either the setup page or the dashboard, and nothing else
+ * can load in it (`will-navigate` below).
  */
-async function startApiUntilItRuns(databaseUrl: string): Promise<RunningApi | undefined> {
-  for (;;) {
-    try {
-      return await startApi({
-        databaseUrl,
-        corpusDir: paths.corpus,
-        migrationsDir: paths.migrations,
-        jobOwner: 'desktop',
-        host: LOOPBACK,
-        port: 0,
-      });
-    } catch (error) {
-      log.error('api failed to start', error);
-      const { response } = await dialog.showMessageBox({
-        type: 'error',
-        title: PRODUCT,
-        message: 'SEO Optimizer cannot reach its database.',
-        detail:
-          `${describe(error)}\n\n` +
-          `Tried ${redact(databaseUrl)}.\n\n` +
-          'Start the local stack (npm run stack:up in the repository), or put a ' +
-          `DATABASE_URL line in ${paths.env}.`,
-        buttons: ['Retry', 'Open settings folder', 'Quit'],
-        defaultId: 0,
-        cancelId: 2,
-      });
-      if (response === 2) return undefined;
-      if (response === 1) void shell.openPath(dirname(paths.env));
+function handleDatabaseSettings(): void {
+  const ours = (event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) =>
+    window !== undefined && event.sender === window.webContents;
+
+  ipcMain.handle('database:state', (event) => {
+    if (!ours(event)) return null;
+    return {
+      fields: toFields(databaseUrl),
+      defaults: toFields(DEFAULT_DATABASE_URL),
+      tried: redact(databaseUrl),
+      error: api === undefined ? connectError : null,
+      connected: api !== undefined,
+      fromEnvironment: urlFromEnvironment,
+      envPath: paths.env,
+      version: app.getVersion(),
+    };
+  });
+
+  ipcMain.handle('database:connect', async (event, fields: DatabaseFields) => {
+    if (!ours(event)) return { error: 'refused' };
+    const built = fromFields(fields);
+    if ('problems' in built) return built;
+    const { url } = built;
+
+    if (api !== undefined) {
+      // Already running on another address: check the new one answers, save
+      // it, and restart onto it. Queued and running audits are in the job
+      // store and resume after the restart, as they do after an update.
+      if (url === databaseUrl) {
+        if (dashboardUrl !== undefined) void window?.loadURL(dashboardUrl);
+        return { ok: true };
+      }
+      try {
+        await probeDatabase(url);
+      } catch (error) {
+        return { error: describe(error) };
+      }
+      saveDatabaseUrl(paths.env, url);
+      log.info(`database changed to ${redact(url)}; restarting`);
+      setTimeout(() => {
+        app.relaunch();
+        app.exit(0);
+      }, 300);
+      return { restarting: true };
     }
-  }
+
+    databaseUrl = url;
+    process.env['DATABASE_URL'] = url;
+    connectError = await connect(url);
+    if (connectError !== null) return { error: connectError };
+    saveDatabaseUrl(paths.env, url);
+    log.info(`connected to ${redact(url)}; saved to ${paths.env}`);
+    return { ok: true };
+  });
+
+  ipcMain.on('database:open', (event) => {
+    if (ours(event)) showSetup();
+  });
+  ipcMain.on('database:back', (event) => {
+    if (ours(event) && dashboardUrl !== undefined) void window?.loadURL(dashboardUrl);
+  });
+  ipcMain.on('database:open-folder', (event) => {
+    if (ours(event)) void shell.openPath(dirname(paths.env));
+  });
+  ipcMain.on('app:quit', (event) => {
+    if (ours(event)) app.quit();
+  });
 }
 
-function createWindow(url: string): BrowserWindow {
+function createWindow(): BrowserWindow {
   const title = `${PRODUCT} v${app.getVersion()}`;
   const win = new BrowserWindow({
     title,
@@ -187,16 +269,28 @@ function createWindow(url: string): BrowserWindow {
     if (/^https?:/i.test(target)) void shell.openExternal(target);
     return { action: 'deny' };
   });
+  // The window shows the dashboard or the setup page, both loaded from here;
+  // a page may move within the dashboard and nowhere else.
   win.webContents.on('will-navigate', (event, target) => {
-    if (!target.startsWith(url)) {
+    if (dashboardUrl === undefined || !target.startsWith(dashboardUrl)) {
       event.preventDefault();
       if (/^https?:/i.test(target)) void shell.openExternal(target);
     }
   });
   win.webContents.on('did-finish-load', () => {
+    log.info(`window loaded ${win.webContents.getURL()}`);
     if (lastStatus !== null) win.webContents.send('update-status', lastStatus);
   });
-  void win.loadURL(url);
+  win.webContents.on('did-start-navigation', (details) => {
+    // Only page loads; the dashboard's hash routes change the URL on every click.
+    if (details.isMainFrame && !details.isSameDocument) log.info(`window navigating to ${details.url}`);
+  });
+  win.webContents.on('did-fail-load', (_event, code, description, target) => {
+    log.error(`window failed to load ${target}: ${description} (${code})`);
+  });
+  win.webContents.on('render-process-gone', (_event, details) => {
+    log.error(`window's renderer went away: ${details.reason}`);
+  });
   return win;
 }
 
@@ -211,6 +305,7 @@ function buildMenu(): Menu {
       submenu: [
         { label: 'Check for Updates…', click: () => updater?.check(true), enabled: app.isPackaged },
         { type: 'separator' },
+        { label: 'Database…', click: () => showSetup() },
         { label: 'Open Settings Folder', click: () => void shell.openPath(dirname(paths.env)) },
         { label: 'Open Log', click: () => void (existsSync(logFile) && shell.openPath(logFile)) },
         { type: 'separator' },
@@ -228,21 +323,4 @@ function buildMenu(): Menu {
     },
   ];
   return Menu.buildFromTemplate(template);
-}
-
-function describe(error: unknown): string {
-  if (error instanceof AggregateError && error.errors.length > 0) return describe(error.errors[0]);
-  if (error instanceof Error) return error.cause !== undefined ? describe(error.cause) : error.message;
-  return String(error);
-}
-
-/** The URL as it appears in a dialog: host and database, never the password. */
-function redact(url: string): string {
-  try {
-    const parsed = new URL(url);
-    parsed.password = parsed.password === '' ? '' : '***';
-    return parsed.toString();
-  } catch {
-    return 'DATABASE_URL';
-  }
 }

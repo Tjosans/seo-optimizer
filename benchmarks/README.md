@@ -24,17 +24,28 @@ npm run compare -- benchmarks/runs/<baseline>.json benchmarks/runs/<after>.json
 
 ## Reading the numbers
 
-The headline is **checks graded** — how many of the corpus's 97 checks the
-engine reached a verdict on. It is around 9% today, and it is the number most
-detector work should move. Everything else is context for it:
+The headline is **checks graded** — how many of the corpus's checks (98 in
+v5.0) the engine said anything about: passed, failed or in progress. With an
+empty site profile it is 48 of 98 (49%) on seven of the eight sites in
+`2026-09-30T19-59-17-shapes-rendered-vs-baseline`, and 45 on iana.org, where
+three checks sit behind a probe error. All 134 detectors exist, so that figure
+no longer moves by writing one. It moves with what a run is given: `--flags`
+decides scope, and `--inputs` supplies the evidence a crawl cannot.
+
+Graded is not decided. Of those 48, a machine settled 9 to 14 a site
+(`verified-pass`, `verified-fail`); the rest are `awaiting-confirmation`, an
+`assisted` check waiting on a person, or `held-by-warning`. Everything else is
+context:
 
 - `observations` / `detectors` — how much evidence the crawl produced. Rises
   with the page budget, so only comparable between runs with the same budget.
 - `passed` / `failed` / `held` — the verdicts. A rise in `failed` is not a
-  regression in the engine; it usually means a new detector found something.
-- `ungraded` bases — why the other checks were not graded. `detectors-missing`
-  is the detector backlog, `scope-undecided` is the empty site profile, and
-  `attested-only` is work no crawler will ever do.
+  regression in the engine; it usually means a detector found something. A
+  fall can be a detector learning to hold where it used to guess.
+- `ungraded` bases — why the other checks were not graded. `scope-undecided`
+  is the empty site profile (44 checks), `attested-only` is work no crawler
+  will ever do (6), and `probe-error` is a detector that could not read what
+  it was handed — look it up in `probeFailures`.
 - `verdicts moved` in a comparison — the checks whose status or basis changed.
   This is the part to read closely.
 
@@ -95,7 +106,7 @@ much was dropped. Snapshots taken before 2026-09-30 evening have no `data`.
   different budgets, depths, flags or corpus versions, but it still prints the
   diff — read it knowing the numbers are not directly comparable.
 - Passing `--flags` narrows conditional checks into or out of scope. An empty
-  profile leaves 39 checks at `scope-undecided`, which is the honest default,
+  profile leaves 44 checks at `scope-undecided`, which is the honest default,
   not a bug.
 - Keep `urls.txt` stable. Adding a URL is fine; swapping one out silently
   breaks every comparison against older snapshots.

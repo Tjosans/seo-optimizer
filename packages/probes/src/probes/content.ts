@@ -677,6 +677,13 @@ const firstH1 = (extracted: Extracted): string | null =>
 
 const fold = (value: string): string => value.trim().toLowerCase();
 
+/**
+ * The address a response was served from. A URL that redirects is crawled
+ * under its own spelling but carries its destination's document, so it is the
+ * destination seen twice, not a second page.
+ */
+const landedOn = (page: CrawledPage): string => normalizeUrl(page.fetch.finalUrl) ?? page.normalizedUrl;
+
 interface CannibalCluster {
   readonly signal: 'title' | 'h1';
   readonly value: string;
@@ -699,6 +706,11 @@ interface CannibalCluster {
  * different shape — so it is left out of both sides of the comparison here;
  * only self-canonical pages compete for the same query.
  *
+ * Pages are counted by the address they were served from. A link to
+ * `http://todomvc.com/` that 301s to `https://todomvc.com/` put one document
+ * in the crawl under two spellings, and on 2026-09-30 that read as a title
+ * shared by two pages. A redirect is the consolidation already made.
+ *
  * The check is `assisted`: a fail here is a proposal for a person to confirm
  * or dismiss, per 3.10's own caution against "assuming every overlap is
  * harmful cannibalization" — a fail from this detector says only that no
@@ -712,7 +724,8 @@ export const cannibalization: SiteProbe = {
     const candidates = crawl.pages.filter(
       (page) => page.extracted !== null && page.fetch.status === 200 && !isNoindex(page) && isSelfCanonical(page),
     );
-    if (candidates.length < 2) {
+    const pagesRead = new Set(candidates.map(landedOn)).size;
+    if (pagesRead < 2) {
       return notApplicable('Fewer than two indexable, self-canonical pages were crawled.');
     }
 
@@ -729,7 +742,7 @@ export const cannibalization: SiteProbe = {
         if (value === null || value.trim() === '') continue;
         const key = fold(value);
         const urls = groups.get(key) ?? new Set<string>();
-        urls.add(page.normalizedUrl);
+        urls.add(landedOn(page));
         groups.set(key, urls);
       }
       for (const [value, urls] of groups) {
@@ -739,9 +752,9 @@ export const cannibalization: SiteProbe = {
 
     if (clusters.length === 0) {
       return pass(
-        `${candidates.length} indexable, self-canonical page(s) read; none share an identical title or h1 with another. ` +
+        `${pagesRead} indexable, self-canonical page(s) read; none share an identical title or h1 with another. ` +
           'Whether any remaining overlap is harmful competition between distinct pages is for a person.',
-        { pagesRead: candidates.length },
+        { pagesRead },
       );
     }
 
@@ -749,7 +762,7 @@ export const cannibalization: SiteProbe = {
     return fail(
       `${clusters.length} cluster(s) across ${affected.size} page(s) are self-canonical and present an identical ` +
         'title or h1, with no canonical decision consolidating them: record why each is distinct, or consolidate.',
-      { pagesRead: candidates.length, clusters: sample(clusters) },
+      { pagesRead, clusters: sample(clusters) },
     );
   },
 };

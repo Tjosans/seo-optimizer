@@ -71,7 +71,8 @@ describe('page probes against a site with known defects', () => {
   it('reads image defects from markup alone', () => {
     expect(on('image-alt-quality', '/about')).toBe('fail');
     expect(on('image-dimensions', '/about')).toBe('fail');
-    expect(on('lcp-not-lazy', '/about')).toBe('fail');
+    // Held, not failed: with no render, the first image is only a guess at the largest paint.
+    expect(on('lcp-not-lazy', '/about')).toBe('warn');
     expect(on('image-alt-quality', '/')).toBe('pass');
     expect(on('image-dimensions', '/')).toBe('pass');
     expect(on('lcp-not-lazy', '/')).toBe('pass');

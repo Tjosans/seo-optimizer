@@ -8,11 +8,45 @@
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { crc32, deflateSync } from 'node:zlib';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { extract } from '@seo/crawler';
 import { MOBILE_VIEWPORT, closeBrowser, renderPage } from '@seo/crawler';
 
 let server: Server | null = null;
+
+/**
+ * A 64x64 PNG of noise. Chromium leaves an image of under 0.05 bits a pixel
+ * out of largest-contentful-paint as a placeholder, so a flat colour stretched
+ * across the page would never be a candidate.
+ */
+function noisePng(): Buffer {
+  const size = 64;
+  const chunk = (type: string, data: Buffer): Buffer => {
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(data.length);
+    const sum = Buffer.alloc(4);
+    sum.writeUInt32BE(crc32(body));
+    return Buffer.concat([length, body, sum]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(size, 0);
+  header.writeUInt32BE(size, 4);
+  header.set([8, 2, 0, 0, 0], 8);
+  const rows = Buffer.alloc(size * (1 + size * 3));
+  let seed = 1;
+  for (let i = 0; i < rows.length; i += 1) {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    rows[i] = i % (1 + size * 3) === 0 ? 0 : seed >> 16 & 0xff;
+  }
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', header),
+    chunk('IDAT', deflateSync(rows)),
+    chunk('IEND', Buffer.alloc(0)),
+  ]);
+}
 
 async function startServer(): Promise<string> {
   server = createServer((request, response) => {
@@ -65,6 +99,27 @@ async function startServer(): Promise<string> {
         'new IntersectionObserver((entries, observer) => { if (entries.some((e) => e.isIntersecting)) {' +
         ' document.getElementById("f").innerHTML = `<a href="/customer-service">Customer service</a>`; observer.disconnect(); } })' +
         '.observe(document.getElementById("f"));</script></body></html>');
+      return;
+    }
+    if (path === '/noise.png') {
+      response.writeHead(200, { 'content-type': 'image/png' });
+      response.end(noisePng());
+      return;
+    }
+    if (path === '/lcp') {
+      // kjell.com's shape: a small icon first in the source, the banner after it.
+      response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      response.end('<!doctype html><html><head><title>LCP</title></head><body>' +
+        '<img src="/noise.png?icon" width="24" height="24" alt="">' +
+        '<img src="/noise.png?banner" width="600" height="400" loading="lazy" alt="Banner">' +
+        '</body></html>');
+      return;
+    }
+    if (path === '/lcp-text') {
+      response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      response.end('<!doctype html><html><head><title>LCP</title></head><body>' +
+        '<img src="/noise.png?icon" width="24" height="24" loading="lazy" alt="">' +
+        '<h1 style="font-size:80px">A headline far larger than the icon above it</h1></body></html>');
       return;
     }
     if (path === '/slow') {
@@ -184,6 +239,19 @@ describe('renderPage', () => {
     expect(result.error).toBeNull();
     // Read as links, not as text: the script that mounts it spells it out too.
     expect(extract(result.html, result.finalUrl).links.map((link) => link.href)).toContain('/customer-service');
+  }, 30_000);
+
+  it('names the largest paint the browser saw, not the first image in the source', async () => {
+    const origin = await startServer();
+    const result = await renderPage(`${origin}/lcp`, { userAgent: 'seo-optimizer/0.1 (+test)' });
+    expect(result.error).toBeNull();
+    expect(result.largestPaint).toEqual({ element: 'img', url: `${origin}/noise.png?banner`, loading: 'lazy' });
+  }, 30_000);
+
+  it('names a text element as the largest paint when no image is larger', async () => {
+    const origin = await startServer();
+    const result = await renderPage(`${origin}/lcp-text`, { userAgent: 'seo-optimizer/0.1 (+test)' });
+    expect(result.largestPaint).toEqual({ element: 'h1', url: null, loading: null });
   }, 30_000);
 
   it('records axe-core violations only when asked', async () => {

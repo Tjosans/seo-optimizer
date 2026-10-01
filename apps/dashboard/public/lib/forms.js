@@ -134,7 +134,7 @@ export async function openAuditForm(siteId) {
             field('crawl.requestDelayMs', 'Delay between requests (ms)', delay)),
           h('label', { class: 'check-line' }, robots, 'Respect robots.txt'),
           h('label', { class: 'check-line' }, sitemaps, 'Follow sitemaps'),
-          h('label', { class: 'check-line' }, render, 'Render pages in a headless browser (slower; needed for script-built pages)'))),
+          h('label', { class: 'check-line' }, render, 'Render pages in a headless browser (slower; needed for script-built pages, accessibility and the phone view)'))),
     ],
     async onSubmit() {
       const crawl = {};
@@ -143,7 +143,9 @@ export async function openAuditForm(siteId) {
       if (delay.value !== '') crawl.requestDelayMs = Number(delay.value);
       if (!robots.checked) crawl.respectRobots = false;
       if (!sitemaps.checked) crawl.followSitemaps = false;
-      if (render.checked) crawl.renderPages = true;
+      // One box for all three, as `npm run analyze -- --render` is: the page as
+      // a browser builds it, axe-core on it, and the same page as a phone.
+      if (render.checked) Object.assign(crawl, { renderPages: true, renderAccessibility: true, renderMobile: true });
       const body = { siteId: site.value, corpusVersion: version.value.trim() };
       if (release.value.trim()) body.release = release.value.trim();
       if (Object.keys(crawl).length > 0) body.crawl = crawl;

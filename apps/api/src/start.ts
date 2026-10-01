@@ -17,6 +17,7 @@ import { createDatabase } from '@seo/db';
 import { PostgresJobStore } from '@seo/job-store';
 import { AuditScheduler } from '@seo/scheduler';
 import type { AuditJob, CrawlBudget } from '@seo/scheduler';
+import type { BlobStore } from '@seo/storage';
 import { createServer } from './server.js';
 
 export const CRAWL_BUDGET: CrawlBudget = {
@@ -41,6 +42,12 @@ export interface StartApiOptions {
    * has always had. One process per owner: there is no lease.
    */
   readonly jobOwner?: string;
+  /**
+   * Where each crawled page's raw body is uploaded, so `renders.bodyKey` names
+   * something retrievable. Omit and bodies are hashed and not kept, which is
+   * what the desktop app does: it has a database and no object store.
+   */
+  readonly blobStore?: BlobStore;
   /** Defaults to every interface, as `server.listen(port)` does. */
   readonly host?: string;
   /** 0 picks a free port; read the one chosen from `url`. */
@@ -89,6 +96,7 @@ export async function startApi(options: StartApiOptions): Promise<RunningApi> {
       ...(options.jobOwner === undefined
         ? {}
         : { store: new PostgresJobStore<AuditJob>({ db: handle.db, queue: 'audits', owner: options.jobOwner }) }),
+      ...(options.blobStore === undefined ? {} : { blobStore: options.blobStore }),
     });
     void scheduler.recover().catch((error: unknown) => console.error('audit recovery failed', error));
 

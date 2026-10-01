@@ -163,6 +163,23 @@ describe.skipIf(!url)('audit lifecycle', () => {
     expect(await res.json()).toMatchObject({ problems: ['nope: unknown field'] });
   });
 
+  it('takes the three render switches, and refuses one that is not true or false, 400', async () => {
+    const ok = await post({
+      siteId,
+      corpusVersion: '4.4',
+      crawl: { renderPages: true, renderAccessibility: true, renderMobile: true },
+    });
+    expect(ok.status).toBe(202);
+    // Accepted is all this asks; a browser has no business in this suite's queue.
+    const { auditId } = (await ok.json()) as { auditId: string };
+    await fetch(`${base}/audits/${auditId}/cancel`, { method: 'POST' });
+    const res = await post({ siteId, corpusVersion: '4.4', crawl: { renderAccessibility: 'yes', renderMobile: 1 } });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      problems: ['crawl.renderAccessibility: expected true or false', 'crawl.renderMobile: expected true or false'],
+    });
+  });
+
   it('refuses an unknown crawl override field, 400', async () => {
     const res = await post({ siteId, corpusVersion: '4.4', crawl: { turbo: true } });
     expect(res.status).toBe(400);

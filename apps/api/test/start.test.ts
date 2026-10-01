@@ -7,7 +7,13 @@
  */
 
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
+import { audits, crawls, createDatabase, pages, renders } from '@seo/db';
+import { CURRENT_CORPUS_VERSION } from '@seo/corpus';
+import type { BlobStore } from '@seo/storage';
+import { startFixtureSite } from '@seo/testkit';
 import { probeDatabase, startApi } from '../src/start.js';
 
 const url = process.env['DATABASE_URL'];
@@ -28,6 +34,62 @@ describe.skipIf(!url)('startApi', () => {
     }
     expect(api.server.listening).toBe(false);
   });
+
+  it('uploads every HTML body an audit crawls to the blob store it is given', async () => {
+    const stored = new Map<string, Uint8Array>();
+    const blobStore = {
+      put: async (bytes: Uint8Array) => {
+        const key = `test/${createHash('sha256').update(bytes).digest('hex')}`;
+        stored.set(key, bytes);
+        return key;
+      },
+      get: async (key: string) => stored.get(key) ?? null,
+    } as BlobStore;
+
+    const site = await startFixtureSite();
+    const api = await startApi({ databaseUrl: url!, corpusDir, host: '127.0.0.1', port: 0, blobStore });
+    const handle = createDatabase(url!, { max: 1, onnotice: () => {} });
+    const post = (path: string, body: unknown) =>
+      fetch(`${api.url}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    let siteId: string | undefined;
+    try {
+      const created = await post('/sites', { name: 'blob store fixture', origin: site.origin });
+      expect(created.status).toBe(201);
+      siteId = ((await created.json()) as { id: string }).id;
+
+      const submitted = await post('/audits', {
+        siteId,
+        corpusVersion: CURRENT_CORPUS_VERSION,
+        crawl: { requestDelayMs: 0, maxPages: 10 },
+      });
+      expect(submitted.status).toBe(202);
+      const auditId = ((await submitted.json()) as { auditId: string }).auditId;
+
+      await expect
+        .poll(async () => (await handle.db.select().from(audits).where(eq(audits.id, auditId)))[0]?.status, {
+          timeout: 60_000,
+          interval: 250,
+        })
+        .toBe('complete');
+
+      const rows = await handle.db
+        .select({ bodyKey: renders.bodyKey, bodyHash: renders.bodyHash })
+        .from(renders)
+        .innerJoin(pages, eq(renders.pageId, pages.id))
+        .innerJoin(crawls, eq(pages.crawlId, crawls.id))
+        .where(eq(crawls.auditId, auditId));
+      expect(rows.length).toBeGreaterThan(0);
+      for (const row of rows) {
+        expect(row.bodyKey).not.toBeNull();
+        expect(stored.has(row.bodyKey!)).toBe(true);
+      }
+    } finally {
+      if (siteId !== undefined) await fetch(`${api.url}/sites/${siteId}`, { method: 'DELETE' });
+      await handle.close();
+      await api.close();
+      await site.close();
+    }
+  }, 90_000);
 
   it('rejects when the database cannot be reached', async () => {
     await expect(

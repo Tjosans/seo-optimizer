@@ -36,6 +36,8 @@ const CRAWL_ALLOWED = [
   'timeoutMs',
   'auxiliary',
   'renderPages',
+  'renderAccessibility',
+  'renderMobile',
   'renderTimeoutMs',
   'renderSettleMs',
 ] as const;
@@ -155,6 +157,15 @@ export function parseAuditRequest(value: unknown): AuditRequest {
         const v = rawCrawl['renderPages'];
         if (typeof v !== 'boolean') problem('crawl.renderPages', 'expected true or false');
         else out.renderPages = v;
+      }
+      // The two renders that ride on `renderPages`: axe-core on each, and each
+      // again as a phone. Without them `axe-accessibility` and
+      // `mobile-journey-qa` have nothing to read.
+      for (const key of ['renderAccessibility', 'renderMobile'] as const) {
+        if (!(key in rawCrawl)) continue;
+        const v = rawCrawl[key];
+        if (typeof v !== 'boolean') problem(`crawl.${key}`, 'expected true or false');
+        else out[key] = v;
       }
       if ('renderTimeoutMs' in rawCrawl) {
         const v = rawCrawl['renderTimeoutMs'];

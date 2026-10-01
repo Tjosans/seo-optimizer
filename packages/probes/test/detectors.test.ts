@@ -3373,6 +3373,43 @@ describe('cannibalization', () => {
     const observation = runCannibal([named('/a', { title: 'Alpha' }), named('/b', { title: 'Beta' })]);
     expect(observation.outcome).toBe('pass');
   });
+
+  // todomvc.com, 2026-09-30: a page links http://todomvc.com/, which answers
+  // 301 to https://todomvc.com/. The crawl holds the home page under both
+  // spellings, each carrying the same document.
+  const viaHttp = (target: CrawledPage): CrawledPage => {
+    const from = target.url.replace('https://', 'http://');
+    return {
+      ...target,
+      url: from,
+      normalizedUrl: from,
+      fetch: {
+        ...target.fetch,
+        requestedUrl: from,
+        redirectChain: [{ url: from, status: 301, location: target.url }],
+      },
+    };
+  };
+
+  it('reads a redirecting spelling and its destination as one page', () => {
+    const home = named('/', { title: 'TodoMVC' });
+    const observation = runCannibal([home, viaHttp(home), named('/examples', { title: 'Examples' })]);
+    expect(observation.outcome).toBe('pass');
+    expect(observation.data).toMatchObject({ pagesRead: 2 });
+  });
+
+  it('says nothing when the only two entries are one page and a redirect onto it', () => {
+    const home = named('/', { title: 'TodoMVC' });
+    expect(runCannibal([home, viaHttp(home)]).outcome).toBe('not-applicable');
+  });
+
+  it('still fails a redirect destination that shares its title with another page', () => {
+    const home = named('/', { title: 'TodoMVC' });
+    const observation = runCannibal([viaHttp(home), named('/copy', { title: 'TodoMVC' })]);
+    expect(observation.outcome).toBe('fail');
+    const clusters = observation.data?.['clusters'] as { urls: string[] }[];
+    expect(clusters[0]?.urls).toEqual(expect.arrayContaining([`${ORIGIN}/`, `${ORIGIN}/copy`]));
+  });
 });
 
 // --- 3.7 launch-content-completeness -----------------------------------
@@ -3981,6 +4018,69 @@ const withRender = (target: CrawledPage, renderedHtml: string | null, error: str
     },
   };
 };
+
+// --- 1.9 lcp-not-lazy -------------------------------------------------------
+
+describe('lcp-not-lazy', () => {
+  type Paint = { element: string | null; url: string | null; loading: string | null };
+  // kjell.com, 2026-09-30: the first <img> in the source is a category
+  // button's icon, lazy by design; the banner below it is the largest paint.
+  const ICON_FIRST =
+    '<html><body><img src="/icons/category.svg" loading="lazy" width="24" height="24" alt="">' +
+    '<img src="/banner.jpg" width="1200" height="400" alt="Banner"></body></html>';
+  const painted = (html: string, desktop: Paint | null | undefined, phone?: Paint | null): CrawledPage => {
+    const target = withRender(page({ path: '/', html }), html);
+    if (target.rendered === undefined || target.rendered === null) return target;
+    const render = target.rendered.render;
+    return {
+      ...target,
+      rendered: { ...target.rendered, render: desktop === undefined ? render : { ...render, largestPaint: desktop } },
+      ...(phone === undefined
+        ? {}
+        : { renderedMobile: { ...target.rendered, render: { ...render, largestPaint: phone } } }),
+    };
+  };
+  const run = (target: CrawledPage) => runPage('lcp-not-lazy', target, [target]);
+  const banner = (loading: string | null): Paint => ({ element: 'img', url: `${ORIGIN}/banner.jpg`, loading });
+
+  it('passes a lazy icon first in the source when the render names an eager banner as the largest paint', () => {
+    const observation = run(painted(ICON_FIRST, banner(null)));
+    expect(observation.outcome).toBe('pass');
+    expect(observation.summary).toContain('desktop: <img>');
+  });
+
+  it('fails the image the render names as the largest paint when it is lazy, whatever comes first in the source', () => {
+    const html = '<html><body><img src="/logo.png" alt="Logo"><img src="/banner.jpg" loading="lazy" alt="Banner"></body></html>';
+    const observation = run(painted(html, banner('lazy')));
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('desktop');
+  });
+
+  it('fails on the phone render alone, and names it', () => {
+    const observation = run(painted(ICON_FIRST, banner(null), banner(' LAZY ')));
+    expect(observation.outcome).toBe('fail');
+    expect(observation.summary).toContain('largest paint on phone is');
+  });
+
+  it('passes a text element as the largest paint, on a page whose only image is lazy', () => {
+    const html = '<html><body><img src="/icons/category.svg" loading="lazy" alt=""><h1>Headline</h1></body></html>';
+    expect(run(painted(html, { element: 'h1', url: null, loading: null })).outcome).toBe('pass');
+  });
+
+  it('holds a lazy first image when no render said what the largest paint is', () => {
+    expect(run(page({ path: '/', html: ICON_FIRST })).outcome).toBe('warn');
+    // A render the browser reported no largest paint for is no better a guide.
+    expect(run(painted(ICON_FIRST, null)).outcome).toBe('warn');
+    expect(run(painted(ICON_FIRST, undefined)).outcome).toBe('warn');
+  });
+
+  it('passes an eager first image on source order, and says nothing of a page with no image', () => {
+    const eager = run(page({ path: '/', html: '<html><body><img src="/banner.jpg" alt="Banner"></body></html>' }));
+    expect(eager.outcome).toBe('pass');
+    expect(eager.summary).toContain('no render said');
+    expect(run(page({ path: '/' })).outcome).toBe('not-applicable');
+  });
+});
 
 describe('axe-accessibility', () => {
   const withAxe = (

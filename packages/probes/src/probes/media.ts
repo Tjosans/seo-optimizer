@@ -1,7 +1,9 @@
 /**
  * Images: the accessibility, layout-stability and loading-order signals that
  * can be read from markup alone. Anything needing real layout — actual LCP
- * timing, rendered dimensions — belongs to a rendering probe, not these.
+ * timing, rendered dimensions — belongs to a rendering probe, not these. The
+ * one exception is which element the largest paint was: `lcp-not-lazy` reads
+ * it off the render when the crawl made one.
  */
 
 import { isAllowed, isSameSite, resolveUrl } from '@seo/crawler';
@@ -89,26 +91,64 @@ export const responsiveMedia: PageProbe = {
   },
 };
 
+const isLazy = (loading: string | null): boolean => loading?.trim().toLowerCase() === 'lazy';
+
+/**
+ * Which element is the largest paint is a fact about layout, so the render
+ * answers it where the crawl made one: the browser names the element, at a
+ * desktop viewport and at a phone's, and the detector fails only an `<img>`
+ * among them that is marked `loading="lazy"`.
+ *
+ * Without a render, source order is the only guide and a poor one. On
+ * kjell.com the first `<img>` is a category button's icon, lazy by design, and
+ * 10 of 20 pages failed on it on 2026-09-30 while the banner that is the
+ * largest paint went unread. So a lazy first image holds the check with a
+ * `warn` rather than failing it, and an eager one passes saying what it did
+ * not see.
+ */
 export const lcpNotLazy: PageProbe = {
   id: 'lcp-not-lazy',
   scope: 'page',
   htmlOnly: true,
-  title: 'The likely LCP image is not lazy-loaded',
+  title: 'The largest contentful paint is not a lazy-loaded image',
   run({ page }) {
     const extracted = page.extracted;
     if (extracted === null) return notApplicable(NO_HTML);
+
+    const paints = (
+      [
+        ['desktop', page.rendered?.render.largestPaint],
+        ['phone', page.renderedMobile?.render.largestPaint],
+      ] as const
+    ).flatMap(([viewport, paint]) => (paint === undefined || paint === null ? [] : [{ viewport, ...paint }]));
+
+    if (paints.length > 0) {
+      const lazy = paints.filter((paint) => paint.element === 'img' && isLazy(paint.loading));
+      if (lazy.length > 0) {
+        return fail(
+          `The largest paint on ${lazy.map((paint) => paint.viewport).join(' and ')} is an image marked ` +
+            'loading="lazy", so the browser holds it back until layout says it is in view.',
+          { paints },
+        );
+      }
+      return pass(
+        `The largest paint (${paints.map((paint) => `${paint.viewport}: <${paint.element ?? 'removed element'}>`).join(', ')}) is not lazy-loaded.`,
+        { paints },
+      );
+    }
+
     const first = extracted.images[0];
     if (first === undefined) return notApplicable('The page has no <img> elements.');
 
-    // Document order is a proxy for "above the fold". A rendering probe can
-    // identify the real LCP element; this catches the common regression early.
-    if (first.loading?.toLowerCase() === 'lazy') {
-      return fail('The first image on the page is lazy-loaded, delaying the likely LCP.', {
-        src: first.src,
-      });
+    if (isLazy(first.loading)) {
+      return warn(
+        'The first image in the source is lazy-loaded. With no render, source order is the only guide to the ' +
+          'largest paint, and the first image may be an icon rather than the one that matters.',
+        { src: first.src },
+      );
     }
-    const lazyCount = extracted.images.filter((i) => i.loading?.toLowerCase() === 'lazy').length;
-    return pass('The first image loads eagerly.', {
+    const lazyCount = extracted.images.filter((image) => isLazy(image.loading)).length;
+    return pass('The first image in the source loads eagerly; no render said which element the largest paint is.', {
       src: first.src,
       lazyImages: lazyCount,
       totalImages: extracted.images.length,

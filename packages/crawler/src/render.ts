@@ -49,6 +49,50 @@ export interface RenderedRequest {
   readonly failed: boolean;
 }
 
+/**
+ * The element the browser itself named as the page's largest contentful
+ * paint, at the viewport it first opened with.
+ *
+ * Source order cannot stand in for this: on kjell.com the first `<img>` is a
+ * category button's icon, and the largest paint is a banner far below it in
+ * the markup.
+ */
+export interface LargestPaint {
+  /** Lower-case tag name, `img` or `h1` say. Null when the element had left the DOM by the time it was read. */
+  readonly element: string | null;
+  /** The image painted — an `<img>`'s source or a CSS background. Null when the paint was text. */
+  readonly url: string | null;
+  /** The element's `loading` attribute, as written. Null when it has none. */
+  readonly loading: string | null;
+}
+
+/**
+ * Reads the last largest-contentful-paint entry the browser buffered. A
+ * string, because this package is typed for Node and has no DOM. Resolves
+ * null when the browser reports none within a second, which a blank page does.
+ */
+const READ_LARGEST_PAINT = `new Promise((resolve) => {
+  const timer = setTimeout(() => resolve(null), 1000);
+  try {
+    new PerformanceObserver((list, observer) => {
+      const entries = list.getEntries();
+      const last = entries[entries.length - 1];
+      if (last === undefined) return;
+      observer.disconnect();
+      clearTimeout(timer);
+      const element = last.element ?? null;
+      resolve({
+        element: element === null ? null : element.tagName.toLowerCase(),
+        url: last.url === '' || last.url === undefined ? null : last.url,
+        loading: element === null ? null : element.getAttribute('loading'),
+      });
+    }).observe({ type: 'largest-contentful-paint', buffered: true });
+  } catch {
+    clearTimeout(timer);
+    resolve(null);
+  }
+})`;
+
 /** A page's requests are recorded up to this many; the rest are counted out, not kept. */
 export const MAX_RENDERED_REQUESTS = 500;
 
@@ -68,6 +112,12 @@ export interface RenderResult {
   readonly requestsTruncated?: boolean;
   /** Present only when `RenderOptions.accessibility` asked for axe and a render was obtained. */
   readonly accessibility?: AccessibilityResult;
+  /**
+   * Present whenever a render was obtained; null when the browser reported no
+   * largest paint. Read before the viewport is stretched, because the largest
+   * paint is a fact about the screen a visitor first sees.
+   */
+  readonly largestPaint?: LargestPaint | null;
 }
 
 /** The phone viewport a mobile render uses. */
@@ -251,6 +301,7 @@ export async function renderPage(url: string, options: RenderOptions): Promise<R
       const response = await page.goto(url, { waitUntil: 'load', timeout: timeoutMs });
       if (aborted()) return failure('cancelled');
       await page.waitForTimeout(settleMs);
+      const largestPaint = (await page.evaluate(READ_LARGEST_PAINT).catch(() => null)) as LargestPaint | null;
       const viewport = page.viewportSize();
       // A string, because this package is typed for Node and has no DOM.
       const height = Number(await page.evaluate('document.documentElement.scrollHeight').catch(() => 0));
@@ -272,6 +323,7 @@ export async function renderPage(url: string, options: RenderOptions): Promise<R
         error: null,
         requests: requests.map((r) => ({ ...r })),
         requestsTruncated,
+        largestPaint,
         ...(accessibility === undefined ? {} : { accessibility }),
       };
     } catch (cause) {

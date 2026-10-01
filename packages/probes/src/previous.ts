@@ -41,7 +41,7 @@ export interface PreviousPage {
   /**
    * The axe-core violations the earlier crawl recorded on this page's render.
    * Null when axe was not run or failed there; absent from snapshots taken
-   * before it was recorded or rebuilt from stored rows.
+   * before it was recorded.
    */
   readonly axe?: readonly PreviousAxeViolation[] | null;
 }

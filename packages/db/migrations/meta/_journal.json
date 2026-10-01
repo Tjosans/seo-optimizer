@@ -71,6 +71,13 @@
       "when": 1789840671156,
       "tag": "0009_dashing_thena",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790856107355,
+      "tag": "0010_purple_wolverine",
+      "breakpoints": true
     }
   ]
 }

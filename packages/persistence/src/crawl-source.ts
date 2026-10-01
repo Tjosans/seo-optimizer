@@ -34,7 +34,7 @@ export type ArchivedRenderStatus =
 export interface ArchivedRender {
   readonly renderId: string;
   readonly pageId: string;
-  readonly mode: 'raw' | 'rendered';
+  readonly mode: 'raw' | 'rendered' | 'rendered-mobile';
   readonly bodyKey: string | null;
   readonly bodyHash: string;
   readonly status: ArchivedRenderStatus;

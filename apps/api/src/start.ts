@@ -26,6 +26,9 @@ export const CRAWL_BUDGET: CrawlBudget = {
   maxDepth: 5,
 };
 
+/** The queue namespace audits are written to the `jobs` table under, by whichever process keeps one. */
+const AUDIT_QUEUE = 'audits';
+
 export interface StartApiOptions {
   readonly databaseUrl: string;
   /** The directory holding `v<version>/` corpus directories. */
@@ -48,6 +51,17 @@ export interface StartApiOptions {
    * what the desktop app does: it has a database and no object store.
    */
   readonly blobStore?: BlobStore;
+  /**
+   * Close out the audits an earlier process left `pending` or `running` with
+   * nothing behind them, as `failed` with `ORPHANED_AUDIT_ERROR`
+   * (@seo/scheduler `reconcile`). Without a `jobOwner` that is every such row
+   * no other process has written to the `jobs` table: a memory-only queue
+   * takes its backlog with it when it stops, and a row left reading "running"
+   * is one somebody waits on forever. `{}` sweeps the whole database, which is
+   * right for a process that has it to itself; `siteIds` narrows it. Omit to
+   * leave every row as it was found.
+   */
+  readonly reconcile?: { readonly siteIds?: readonly string[] };
   /** Defaults to every interface, as `server.listen(port)` does. */
   readonly host?: string;
   /** 0 picks a free port; read the one chosen from `url`. */
@@ -59,6 +73,13 @@ export interface RunningApi {
   readonly scheduler: AuditScheduler;
   /** `http://<host>:<port>`, with the port actually bound. */
   readonly url: string;
+  /**
+   * Settles once what an earlier process left behind has been dealt with:
+   * queued audits resumed, and abandoned ones closed out when `reconcile`
+   * asked for that. The server is already listening by then; this never
+   * rejects, because a failed recovery is logged and the API stays up.
+   */
+  readonly recovered: Promise<void>;
   /** Stops accepting requests, then the scheduler, then the pool. */
   readonly close: () => Promise<void>;
 }
@@ -89,16 +110,33 @@ export async function startApi(options: StartApiOptions): Promise<RunningApi> {
     const resolveCorpus = (version: string | undefined) =>
       loadCorpus(join(options.corpusDir, `v${version ?? CURRENT_CORPUS_VERSION}`));
 
+    // Built whether or not this process queues through it: a process with no
+    // store of its own still has to ask what one beside it has written down.
+    const jobStore = new PostgresJobStore<AuditJob>({
+      db: handle.db,
+      queue: AUDIT_QUEUE,
+      ...(options.jobOwner === undefined ? {} : { owner: options.jobOwner }),
+    });
     const scheduler = new AuditScheduler({
       db: handle.db,
       crawl: CRAWL_BUDGET,
       corpus: resolveCorpus,
-      ...(options.jobOwner === undefined
-        ? {}
-        : { store: new PostgresJobStore<AuditJob>({ db: handle.db, queue: 'audits', owner: options.jobOwner }) }),
+      ...(options.jobOwner === undefined ? {} : { store: jobStore }),
       ...(options.blobStore === undefined ? {} : { blobStore: options.blobStore }),
     });
-    void scheduler.recover().catch((error: unknown) => console.error('audit recovery failed', error));
+    const { reconcile } = options;
+    const recovered = scheduler
+      .recover()
+      .then(async () => {
+        if (reconcile === undefined) return;
+        const closed = await scheduler.reconcile({
+          ...reconcile,
+          // With a store the scheduler asks it itself.
+          ...(options.jobOwner === undefined ? { heldElsewhere: await jobStore.outstanding() } : {}),
+        });
+        if (closed > 0) console.log(`closed out ${closed} audit(s) an earlier process left unfinished`);
+      })
+      .catch((error: unknown) => console.error('audit recovery failed', error));
 
     const server = createServer({ db: handle.db, loadCorpus: resolveCorpus, scheduler });
     await new Promise<void>((resolve, reject) => {
@@ -114,8 +152,11 @@ export async function startApi(options: StartApiOptions): Promise<RunningApi> {
       server,
       scheduler,
       url: `http://${host}:${port}`,
+      recovered,
       close: () =>
         new Promise<void>((resolve) => server.close(() => resolve()))
+          // The sweep holds a connection; let it land before the pool goes.
+          .then(() => recovered)
           .then(() => scheduler.close())
           .then(() => handle.close()),
     };

@@ -300,6 +300,40 @@ describe.skipIf(!url)('an audit across a restart', () => {
       await expect(storeless.reconcile(scope())).rejects.toThrow('needs a store');
       await storeless.close();
     });
+
+    it('sweeps without a store once told what another queue holds, and leaves that alone', async () => {
+      // What a killed memory-only process leaves: one row it never started and
+      // one it was half way through, neither written down anywhere.
+      const [pending] = await db
+        .insert(audits)
+        .values({ siteId, corpusVersion: '4.4' })
+        .returning({ id: audits.id });
+      const [running] = await db
+        .insert(audits)
+        .values({ siteId, corpusVersion: '4.4', status: 'running', startedAt: new Date() })
+        .returning({ id: audits.id });
+      // And one a process with a store is holding against the same database.
+      const holder = new AuditScheduler({ db, corpus, crawl: BUDGET, store: store(), paused: true });
+      const held = await holder.submit({ siteId, corpusVersion: '4.4' });
+
+      const storeless = new AuditScheduler({ db, corpus, crawl: BUDGET, paused: true });
+      await storeless.recover();
+      // Its own work is never orphaned, store or no store.
+      const own = await storeless.submit({ siteId, corpusVersion: '4.4' });
+      const closed = await storeless.reconcile({ ...scope(), heldElsewhere: await store().outstanding() });
+      expect(closed).toBeGreaterThanOrEqual(2);
+
+      for (const id of [pending!.id, running!.id]) {
+        const row = await auditRow(id);
+        expect(row?.status).toBe('failed');
+        expect(row?.error).toBe(ORPHANED_AUDIT_ERROR);
+      }
+      expect((await auditRow(held.auditId))?.status).toBe('pending');
+      expect((await auditRow(own.auditId))?.status).toBe('pending');
+
+      await storeless.close();
+      await holder.close();
+    });
   });
 
   describe('a namespace two workers share', () => {

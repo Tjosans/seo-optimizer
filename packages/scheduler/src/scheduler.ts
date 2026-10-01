@@ -361,9 +361,9 @@ export class AuditScheduler {
    * the audit did not run and no one is going to make it.
    *
    * Call once, after `recover` and before accepting submissions. It refuses to
-   * run before `recover`, and refuses entirely without a store, because in
-   * either case every pending audit would look abandoned and the sweep would
-   * fail the whole backlog.
+   * run before `recover`, and refuses without a store unless the caller says
+   * what other processes hold, because in either case every pending audit would
+   * look abandoned and the sweep would fail the whole backlog.
    *
    * With a store that can say what is outstanding, an audit another worker
    * holds is not orphaned and is left alone — that is what makes the sweep safe
@@ -371,16 +371,30 @@ export class AuditScheduler {
    * sweep is database-wide, which is right when one scheduler owns the
    * database. Pass `siteIds` to narrow it when neither is true.
    *
+   * A scheduler with no store has nothing to ask, and for it the question is
+   * simpler than it looks: whatever an earlier memory-only process left pending
+   * died with that process. What it cannot know is what a process *with* a
+   * store is holding against the same database, so the caller answers instead:
+   * `heldElsewhere` is every audit id some other queue has written down, and an
+   * empty list is the statement that there is no such queue.
+   *
    * Returns how many rows it closed.
    */
-  async reconcile(options: { readonly siteIds?: readonly string[] } = {}): Promise<number> {
-    if (!this.#queue.durable) {
-      throw new Error('reconcile needs a store: without one every audit looks abandoned');
+  async reconcile(
+    options: {
+      readonly siteIds?: readonly string[];
+      readonly heldElsewhere?: readonly string[];
+    } = {},
+  ): Promise<number> {
+    if (!this.#queue.durable && options.heldElsewhere === undefined) {
+      throw new Error(
+        'reconcile needs a store, or `heldElsewhere`: without either every audit looks abandoned',
+      );
     }
     const cutoff = this.#cutoff;
     if (cutoff === null) throw new Error('call recover() before reconcile()');
 
-    const live = new Set<string>();
+    const live = new Set<string>(options.heldElsewhere ?? []);
     for (const state of ['queued', 'running'] as const) {
       for (const job of this.#queue.list(state)) live.add(job.payload.auditId);
     }

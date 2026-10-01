@@ -392,6 +392,14 @@ export const renders = pgTable(
     textHash: text('text_hash'),
     /** Extracted signals a probe reads without re-parsing: title, canonical, robots… */
     extracted: jsonb('extracted'),
+    /**
+     * What only a browser can say about a page, on a `rendered` row: where it
+     * ended up, the status it got, what axe-core found and which element was
+     * the largest paint. Null on a `raw` row. The requests the page made are
+     * not kept: up to 500 a page, and the probes that read them have already
+     * said what they saw.
+     */
+    capture: jsonb('capture'),
     capturedAt: timestamp('captured_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [unique('renders_page_mode_uniq').on(t.pageId, t.mode)],

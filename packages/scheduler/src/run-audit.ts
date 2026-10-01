@@ -211,7 +211,9 @@ export async function runAudit(
 
     await db
       .update(audits)
-      .set({ status: 'complete', finishedAt: new Date() })
+      // `error` is cleared with it: a sweep in another process may have written
+      // this audit off while it ran here, and a complete audit carries none.
+      .set({ status: 'complete', finishedAt: new Date(), error: null })
       .where(eq(audits.id, job.auditId));
 
     return {

@@ -334,6 +334,26 @@ describe.skipIf(!url)('an audit across a restart', () => {
       await storeless.close();
       await holder.close();
     });
+
+    it('lets an audit another process wrote off finish as complete, with no error left on it', async () => {
+      // A memory-only process has this audit queued when a second process
+      // starts against the same database and sweeps: the row is written off
+      // from outside while the work is still on its way here.
+      const scheduler = new AuditScheduler({ db, corpus, crawl: BUDGET, paused: true });
+      const submitted = await scheduler.submit({ siteId, corpusVersion: '4.4' });
+      await db
+        .update(audits)
+        .set({ status: 'failed', finishedAt: new Date(), error: ORPHANED_AUDIT_ERROR })
+        .where(eq(audits.id, submitted.auditId));
+
+      scheduler.resume();
+      await submitted.done;
+
+      const row = await auditRow(submitted.auditId);
+      expect(row?.status).toBe('complete');
+      expect(row?.error).toBeNull();
+      await scheduler.close();
+    });
   });
 
   describe('a namespace two workers share', () => {

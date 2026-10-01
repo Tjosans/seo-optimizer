@@ -149,6 +149,10 @@ async function connect(url: string): Promise<string | null> {
       corpusDir: paths.corpus,
       migrationsDir: paths.migrations,
       jobOwner: 'desktop',
+      // After `recover()` has taken back what the job store holds, whatever
+      // still reads pending or running from before this start has no job
+      // behind it and never will: close it out rather than show it running.
+      reconcile: {},
       host: LOOPBACK,
       port: 0,
     });

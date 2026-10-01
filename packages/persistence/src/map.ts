@@ -14,7 +14,14 @@
 
 import { createHash } from 'node:crypto';
 import { CrawlCancelledError, crawlDelayMs, normalizeUrl } from '@seo/crawler';
-import type { CrawlOptions, CrawlResult, CrawledPage } from '@seo/crawler';
+import type {
+  AccessibilityResult,
+  CrawlOptions,
+  CrawlResult,
+  CrawledPage,
+  LargestPaint,
+  RenderedPage,
+} from '@seo/crawler';
 import type { crawls, pageLinks, pages, probeResults, renders } from '@seo/db';
 import type { ProbeRun } from '@seo/probes';
 
@@ -178,15 +185,79 @@ export function toRenderRow(args: {
   return {
     id: args.id,
     pageId: args.pageId,
-    // Only server-delivered responses exist today. A headless renderer will
-    // add a 'rendered' row against the same page, which is what turns parity
-    // into a join rather than a special case.
+    // The server's own response. A browser's capture of the same page is a
+    // second row beside it (`toRenderedRow`), which is what turns parity into
+    // a join rather than a special case.
     mode: 'raw',
     bodyHash: sha256(fetch.body),
     bodyKey: args.bodyKey ?? null,
     byteLength: fetch.byteLength,
     textHash: sha256(text),
     extracted: signals,
+    ...(args.capturedAt === undefined ? {} : { capturedAt: args.capturedAt }),
+  };
+}
+
+/**
+ * What `renders.capture` holds on a rendered row: the facts a browser has and
+ * a socket does not.
+ *
+ * `accessibility` is null when axe was not asked for, which is not the same as
+ * axe finding nothing; `largestPaint` is null when the browser reported none.
+ */
+export interface StoredRenderCapture {
+  /** Where the browser ended up, after any redirect or client-side navigation. */
+  readonly finalUrl: string;
+  readonly status: number | null;
+  readonly totalMs: number | null;
+  readonly accessibility: AccessibilityResult | null;
+  readonly largestPaint: LargestPaint | null;
+  /** How many requests the page made, as far as they were recorded. The requests themselves are not kept. */
+  readonly requests: number | null;
+  readonly requestsTruncated: boolean;
+}
+
+/**
+ * A browser's capture of a page, or null when the browser produced none — the
+ * render failed, or what came back was not a document `extract()` could read.
+ * A failed render is not written as an empty one: the probes that needed it
+ * have already recorded the error, and a row hashing the empty string would
+ * read as a page that rendered to nothing.
+ *
+ * `extracted` is stored minus `text`, as on the raw row, and `capture` carries
+ * what only the browser knew. `bodyKey` is the caller's to supply, for the
+ * reason it is on `toRenderRow`.
+ */
+export function toRenderedRow(args: {
+  readonly id: string;
+  readonly pageId: string;
+  readonly mode: 'rendered' | 'rendered-mobile';
+  readonly rendered: RenderedPage;
+  readonly capturedAt?: Date;
+  readonly bodyKey?: string | null;
+}): NewRender | null {
+  const { render, extracted } = args.rendered;
+  if (render.error !== null || extracted === null) return null;
+  const { text, ...signals } = extracted;
+  const capture: StoredRenderCapture = {
+    finalUrl: render.finalUrl,
+    status: render.status,
+    totalMs: render.totalMs,
+    accessibility: render.accessibility ?? null,
+    largestPaint: render.largestPaint ?? null,
+    requests: render.requests?.length ?? null,
+    requestsTruncated: render.requestsTruncated === true,
+  };
+  return {
+    id: args.id,
+    pageId: args.pageId,
+    mode: args.mode,
+    bodyHash: sha256(render.html),
+    bodyKey: args.bodyKey ?? null,
+    byteLength: Buffer.byteLength(render.html, 'utf8'),
+    textHash: sha256(text),
+    extracted: signals,
+    capture,
     ...(args.capturedAt === undefined ? {} : { capturedAt: args.capturedAt }),
   };
 }

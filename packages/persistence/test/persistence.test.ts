@@ -2,7 +2,14 @@ import { createHash } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { crawl, extract, parseRobots } from '@seo/crawler';
-import type { CrawlOptions, CrawlResult, CrawledPage, FetchResult } from '@seo/crawler';
+import type {
+  CrawlOptions,
+  CrawlResult,
+  CrawledPage,
+  FetchResult,
+  RenderResult,
+  RenderedPage,
+} from '@seo/crawler';
 import {
   audits,
   crawls,
@@ -25,7 +32,9 @@ import {
   toPageLinkRows,
   toPageRow,
   toRenderRow,
+  toRenderedRow,
 } from '@seo/persistence';
+import type { StoredRenderCapture } from '@seo/persistence';
 import { startFixtureSite } from '@seo/testkit';
 import type { FixtureSite } from '@seo/testkit';
 
@@ -104,6 +113,25 @@ const synthetic = (html: string, url = 'https://example.test/a'): CrawledPage =>
   };
 };
 
+/** What a browser hands back for `html`: one critical axe violation, and an image as the largest paint. */
+const renderOf = (url: string, html: string): RenderResult => ({
+  requestedUrl: url,
+  finalUrl: url,
+  status: 200,
+  html,
+  totalMs: 40,
+  error: null,
+  requests: [{ url, method: 'GET', resourceType: 'document', status: 200, failed: false }],
+  accessibility: { violations: [{ id: 'image-alt', impact: 'critical', nodes: 2 }], error: null },
+  largestPaint: { element: 'img', url: 'https://example.test/hero.jpg', loading: 'lazy' },
+});
+
+const renderedOf = (render: RenderResult): RenderedPage => ({
+  render,
+  extracted: render.error === null && render.html !== '' ? extract(render.html, render.finalUrl) : null,
+  comparison: null,
+});
+
 describe('mapping a crawled page to rows', () => {
   it('records the status the chain ended on, and the chain that got there', () => {
     const row = toPageRow({
@@ -156,6 +184,42 @@ describe('mapping a crawled page to rows', () => {
     expect(
       toRenderRow({ id: 'r2', pageId: 'p1', page, bodyKey: 'sha256/ab/cd' })?.bodyKey,
     ).toBe('sha256/ab/cd');
+  });
+
+  it('maps a browser capture to a row of its own, with what only the browser knew', () => {
+    const html = '<!doctype html><html><head><title>Built by script</title></head><body><p>Hydrated.</p></body></html>';
+    const row = toRenderedRow({
+      id: 'r1',
+      pageId: 'p1',
+      mode: 'rendered',
+      rendered: renderedOf(renderOf('https://example.test/a', html)),
+      bodyKey: 'sha256/ab/cd',
+    });
+    expect(row?.mode).toBe('rendered');
+    expect(row?.bodyHash).toBe(createHash('sha256').update(html, 'utf8').digest('hex'));
+    expect(row?.byteLength).toBe(Buffer.byteLength(html));
+    expect(row?.bodyKey).toBe('sha256/ab/cd');
+    expect((row?.extracted as Record<string, unknown>)['title']).toBe('Built by script');
+    expect(row?.extracted).not.toHaveProperty('text');
+    expect(row?.capture).toEqual({
+      finalUrl: 'https://example.test/a',
+      status: 200,
+      totalMs: 40,
+      accessibility: { violations: [{ id: 'image-alt', impact: 'critical', nodes: 2 }], error: null },
+      largestPaint: { element: 'img', url: 'https://example.test/hero.jpg', loading: 'lazy' },
+      requests: 1,
+      requestsTruncated: false,
+    } satisfies StoredRenderCapture);
+  });
+
+  it('keeps axe as null when it was not asked for, and writes no row for a render that failed', () => {
+    const { accessibility: _axe, ...plain } = renderOf('https://example.test/a', '<html><body>x</body></html>');
+    const row = toRenderedRow({ id: 'r1', pageId: 'p1', mode: 'rendered-mobile', rendered: renderedOf(plain) });
+    expect(row?.mode).toBe('rendered-mobile');
+    expect((row?.capture as StoredRenderCapture).accessibility).toBeNull();
+
+    const failed: RenderResult = { ...plain, html: '', status: null, error: 'net::ERR_TIMED_OUT' };
+    expect(toRenderedRow({ id: 'r2', pageId: 'p1', mode: 'rendered', rendered: renderedOf(failed) })).toBeNull();
   });
 
   it('emits one redirect edge per chain rather than one per hop', () => {
@@ -472,5 +536,96 @@ describe.skipIf(!url)('mapping page bodies into a blob store', () => {
     expect(archived.every((render) => render.status === 'not-stored')).toBe(true);
 
     await db.delete(sites).where(eq(sites.id, row!.id));
+  });
+});
+
+/**
+ * A rendered crawl, with the browser stood in for by `renderImpl`: what is
+ * under test is which rows a render leaves behind, not Chromium.
+ */
+describe.skipIf(!url)('persisting a rendered crawl', () => {
+  const handle = createDatabase(url ?? '', { max: 2 });
+  const { db } = handle;
+  const store = new FakeBlobStore();
+
+  let origin: string;
+  let crawlId: string;
+  let htmlPages: number;
+
+  const marker = (mobile: boolean): string => (mobile ? 'built for a phone' : 'built by script');
+
+  beforeAll(async () => {
+    origin = `${site.origin}/#rendered-test`;
+    const [row] = await db.insert(sites).values({ name: 'fixture-rendered', origin }).returning();
+    const [audit] = await db.insert(audits).values({ siteId: row!.id, corpusVersion: '4.4' }).returning();
+
+    const persisted = await crawlToDatabase(db, {
+      auditId: audit!.id,
+      blobStore: store,
+      options: {
+        ...options,
+        renderPages: true,
+        renderAccessibility: true,
+        renderMobile: true,
+        renderImpl: async (target, opts) => {
+          // One page's desktop render fails, so its row can be shown missing.
+          if (target === `${site.origin}/about` && opts.mobile !== true) {
+            return { ...renderOf(target, ''), status: null, error: 'net::ERR_TIMED_OUT' };
+          }
+          return renderOf(
+            target,
+            `<!doctype html><html><head><title>Rendered</title></head><body><p>${marker(opts.mobile === true)}</p></body></html>`,
+          );
+        },
+      },
+    });
+    crawlId = persisted.crawlId;
+    htmlPages = persisted.result.pages.filter((page) => page.extracted !== null).length;
+  }, 60_000);
+
+  afterAll(async () => {
+    await db.delete(sites).where(eq(sites.origin, origin));
+    await handle.close();
+  });
+
+  const rowsOf = () =>
+    db
+      .select({ mode: renders.mode, url: pages.normalizedUrl, capture: renders.capture, extracted: renders.extracted })
+      .from(renders)
+      .innerJoin(pages, eq(pages.id, renders.pageId))
+      .where(eq(pages.crawlId, crawlId));
+
+  it('writes the desktop and phone captures beside the raw one, a row each', async () => {
+    const rows = await rowsOf();
+    const count = (mode: string): number => rows.filter((row) => row.mode === mode).length;
+    expect(htmlPages).toBeGreaterThan(1);
+    expect(count('raw')).toBe(htmlPages);
+    expect(count('rendered-mobile')).toBe(htmlPages);
+    // Every HTML page but the one whose desktop render failed.
+    expect(count('rendered')).toBe(htmlPages - 1);
+    expect(rows.some((row) => row.mode === 'rendered' && row.url === `${site.origin}/about`)).toBe(false);
+  });
+
+  it('keeps what axe found and the largest paint on the rendered row, and nothing on the raw one', async () => {
+    const rows = await rowsOf();
+    const home = (mode: string) => rows.find((row) => row.mode === mode && row.url === `${site.origin}/`);
+    expect(home('raw')?.capture).toBeNull();
+    const capture = home('rendered')?.capture as StoredRenderCapture;
+    expect(capture.accessibility).toEqual({
+      violations: [{ id: 'image-alt', impact: 'critical', nodes: 2 }],
+      error: null,
+    });
+    expect(capture.largestPaint).toEqual({ element: 'img', url: 'https://example.test/hero.jpg', loading: 'lazy' });
+    expect((home('rendered')?.extracted as Record<string, unknown>)['title']).toBe('Rendered');
+  });
+
+  it('uploads each rendered DOM, and reads it back verified against its hash', async () => {
+    const archived = await readArchivedCrawl(db, store, crawlId);
+    expect(archived.every((render) => render.status === 'ok')).toBe(true);
+    const desktop = archived.filter((render) => render.mode === 'rendered');
+    const mobile = archived.filter((render) => render.mode === 'rendered-mobile');
+    expect(desktop.length).toBe(htmlPages - 1);
+    expect(desktop.every((render) => render.body?.includes(marker(false)))).toBe(true);
+    expect(mobile.every((render) => render.body?.includes(marker(true)))).toBe(true);
   });
 });

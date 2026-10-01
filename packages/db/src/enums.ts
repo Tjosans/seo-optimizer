@@ -138,11 +138,12 @@ export const jobStateEnum = pgEnum('job_state', [
 ]);
 
 /**
- * How a page representation was captured. Detector 1.1 compares the two:
+ * How a page representation was captured. Detector 1.1 compares the first two:
  * `raw` is the server response as delivered, `rendered` is the DOM after
- * client-side JavaScript has run.
+ * client-side JavaScript has run. `rendered-mobile` is that DOM as a phone is
+ * served it, which 4.3 sets against the desktop one.
  */
-export const renderModeEnum = pgEnum('render_mode', ['raw', 'rendered']);
+export const renderModeEnum = pgEnum('render_mode', ['raw', 'rendered', 'rendered-mobile']);
 
 /**
  * Where a link was found, since not every edge is an `<a href>`.

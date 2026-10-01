@@ -35,7 +35,9 @@ import {
   toPageLinkRows,
   toPageRow,
   toRenderRow,
+  toRenderedRow,
 } from './map.js';
+import type { NewRender } from './map.js';
 
 /** Rows per insert. Well under the driver's parameter ceiling at 9 columns. */
 const INSERT_CHUNK = 500;
@@ -65,6 +67,10 @@ export interface CrawlSink {
  * rather than sitting null. Optional because a caller with no store configured
  * — most tests, and any run before `STORAGE_*` is set — persists exactly as
  * before: a hash with no key.
+ *
+ * A crawl that rendered its pages writes up to three rows a page: the raw
+ * response, the DOM a desktop browser built, and the one a phone was served.
+ * Each rendered DOM goes to the same store under its own hash.
  */
 export async function openCrawl(
   db: Database,
@@ -88,10 +94,19 @@ export async function openCrawl(
     // Uploaded ahead of the transaction: the store is its own system, with its
     // own idempotency (the same bytes always return the same key), so there is
     // nothing for a database transaction to make atomic here.
-    const bodyKey =
-      page.extracted === null || blobStore === undefined
-        ? null
-        : await blobStore.put(new TextEncoder().encode(page.fetch.body));
+    const store = async (body: string): Promise<string | null> =>
+      blobStore === undefined ? null : blobStore.put(new TextEncoder().encode(body));
+    const bodyKey = page.extracted === null ? null : await store(page.fetch.body);
+
+    const captures: NewRender[] = [];
+    for (const [mode, rendered] of [
+      ['rendered', page.rendered],
+      ['rendered-mobile', page.renderedMobile],
+    ] as const) {
+      if (rendered === undefined || rendered === null) continue;
+      const row = toRenderedRow({ id: crypto.randomUUID(), pageId, mode, rendered });
+      if (row !== null) captures.push({ ...row, bodyKey: await store(rendered.render.html) });
+    }
 
     // One transaction per page: a page whose links were only half written
     // would be a false report about what that page points at.
@@ -100,6 +115,7 @@ export async function openCrawl(
 
       const render = toRenderRow({ id: crypto.randomUUID(), pageId, page, bodyKey });
       if (render !== null) await tx.insert(renders).values(render);
+      if (captures.length > 0) await tx.insert(renders).values(captures);
 
       const links = toPageLinkRows({ crawlId, fromPageId: pageId, page });
       for (const batch of chunk(links, INSERT_CHUNK)) await tx.insert(pageLinks).values(batch);
